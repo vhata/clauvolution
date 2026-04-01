@@ -8,7 +8,8 @@ pub struct RenderPlugin;
 
 impl Plugin for RenderPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup_camera)
+        app.init_resource::<CameraDragState>()
+            .add_systems(Startup, setup_camera)
             .add_systems(
                 PostUpdate,
                 (
@@ -261,19 +262,31 @@ fn sync_food_transforms(
     }
 }
 
-/// Camera pan (WASD/arrows) and zoom (scroll wheel)
+/// Track mouse drag state
+#[derive(Resource, Default)]
+pub struct CameraDragState {
+    dragging: bool,
+    last_pos: Vec2,
+}
+
+/// Camera: WASD/arrows to pan, +/- or Q/E to zoom, scroll wheel to zoom, middle/right-click drag to pan
 fn camera_control_system(
     keys: Res<ButtonInput<KeyCode>>,
+    mouse_buttons: Res<ButtonInput<MouseButton>>,
     mut scroll_events: EventReader<bevy::input::mouse::MouseWheel>,
+    mut cursor_events: EventReader<CursorMoved>,
     mut camera: Query<(&mut Transform, &mut OrthographicProjection), With<MainCamera>>,
+    mut drag_state: ResMut<CameraDragState>,
     time: Res<Time>,
 ) {
     let Ok((mut transform, mut projection)) = camera.get_single_mut() else {
         return;
     };
 
-    let speed = 200.0 * projection.scale * time.delta_secs();
+    let dt = time.delta_secs();
 
+    // Keyboard pan (WASD / arrows)
+    let speed = 200.0 * projection.scale * dt;
     if keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp) {
         transform.translation.y += speed;
     }
@@ -287,9 +300,49 @@ fn camera_control_system(
         transform.translation.x += speed;
     }
 
+    // Keyboard zoom (Q/E or +/-)
+    let zoom_speed = 2.0 * dt;
+    if keys.pressed(KeyCode::KeyE) || keys.pressed(KeyCode::Equal) {
+        projection.scale *= 1.0 - zoom_speed;
+    }
+    if keys.pressed(KeyCode::KeyQ) || keys.pressed(KeyCode::Minus) {
+        projection.scale *= 1.0 + zoom_speed;
+    }
+
+    // Scroll wheel zoom — multiplicative with small factor for smooth feel
     for event in scroll_events.read() {
-        let zoom_delta = -event.y * 0.1;
-        projection.scale = (projection.scale * (1.0 + zoom_delta)).clamp(0.05, 10.0);
+        let zoom_factor = 1.0 + (-event.y * 0.02).clamp(-0.15, 0.15);
+        projection.scale *= zoom_factor;
+    }
+
+    projection.scale = projection.scale.clamp(0.02, 15.0);
+
+    // Mouse drag to pan (middle or right button, or left+shift)
+    let dragging = mouse_buttons.pressed(MouseButton::Middle)
+        || mouse_buttons.pressed(MouseButton::Right)
+        || (mouse_buttons.pressed(MouseButton::Left) && keys.pressed(KeyCode::ShiftLeft));
+
+    let mut latest_cursor_pos = None;
+    for event in cursor_events.read() {
+        latest_cursor_pos = Some(event.position);
+    }
+
+    if dragging {
+        if let Some(cursor_pos) = latest_cursor_pos {
+            if drag_state.dragging {
+                let delta = cursor_pos - drag_state.last_pos;
+                // Convert screen pixels to world units
+                transform.translation.x -= delta.x * projection.scale;
+                transform.translation.y += delta.y * projection.scale;
+            }
+            drag_state.last_pos = cursor_pos;
+            drag_state.dragging = true;
+        }
+    } else {
+        drag_state.dragging = false;
+        if let Some(cursor_pos) = latest_cursor_pos {
+            drag_state.last_pos = cursor_pos;
+        }
     }
 }
 
