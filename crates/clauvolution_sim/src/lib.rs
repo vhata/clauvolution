@@ -466,8 +466,13 @@ fn reproduction_system(
 ) {
     let mut rng = rand::thread_rng();
     let mut new_organisms: Vec<(Vec2, Genome, u64)> = Vec::new();
+    let current_pop = organisms.iter().len();
+    let max_pop = (config.world_width * config.world_height / 4) as usize; // ~16k for 256x256
 
     for (_entity, pos, mut energy, genome, output, _body_size, species) in &mut organisms {
+        if current_pop + new_organisms.len() >= max_pop {
+            break;
+        }
         if output.reproduce > 0.5 && energy.0 > config.reproduction_energy_threshold {
             energy.0 -= config.reproduction_energy_cost;
 
