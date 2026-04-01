@@ -458,25 +458,59 @@ fn reproduction_system(
     mut commands: Commands,
     config: Res<SimConfig>,
     mut innovation: ResMut<InnovationCounter>,
+    spatial_hash: Res<SpatialHash>,
     mut organisms: Query<
         (Entity, &Position, &mut Energy, &Genome, &BrainOutput, &BodySize, &SpeciesId),
         With<Organism>,
     >,
+    all_repro_data: Query<(Entity, &Position, &Energy, &Genome, &BrainOutput, &SpeciesId), (With<Organism>, Without<Food>)>,
     mut stats: ResMut<SimStats>,
 ) {
     let mut rng = rand::thread_rng();
     let mut new_organisms: Vec<(Vec2, Genome, u64)> = Vec::new();
     let current_pop = organisms.iter().len();
-    let max_pop = (config.world_width * config.world_height / 4) as usize; // ~16k for 256x256
+    let max_pop = (config.world_width * config.world_height / 4) as usize;
+    let mut already_mated: Vec<Entity> = Vec::new();
 
-    for (_entity, pos, mut energy, genome, output, _body_size, species) in &mut organisms {
+    for (entity, pos, mut energy, genome, output, body_size, species) in &mut organisms {
         if current_pop + new_organisms.len() >= max_pop {
             break;
+        }
+        if already_mated.contains(&entity) {
+            continue;
         }
         if output.reproduce > 0.5 && energy.0 > config.reproduction_energy_threshold {
             energy.0 -= config.reproduction_energy_cost;
 
-            let mut child_genome = genome.clone();
+            // Try to find a mate: same species, nearby, also wants to reproduce, has energy
+            let mate_range = body_size.0 * 8.0;
+            let nearby = spatial_hash.query_radius(pos.0, mate_range);
+            let mut mate_genome: Option<Genome> = None;
+
+            for &nearby_entity in &nearby {
+                if nearby_entity == entity || already_mated.contains(&nearby_entity) {
+                    continue;
+                }
+                if let Ok((_, _, mate_energy, mate_g, mate_output, mate_species)) = all_repro_data.get(nearby_entity) {
+                    if mate_species.0 == species.0
+                        && mate_output.reproduce > 0.5
+                        && mate_energy.0 > config.reproduction_energy_threshold
+                    {
+                        mate_genome = Some(mate_g.clone());
+                        already_mated.push(nearby_entity);
+                        break;
+                    }
+                }
+            }
+
+            let mut child_genome = if let Some(mate_g) = mate_genome {
+                // Sexual reproduction: crossover + mutation
+                genome.crossover(&mate_g, &mut rng)
+            } else {
+                // Asexual: clone + mutation
+                genome.clone()
+            };
+
             child_genome.mutate(&mut innovation, &mut rng, config.mutation_rate, config.mutation_strength);
 
             let offset = Vec2::new(
@@ -489,6 +523,7 @@ fn reproduction_system(
             );
 
             new_organisms.push((child_pos, child_genome, species.0));
+            already_mated.push(entity);
         }
     }
 
