@@ -521,20 +521,21 @@ fn update_stats_text(
     **text = format!(
         "Speed: {}  [Space=pause, [/]=speed]\n\
          Organisms: {}  |  Species: {}\n\
-         Food: {}\n\
+         Food: {}  |  Generation: {}\n\
          Births: {}  |  Deaths: {}\n\
          \n\
          X=asteroid  I=ice age  V=volcano\n\
          Click organism to inspect",
         speed_str, org_count, stats.species_count,
-        food_count, stats.total_births, stats.total_deaths,
+        food_count, stats.max_generation,
+        stats.total_births, stats.total_deaths,
     );
 }
 
 /// Show details about selected organism
 fn update_inspect_panel(
     selected: Res<SelectedOrganism>,
-    organisms: Query<(&Energy, &Health, &BodySize, &Genome, &SpeciesId, &Position), With<Organism>>,
+    organisms: Query<(&Energy, &Health, &BodySize, &Genome, &SpeciesId, &Position, &Age, &Generation), With<Organism>>,
     mut text_query: Query<&mut Text, With<InspectPanel>>,
     tile_map: Option<Res<TileMap>>,
     config: Res<SimConfig>,
@@ -548,7 +549,7 @@ fn update_inspect_panel(
         return;
     };
 
-    let Ok((energy, health, body_size, genome, species, pos)) = organisms.get(entity) else {
+    let Ok((energy, health, body_size, genome, species, pos, age, generation)) = organisms.get(entity) else {
         **text = "Selected organism died".to_string();
         return;
     };
@@ -577,6 +578,7 @@ fn update_inspect_panel(
     **text = format!(
         "--- ORGANISM ---\n\
          Species: {}  ({})\n\
+         Gen: {}  |  Age: {}\n\
          Energy: {:.1} / {:.0}\n\
          Health: {:.0}%\n\
          Position: ({:.0}, {:.0})\n\
@@ -596,6 +598,7 @@ fn update_inspect_panel(
          Neurons: {}\n\
          Connections: {}\n",
         species.0, strategy,
+        generation.0, age.0,
         energy.0, config.max_organism_energy,
         health.0 * 100.0,
         pos.0.x, pos.0.y,

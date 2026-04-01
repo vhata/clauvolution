@@ -479,19 +479,19 @@ fn reproduction_system(
     mut innovation: ResMut<InnovationCounter>,
     spatial_hash: Res<SpatialHash>,
     mut organisms: Query<
-        (Entity, &Position, &mut Energy, &Genome, &BrainOutput, &BodySize, &SpeciesId),
+        (Entity, &Position, &mut Energy, &Genome, &BrainOutput, &BodySize, &SpeciesId, &Generation),
         With<Organism>,
     >,
     all_repro_data: Query<(Entity, &Position, &Energy, &Genome, &BrainOutput, &SpeciesId), (With<Organism>, Without<Food>)>,
     mut stats: ResMut<SimStats>,
 ) {
     let mut rng = rand::thread_rng();
-    let mut new_organisms: Vec<(Vec2, Genome, u64)> = Vec::new();
+    let mut new_organisms: Vec<(Vec2, Genome, u64, u32)> = Vec::new();
     let current_pop = organisms.iter().len();
     let max_pop = (config.world_width * config.world_height / 4) as usize;
     let mut already_mated: Vec<Entity> = Vec::new();
 
-    for (entity, pos, mut energy, genome, output, body_size, species) in &mut organisms {
+    for (entity, pos, mut energy, genome, output, body_size, species, generation) in &mut organisms {
         if current_pop + new_organisms.len() >= max_pop {
             break;
         }
@@ -541,12 +541,12 @@ fn reproduction_system(
                 (pos.0.y + offset.y).rem_euclid(config.world_height as f32),
             );
 
-            new_organisms.push((child_pos, child_genome, species.0));
+            new_organisms.push((child_pos, child_genome, species.0, generation.0 + 1));
             already_mated.push(entity);
         }
     }
 
-    for (child_pos, child_genome, parent_species) in new_organisms {
+    for (child_pos, child_genome, parent_species, child_gen) in new_organisms {
         let brain = Brain::from_genome(&child_genome);
         let body_size = child_genome.body_size;
 
@@ -558,6 +558,7 @@ fn reproduction_system(
             Velocity(Vec2::ZERO),
             BodySize(body_size),
             Age(0),
+            Generation(child_gen),
             SpeciesId(parent_species),
             BrainOutput::default(),
             BrainMemory([0.0; NUM_MEMORY]),
@@ -566,6 +567,9 @@ fn reproduction_system(
         ));
 
         stats.total_births += 1;
+        if child_gen > stats.max_generation {
+            stats.max_generation = child_gen;
+        }
     }
 }
 
@@ -662,6 +666,7 @@ pub fn spawn_initial_population(
             Velocity(Vec2::ZERO),
             BodySize(body_size),
             Age(0),
+            Generation(0),
             SpeciesId(0),
             BrainOutput::default(),
             BrainMemory([0.0; NUM_MEMORY]),

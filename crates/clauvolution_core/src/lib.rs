@@ -59,7 +59,7 @@ pub struct SimStats {
     pub total_food: u32,
     pub total_births: u64,
     pub total_deaths: u64,
-    pub generation: u64,
+    pub max_generation: u32,
     pub species_count: u32,
 }
 
@@ -129,6 +129,9 @@ pub struct BodySize(pub f32);
 
 #[derive(Component)]
 pub struct Age(pub u64);
+
+#[derive(Component)]
+pub struct Generation(pub u32);
 
 #[derive(Component)]
 pub struct SpeciesId(pub u64);
