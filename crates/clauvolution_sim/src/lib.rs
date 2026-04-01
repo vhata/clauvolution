@@ -10,10 +10,10 @@ pub struct SimPlugin;
 
 impl Plugin for SimPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
+        app.add_systems(Update, sim_speed_system)
+            .add_systems(
             FixedUpdate,
             (
-                sim_speed_system,
                 sensing_and_brain_system,
                 action_system,
                 photosynthesis_system,
