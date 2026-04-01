@@ -162,7 +162,7 @@ fn sync_organism_transforms(
         (With<Organism>, Without<OrganismSprite>),
     >,
     mut organisms_with_sprite: Query<
-        (&Position, &Energy, &mut Transform),
+        (&Position, &Energy, &BodySize, &mut Transform),
         (With<Organism>, With<OrganismSprite>),
     >,
     camera: Query<&OrthographicProjection, With<MainCamera>>,
@@ -230,14 +230,13 @@ fn sync_organism_transforms(
     }
 
     // Update existing transforms
-    for (pos, energy, mut transform) in &mut organisms_with_sprite {
+    for (pos, energy, body_size, mut transform) in &mut organisms_with_sprite {
         transform.translation.x = pos.0.x;
         transform.translation.y = pos.0.y;
         transform.translation.z = 1.0;
 
         let energy_factor = (energy.0 / config.max_organism_energy).clamp(0.5, 1.0);
-        let current_scale = transform.scale.x;
-        transform.scale = Vec3::splat(current_scale.abs() * energy_factor / current_scale.abs().max(0.01) * current_scale.abs().max(0.01));
+        transform.scale = Vec3::splat(body_size.0 * 2.0 * energy_factor);
     }
 }
 
