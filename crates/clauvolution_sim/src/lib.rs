@@ -482,10 +482,19 @@ fn reproduction_system(
         (Entity, &Position, &mut Energy, &Genome, &BrainOutput, &BodySize, &SpeciesId, &Generation),
         With<Organism>,
     >,
-    all_repro_data: Query<(Entity, &Position, &Energy, &Genome, &BrainOutput, &SpeciesId), (With<Organism>, Without<Food>)>,
     mut stats: ResMut<SimStats>,
 ) {
     let mut rng = rand::thread_rng();
+
+    // Collect potential mate data upfront to avoid query conflicts
+    let mate_candidates: Vec<(Entity, Vec2, f32, Genome, u64)> = organisms
+        .iter()
+        .filter(|(_, _, _, _, output, _, _, _)| output.reproduce > 0.5)
+        .map(|(e, pos, energy, genome, _, _, species, _)| {
+            (e, pos.0, energy.0, genome.clone(), species.0)
+        })
+        .collect();
+
     let mut new_organisms: Vec<(Vec2, Genome, u64, u32)> = Vec::new();
     let current_pop = organisms.iter().len();
     let max_pop = (config.world_width * config.world_height / 4) as usize;
@@ -501,7 +510,7 @@ fn reproduction_system(
         if output.reproduce > 0.5 && energy.0 > config.reproduction_energy_threshold {
             energy.0 -= config.reproduction_energy_cost;
 
-            // Try to find a mate: same species, nearby, also wants to reproduce, has energy
+            // Try to find a mate from pre-collected candidates
             let mate_range = body_size.0 * 8.0;
             let nearby = spatial_hash.query_radius(pos.0, mate_range);
             let mut mate_genome: Option<Genome> = None;
@@ -510,11 +519,10 @@ fn reproduction_system(
                 if nearby_entity == entity || already_mated.contains(&nearby_entity) {
                     continue;
                 }
-                if let Ok((_, _, mate_energy, mate_g, mate_output, mate_species)) = all_repro_data.get(nearby_entity) {
-                    if mate_species.0 == species.0
-                        && mate_output.reproduce > 0.5
-                        && mate_energy.0 > config.reproduction_energy_threshold
-                    {
+                if let Some((_, _, mate_energy, mate_g, mate_species)) =
+                    mate_candidates.iter().find(|(e, _, _, _, _)| *e == nearby_entity)
+                {
+                    if *mate_species == species.0 && *mate_energy > config.reproduction_energy_threshold {
                         mate_genome = Some(mate_g.clone());
                         already_mated.push(nearby_entity);
                         break;
@@ -523,10 +531,8 @@ fn reproduction_system(
             }
 
             let mut child_genome = if let Some(mate_g) = mate_genome {
-                // Sexual reproduction: crossover + mutation
                 genome.crossover(&mate_g, &mut rng)
             } else {
-                // Asexual: clone + mutation
                 genome.clone()
             };
 

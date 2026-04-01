@@ -55,7 +55,11 @@ pub struct SharedMeshes {
     pub circle: Option<Handle<Mesh>>,
     pub food_circle: Option<Handle<Mesh>>,
     pub food_material: Option<Handle<ColorMaterial>>,
+    pub outline_material: Option<Handle<ColorMaterial>>,
 }
+
+#[derive(Component)]
+pub struct OrganismOutline;
 
 fn setup_shared_meshes(
     mut shared: ResMut<SharedMeshes>,
@@ -65,6 +69,7 @@ fn setup_shared_meshes(
     shared.circle = Some(meshes.add(Circle::new(1.0)));
     shared.food_circle = Some(meshes.add(Circle::new(1.0)));
     shared.food_material = Some(materials.add(ColorMaterial::from(Color::srgb(0.2, 0.8, 0.2))));
+    shared.outline_material = Some(materials.add(ColorMaterial::from(Color::srgba(0.0, 0.0, 0.0, 0.6))));
 }
 
 #[derive(Component)]
@@ -353,26 +358,40 @@ fn sync_organism_transforms(
                 commands.entity(entity).add_child(child);
             }
         } else {
-            // Species colour with trait modulation
+            // Species colour with strategy-based modulation
             let base_color = species_colors.get_or_create(species_id.0);
             let base_rgba = base_color.to_srgba();
 
-            // Tint green for photosynthesizers
             let photo = genome.photosynthesis_rate;
-            let r = (base_rgba.red * (1.0 - photo * 0.5)).max(0.0);
-            let g = (base_rgba.green + photo * 0.3).min(1.0);
-            let b = base_rgba.blue * (1.0 - photo * 0.3);
+            let predator = genome.claw_power().min(1.0);
+
+            // Photosynthesizers shift green, predators shift red, foragers keep base
+            let r = (base_rgba.red * (1.0 - photo * 0.6) + predator * 0.4).clamp(0.1, 1.0);
+            let g = (base_rgba.green * (1.0 - predator * 0.4) + photo * 0.4).clamp(0.1, 1.0);
+            let b = (base_rgba.blue * (1.0 - photo * 0.3 - predator * 0.3)).clamp(0.05, 1.0);
 
             let mesh = shared_meshes.circle.clone().unwrap();
             let material = materials.add(ColorMaterial::from(Color::srgb(r, g, b)));
 
             commands.entity(entity).insert((
-                Mesh2d(mesh),
+                Mesh2d(mesh.clone()),
                 MeshMaterial2d(material),
                 Transform::from_xyz(pos.0.x, pos.0.y, 1.0)
                     .with_scale(Vec3::splat(genome.body_size * 2.0)),
                 OrganismSprite,
             ));
+
+            // Dark outline behind organism for visibility
+            if let Some(outline_mat) = &shared_meshes.outline_material {
+                let outline = commands.spawn((
+                    Mesh2d(mesh),
+                    MeshMaterial2d(outline_mat.clone()),
+                    Transform::from_xyz(0.0, 0.0, -0.1)
+                        .with_scale(Vec3::splat(1.3)),
+                    OrganismOutline,
+                )).id();
+                commands.entity(entity).add_child(outline);
+            }
         }
     }
 
