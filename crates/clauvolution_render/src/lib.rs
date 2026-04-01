@@ -10,7 +10,8 @@ pub struct RenderPlugin;
 impl Plugin for RenderPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<CameraDragState>()
-            .add_systems(Startup, setup_camera)
+            .init_resource::<SharedMeshes>()
+            .add_systems(Startup, (setup_camera, setup_shared_meshes))
             .add_systems(
                 Update,
                 (speed_control_system, click_select_system),
@@ -47,6 +48,24 @@ pub struct SelectionRing;
 
 #[derive(Component)]
 pub struct FoodSprite;
+
+/// Shared mesh handles to avoid creating thousands of identical meshes
+#[derive(Resource, Default)]
+pub struct SharedMeshes {
+    pub circle: Option<Handle<Mesh>>,
+    pub food_circle: Option<Handle<Mesh>>,
+    pub food_material: Option<Handle<ColorMaterial>>,
+}
+
+fn setup_shared_meshes(
+    mut shared: ResMut<SharedMeshes>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    shared.circle = Some(meshes.add(Circle::new(1.0)));
+    shared.food_circle = Some(meshes.add(Circle::new(1.0)));
+    shared.food_material = Some(materials.add(ColorMaterial::from(Color::srgb(0.2, 0.8, 0.2))));
+}
 
 #[derive(Component)]
 pub struct TerrainRendered;
@@ -281,6 +300,7 @@ fn sync_organism_transforms(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
+    shared_meshes: Res<SharedMeshes>,
     organisms_without_sprite: Query<
         (Entity, &Position, &Genome, &BodyPlan, &SpeciesId),
         (With<Organism>, Without<OrganismSprite>),
@@ -343,7 +363,7 @@ fn sync_organism_transforms(
             let g = (base_rgba.green + photo * 0.3).min(1.0);
             let b = base_rgba.blue * (1.0 - photo * 0.3);
 
-            let mesh = meshes.add(Circle::new(1.0));
+            let mesh = shared_meshes.circle.clone().unwrap();
             let material = materials.add(ColorMaterial::from(Color::srgb(r, g, b)));
 
             commands.entity(entity).insert((
@@ -380,17 +400,16 @@ fn sync_organism_transforms(
 
 fn sync_food_transforms(
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
+    shared_meshes: Res<SharedMeshes>,
     food_without_sprite: Query<(Entity, &Position), (With<Food>, Without<FoodSprite>)>,
 ) {
-    for (entity, pos) in &food_without_sprite {
-        let mesh = meshes.add(Circle::new(1.0));
-        let material = materials.add(ColorMaterial::from(Color::srgb(0.2, 0.8, 0.2)));
+    let Some(mesh) = &shared_meshes.food_circle else { return };
+    let Some(material) = &shared_meshes.food_material else { return };
 
+    for (entity, pos) in &food_without_sprite {
         commands.entity(entity).insert((
-            Mesh2d(mesh),
-            MeshMaterial2d(material),
+            Mesh2d(mesh.clone()),
+            MeshMaterial2d(material.clone()),
             Transform::from_xyz(pos.0.x, pos.0.y, 0.5)
                 .with_scale(Vec3::splat(1.5)),
             FoodSprite,

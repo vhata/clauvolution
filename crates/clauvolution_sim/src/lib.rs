@@ -28,7 +28,7 @@ impl Plugin for SimPlugin {
             )
             .insert_resource(Time::<Fixed>::from_hz(30.0))
             .insert_resource(SpeciesClassificationTimer(Timer::from_seconds(
-                1.0,
+                3.0,
                 TimerMode::Repeating,
             )))
             .insert_resource(ExtinctionCooldown(Timer::from_seconds(2.0, TimerMode::Once)));
