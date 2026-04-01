@@ -250,6 +250,8 @@ fn segment_color(seg_type: SegmentType, genome: &Genome) -> Color {
         SegmentType::Eye => Color::srgb(0.9, 0.9, 0.1),
         SegmentType::Mouth => Color::srgb(0.8, 0.2, 0.2),
         SegmentType::PhotoSurface => Color::srgb(0.1, 0.7, 0.15),
+        SegmentType::Claw => Color::srgb(0.85, 0.4, 0.1),
+        SegmentType::ArmorPlate => Color::srgb(0.55, 0.55, 0.6),
     }
 }
 
@@ -265,6 +267,12 @@ fn segment_mesh(seg_type: SegmentType, size: f32, meshes: &mut Assets<Mesh>) -> 
         SegmentType::Eye => meshes.add(Circle::new(size * 0.25)),
         SegmentType::Mouth => meshes.add(Circle::new(size * 0.3)),
         SegmentType::PhotoSurface => meshes.add(Ellipse::new(size * 0.6, size * 0.2)),
+        SegmentType::Claw => meshes.add(Triangle2d::new(
+            Vec2::new(0.0, size * 0.6),
+            Vec2::new(-size * 0.2, -size * 0.2),
+            Vec2::new(size * 0.2, -size * 0.2),
+        )),
+        SegmentType::ArmorPlate => meshes.add(Rectangle::new(size * 0.5, size * 0.4)),
     }
 }
 
@@ -497,6 +505,7 @@ fn update_stats_text(
          Food: {}\n\
          Births: {}  |  Deaths: {}\n\
          \n\
+         X=asteroid  I=ice age  V=volcano\n\
          Click organism to inspect",
         speed_str, org_count, stats.species_count,
         food_count, stats.total_births, stats.total_deaths,
@@ -506,9 +515,10 @@ fn update_stats_text(
 /// Show details about selected organism
 fn update_inspect_panel(
     selected: Res<SelectedOrganism>,
-    organisms: Query<(&Energy, &BodySize, &Genome, &SpeciesId, &Position), With<Organism>>,
+    organisms: Query<(&Energy, &Health, &BodySize, &Genome, &SpeciesId, &Position), With<Organism>>,
     mut text_query: Query<&mut Text, With<InspectPanel>>,
     tile_map: Option<Res<TileMap>>,
+    config: Res<SimConfig>,
 ) {
     let Ok(mut text) = text_query.get_single_mut() else {
         return;
@@ -519,7 +529,7 @@ fn update_inspect_panel(
         return;
     };
 
-    let Ok((energy, body_size, genome, species, pos)) = organisms.get(entity) else {
+    let Ok((energy, health, body_size, genome, species, pos)) = organisms.get(entity) else {
         **text = "Selected organism died".to_string();
         return;
     };
@@ -537,10 +547,19 @@ fn update_inspect_panel(
         .map(|s| format!("{:?}", s.segment_type))
         .collect();
 
+    let strategy = if genome.photosynthesis_rate > 0.3 && genome.has_photo_surface() {
+        "Photosynthesizer"
+    } else if genome.claw_power() > 0.5 {
+        "Predator"
+    } else {
+        "Forager"
+    };
+
     **text = format!(
         "--- ORGANISM ---\n\
-         Species: {}\n\
+         Species: {}  ({})\n\
          Energy: {:.1} / {:.0}\n\
+         Health: {:.0}%\n\
          Position: ({:.0}, {:.0})\n\
          Terrain: {}\n\
          \n\
@@ -549,14 +568,17 @@ fn update_inspect_panel(
          Speed: {:.2}\n\
          Sense range: {:.1}\n\
          Aquatic: {:.0}%\n\
-         Photosynthesis: {:.0}%\n\
+         Photo: {:.0}%\n\
+         Attack: {:.2}\n\
+         Armor: {:.2}\n\
          Parts: {}\n\
          \n\
          --- BRAIN ---\n\
          Neurons: {}\n\
          Connections: {}\n",
-        species.0,
-        energy.0, 100.0,
+        species.0, strategy,
+        energy.0, config.max_organism_energy,
+        health.0 * 100.0,
         pos.0.x, pos.0.y,
         terrain_name,
         body_size.0,
@@ -564,6 +586,8 @@ fn update_inspect_panel(
         genome.effective_sense_range(),
         genome.aquatic_adaptation * 100.0,
         genome.photosynthesis_rate * 100.0,
+        genome.claw_power(),
+        genome.armor_value(),
         body_parts.join(", "),
         genome.neurons.len(),
         genome.connections.iter().filter(|c| c.enabled).count(),

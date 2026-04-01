@@ -38,17 +38,17 @@ impl Default for SimConfig {
             world_width: 256,
             world_height: 256,
             initial_population: 200,
-            initial_food_density: 0.05,
-            food_regen_rate: 0.002,
+            initial_food_density: 0.08,
+            food_regen_rate: 0.005,
             mutation_rate: 0.3,
             mutation_strength: 0.5,
-            base_metabolism_cost: 0.1,
-            movement_energy_cost: 0.05,
-            reproduction_energy_threshold: 80.0,
-            reproduction_energy_cost: 50.0,
-            max_organism_energy: 100.0,
-            food_energy_value: 30.0,
-            species_compat_threshold: 3.0,
+            base_metabolism_cost: 0.08,
+            movement_energy_cost: 0.04,
+            reproduction_energy_threshold: 70.0,
+            reproduction_energy_cost: 40.0,
+            max_organism_energy: 120.0,
+            food_energy_value: 25.0,
+            species_compat_threshold: 1.5,
         }
     }
 }
@@ -112,10 +112,17 @@ pub struct Organism;
 pub struct Energy(pub f32);
 
 #[derive(Component)]
+pub struct Health(pub f32);
+
+#[derive(Component)]
 pub struct Position(pub Vec2);
 
 #[derive(Component)]
 pub struct Velocity(pub Vec2);
+
+/// Memory slots for recurrent brain connections
+#[derive(Component, Clone)]
+pub struct BrainMemory(pub [f32; 3]);
 
 #[derive(Component)]
 pub struct BodySize(pub f32);

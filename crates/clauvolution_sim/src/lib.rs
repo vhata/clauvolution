@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use clauvolution_brain::Brain;
 use clauvolution_core::*;
-use clauvolution_genome::{Genome, InnovationCounter, NUM_INPUTS};
+use clauvolution_genome::{Genome, InnovationCounter, NUM_INPUTS, NUM_MEMORY};
 use clauvolution_world::{SpatialHash, TileMap};
 use rand::Rng;
 use std::collections::HashMap;
@@ -10,30 +10,36 @@ pub struct SimPlugin;
 
 impl Plugin for SimPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, sim_speed_system)
+        app.add_systems(Update, (sim_speed_system, mass_extinction_input_system))
             .add_systems(
-            FixedUpdate,
-            (
-                sensing_and_brain_system,
-                action_system,
-                photosynthesis_system,
-                metabolism_system,
-                death_system,
-                reproduction_system,
-                species_classification_system,
+                FixedUpdate,
+                (
+                    sensing_and_brain_system,
+                    action_system,
+                    predation_system,
+                    photosynthesis_system,
+                    niche_construction_system,
+                    metabolism_system,
+                    death_system,
+                    reproduction_system,
+                    species_classification_system,
+                )
+                    .chain(),
             )
-                .chain(),
-        )
-        .insert_resource(Time::<Fixed>::from_hz(30.0))
-        .insert_resource(SpeciesClassificationTimer(Timer::from_seconds(
-            1.0,
-            TimerMode::Repeating,
-        )));
+            .insert_resource(Time::<Fixed>::from_hz(30.0))
+            .insert_resource(SpeciesClassificationTimer(Timer::from_seconds(
+                1.0,
+                TimerMode::Repeating,
+            )))
+            .insert_resource(ExtinctionCooldown(Timer::from_seconds(2.0, TimerMode::Once)));
     }
 }
 
 #[derive(Resource)]
 struct SpeciesClassificationTimer(Timer);
+
+#[derive(Resource)]
+struct ExtinctionCooldown(Timer);
 
 #[derive(Component)]
 pub struct BrainOutput {
@@ -41,6 +47,9 @@ pub struct BrainOutput {
     pub move_y: f32,
     pub eat: f32,
     pub reproduce: f32,
+    pub attack: f32,
+    pub signal: f32,
+    pub memory_out: [f32; NUM_MEMORY],
 }
 
 impl Default for BrainOutput {
@@ -50,19 +59,102 @@ impl Default for BrainOutput {
             move_y: 0.0,
             eat: 0.0,
             reproduce: 0.0,
+            attack: 0.0,
+            signal: 0.0,
+            memory_out: [0.0; NUM_MEMORY],
         }
     }
 }
 
-/// Pause/resume and speed controls
 fn sim_speed_system(
     speed: Res<SimSpeed>,
     mut fixed_time: ResMut<Time<Fixed>>,
 ) {
     if speed.paused {
-        fixed_time.set_timestep_hz(0.001); // effectively paused
+        fixed_time.set_timestep_hz(0.001);
     } else {
         fixed_time.set_timestep_hz(30.0 * speed.multiplier as f64);
+    }
+}
+
+/// Player-triggered mass extinction events
+fn mass_extinction_input_system(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut commands: Commands,
+    mut cooldown: ResMut<ExtinctionCooldown>,
+    time: Res<Time>,
+    organisms: Query<(Entity, &Position, &Energy), With<Organism>>,
+    mut tile_map: Option<ResMut<TileMap>>,
+    mut stats: ResMut<SimStats>,
+) {
+    cooldown.0.tick(time.delta());
+    if !cooldown.0.finished() {
+        return;
+    }
+
+    let mut triggered = false;
+    let mut rng = rand::thread_rng();
+
+    // X = asteroid (kill 70% randomly)
+    if keys.just_pressed(KeyCode::KeyX) {
+        info!("MASS EXTINCTION: Asteroid impact!");
+        let mut killed = 0u32;
+        for (entity, _, _) in &organisms {
+            if rng.gen::<f32>() < 0.7 {
+                commands.entity(entity).despawn_recursive();
+                killed += 1;
+            }
+        }
+        stats.total_deaths += killed as u64;
+        triggered = true;
+    }
+
+    // I = ice age (reduce temperature globally)
+    if keys.just_pressed(KeyCode::KeyI) {
+        if let Some(ref mut tm) = tile_map {
+            info!("MASS EXTINCTION: Ice age!");
+            for tile in &mut tm.tiles {
+                tile.temperature *= 0.5;
+                tile.moisture *= 0.7;
+            }
+            triggered = true;
+        }
+    }
+
+    // V = volcanic eruption (random kill zone + nutrient boost)
+    if keys.just_pressed(KeyCode::KeyV) {
+        info!("MASS EXTINCTION: Volcanic eruption!");
+        let center_x = rng.gen_range(0.0..256.0f32);
+        let center_y = rng.gen_range(0.0..256.0f32);
+        let radius = 40.0;
+
+        let mut killed = 0u32;
+        for (entity, pos, _) in &organisms {
+            let dist = ((pos.0.x - center_x).powi(2) + (pos.0.y - center_y).powi(2)).sqrt();
+            if dist < radius {
+                commands.entity(entity).despawn_recursive();
+                killed += 1;
+            }
+        }
+        stats.total_deaths += killed as u64;
+
+        // Boost nutrients in affected area
+        if let Some(ref mut tm) = tile_map {
+            for y in 0..tm.height {
+                for x in 0..tm.width {
+                    let dist = ((x as f32 - center_x).powi(2) + (y as f32 - center_y).powi(2)).sqrt();
+                    if dist < radius {
+                        let tile = tm.get_mut(x, y);
+                        tile.nutrients = (tile.nutrients + 0.5).min(1.0);
+                    }
+                }
+            }
+        }
+        triggered = true;
+    }
+
+    if triggered {
+        cooldown.0.reset();
     }
 }
 
@@ -71,15 +163,15 @@ fn sensing_and_brain_system(
     spatial_hash: Res<SpatialHash>,
     tile_map: Res<TileMap>,
     mut organisms: Query<
-        (Entity, &Position, &Energy, &Genome, &Brain, &BodySize, &mut BrainOutput),
+        (Entity, &Position, &Energy, &Health, &Genome, &Brain, &BodySize, &SpeciesId, &BrainMemory, &mut BrainOutput),
         With<Organism>,
     >,
     food_query: Query<(Entity, &Position), (With<Food>, Without<Organism>)>,
-    all_positions: Query<(&Position, &BodySize), (With<Organism>, Without<Food>)>,
+    all_org_data: Query<(&Position, &BodySize, &SpeciesId, &Genome), (With<Organism>, Without<Food>)>,
 ) {
     let food_positions: Vec<(Entity, Vec2)> = food_query.iter().map(|(e, p)| (e, p.0)).collect();
 
-    for (entity, pos, energy, genome, brain, body_size, mut output) in &mut organisms {
+    for (entity, pos, energy, health, genome, brain, body_size, species_id, memory, mut output) in &mut organisms {
         let mut inputs = [0.0f32; NUM_INPUTS];
 
         inputs[0] = energy.0 / config.max_organism_energy;
@@ -107,18 +199,22 @@ fn sensing_and_brain_system(
         let mut nearest_org_dist = f32::MAX;
         let mut nearest_org_dir = Vec2::ZERO;
         let mut nearest_org_size_ratio = 1.0f32;
+        let mut nearest_org_same_species = 0.0f32;
+        let mut nearest_org_photo_hint = 0.5f32;
 
         for &nearby_entity in &nearby_entities {
             if nearby_entity == entity {
                 continue;
             }
-            if let Ok((other_pos, other_size)) = all_positions.get(nearby_entity) {
+            if let Ok((other_pos, other_size, other_species, other_genome)) = all_org_data.get(nearby_entity) {
                 let diff = other_pos.0 - pos.0;
                 let dist = diff.length();
                 if dist < nearest_org_dist && dist < sense_range {
                     nearest_org_dist = dist;
                     nearest_org_dir = if dist > 0.001 { diff / dist } else { Vec2::ZERO };
                     nearest_org_size_ratio = other_size.0 / body_size.0;
+                    nearest_org_same_species = if other_species.0 == species_id.0 { 1.0 } else { 0.0 };
+                    nearest_org_photo_hint = other_genome.photosynthesis_rate.min(1.0);
                 }
             }
         }
@@ -135,13 +231,22 @@ fn sensing_and_brain_system(
         inputs[9] = tile.nutrients;
         inputs[10] = tile.light_level;
         inputs[11] = genome.aquatic_adaptation;
-        inputs[12] = 1.0;
+        inputs[12] = health.0;
+        inputs[13] = nearest_org_same_species;
+        inputs[14] = memory.0[0];
+        inputs[15] = memory.0[1];
+        inputs[16] = memory.0[2];
+        inputs[17] = nearest_org_photo_hint;
+        inputs[18] = 1.0;
 
         let brain_out = brain.evaluate(&inputs);
         output.move_x = brain_out[0];
         output.move_y = brain_out[1];
         output.eat = brain_out[2];
         output.reproduce = brain_out[3];
+        output.attack = brain_out[4];
+        output.signal = brain_out[5];
+        output.memory_out = [brain_out[6], brain_out[7], brain_out[8]];
     }
 }
 
@@ -149,7 +254,7 @@ fn action_system(
     config: Res<SimConfig>,
     tile_map: Res<TileMap>,
     mut organisms: Query<
-        (&mut Position, &mut Energy, &BrainOutput, &Genome, &BodySize),
+        (&mut Position, &mut Energy, &mut BrainMemory, &BrainOutput, &Genome, &BodySize),
         (With<Organism>, Without<Food>),
     >,
     food_query: Query<(Entity, &Position, &FoodEnergy), (With<Food>, Without<Organism>)>,
@@ -162,7 +267,10 @@ fn action_system(
 
     let mut eaten_food: Vec<Entity> = Vec::new();
 
-    for (mut pos, mut energy, output, genome, body_size) in &mut organisms {
+    for (mut pos, mut energy, mut memory, output, genome, body_size) in &mut organisms {
+        // Update memory
+        memory.0 = output.memory_out;
+
         let move_dir = Vec2::new(output.move_x, output.move_y);
         let speed = genome.speed_factor * 2.0 / body_size.0.sqrt();
         let movement = move_dir * speed;
@@ -188,6 +296,7 @@ fn action_system(
         let move_cost = movement.length() * config.movement_energy_cost * body_size.0 * terrain_cost;
         energy.0 -= move_cost;
 
+        // Eating food
         if output.eat > 0.0 {
             let mouth_bonus = if genome.has_mouth() { 1.0 } else { 0.3 };
             let eat_range = body_size.0 * 3.0;
@@ -210,6 +319,74 @@ fn action_system(
     }
 }
 
+/// Predation: organisms can attack and eat each other
+fn predation_system(
+    spatial_hash: Res<SpatialHash>,
+    config: Res<SimConfig>,
+    mut organisms: Query<
+        (Entity, &Position, &mut Energy, &mut Health, &Genome, &BodySize, &BrainOutput),
+        With<Organism>,
+    >,
+    _commands: Commands,
+    _stats: ResMut<SimStats>,
+) {
+    // Collect attack intents
+    let attackers: Vec<(Entity, Vec2, f32, f32, f32)> = organisms
+        .iter()
+        .filter(|(_, _, _, _, _, _, output)| output.attack > 0.5)
+        .map(|(e, pos, _, _, genome, body_size, _)| {
+            let attack_str = genome.claw_power() * body_size.0;
+            let attack_range = body_size.0 * 4.0;
+            (e, pos.0, attack_str, attack_range, body_size.0)
+        })
+        .collect();
+
+    let mut kills: Vec<(Entity, Entity, f32)> = Vec::new(); // (killer, victim, energy_gained)
+
+    for (attacker_entity, attacker_pos, attack_str, attack_range, attacker_size) in &attackers {
+        let nearby = spatial_hash.query_radius(*attacker_pos, *attack_range);
+
+        for &target_entity in &nearby {
+            if target_entity == *attacker_entity {
+                continue;
+            }
+
+            if let Ok((_, target_pos, _, _, target_genome, target_body_size, _)) =
+                organisms.get(target_entity)
+            {
+                let dist = (target_pos.0 - *attacker_pos).length();
+                if dist > *attack_range {
+                    continue;
+                }
+
+                // Attack succeeds if attacker is strong enough relative to target defense
+                let defense = target_genome.armor_value() * target_body_size.0;
+                let damage = (attack_str - defense * 0.5).max(0.0);
+
+                if damage > 0.1 {
+                    // Size advantage matters — can't easily eat things bigger than you
+                    if *attacker_size > target_body_size.0 * 0.6 {
+                        let energy_gained = target_body_size.0 * 15.0;
+                        kills.push((*attacker_entity, target_entity, energy_gained));
+                        break; // Only one kill per tick
+                    }
+                }
+            }
+        }
+    }
+
+    // Apply kills — set victim energy to 0, death_system handles despawn
+    for (killer, victim, energy_gained) in kills {
+        if let Ok((_, _, mut killer_energy, _, _, _, _)) = organisms.get_mut(killer) {
+            killer_energy.0 = (killer_energy.0 + energy_gained).min(config.max_organism_energy);
+        }
+        if let Ok((_, _, mut victim_energy, mut victim_health, _, _, _)) = organisms.get_mut(victim) {
+            victim_energy.0 = 0.0;
+            victim_health.0 = 0.0;
+        }
+    }
+}
+
 fn photosynthesis_system(
     tile_map: Res<TileMap>,
     mut organisms: Query<(&Position, &mut Energy, &Genome), With<Organism>>,
@@ -225,15 +402,42 @@ fn photosynthesis_system(
     }
 }
 
+/// Niche construction: organisms modify the tiles they're on
+fn niche_construction_system(
+    mut tile_map: ResMut<TileMap>,
+    organisms: Query<(&Position, &Genome), With<Organism>>,
+) {
+    for (pos, genome) in &organisms {
+        let x = (pos.0.x as u32).min(tile_map.width - 1);
+        let y = (pos.0.y as u32).min(tile_map.height - 1);
+        let tile = tile_map.get_mut(x, y);
+
+        // Photosynthesizers increase vegetation and moisture
+        if genome.photosynthesis_rate > 0.1 && genome.has_photo_surface() {
+            tile.vegetation_density = (tile.vegetation_density + 0.001).min(1.0);
+            tile.moisture = (tile.moisture + 0.0005).min(1.0);
+        }
+
+        // All organisms slightly increase nutrients (waste products)
+        tile.nutrients = (tile.nutrients + 0.0001).min(1.0);
+    }
+}
+
 fn metabolism_system(
     config: Res<SimConfig>,
-    mut organisms: Query<(&mut Energy, &BodySize, &Genome), With<Organism>>,
+    mut organisms: Query<(&mut Energy, &mut Health, &BodySize, &Genome), With<Organism>>,
 ) {
-    for (mut energy, body_size, genome) in &mut organisms {
+    for (mut energy, mut health, body_size, genome) in &mut organisms {
         let mut cost = config.base_metabolism_cost * body_size.0 * (1.0 + genome.speed_factor * 0.2);
         cost += genome.body_segments.len() as f32 * 0.005;
         cost += genome.neurons.len() as f32 * 0.001;
+        // Armor and attack power have maintenance cost
+        cost += genome.armor_value() * 0.01;
+        cost += genome.claw_power() * 0.008;
         energy.0 -= cost;
+
+        // Health regenerates slowly
+        health.0 = (health.0 + 0.005).min(1.0);
     }
 }
 
@@ -241,7 +445,6 @@ fn death_system(
     mut commands: Commands,
     organisms: Query<(Entity, &Energy), With<Organism>>,
     mut stats: ResMut<SimStats>,
-    selected: Res<SelectedOrganism>,
 ) {
     for (entity, energy) in &organisms {
         if energy.0 <= 0.0 {
@@ -249,9 +452,6 @@ fn death_system(
             stats.total_deaths += 1;
         }
     }
-    // Clear selection if selected organism died
-    // (can't mutate selected here due to borrow rules, handled in render)
-    let _ = selected;
 }
 
 fn reproduction_system(
@@ -294,12 +494,14 @@ fn reproduction_system(
         commands.spawn((
             Organism,
             Energy(config.reproduction_energy_cost * 0.8),
+            Health(1.0),
             Position(child_pos),
             Velocity(Vec2::ZERO),
             BodySize(body_size),
             Age(0),
             SpeciesId(parent_species),
             BrainOutput::default(),
+            BrainMemory([0.0; NUM_MEMORY]),
             brain,
             child_genome,
         ));
@@ -308,7 +510,6 @@ fn reproduction_system(
     }
 }
 
-/// Periodically reclassify organisms into species using NEAT compatibility distance
 fn species_classification_system(
     time: Res<Time>,
     mut timer: ResMut<SpeciesClassificationTimer>,
@@ -322,7 +523,6 @@ fn species_classification_system(
         return;
     }
 
-    // Collect all organisms with their genomes
     let org_data: Vec<(Entity, Genome, u64)> = organisms
         .iter()
         .map(|(e, g, s)| (e, g.clone(), s.0))
@@ -332,11 +532,9 @@ fn species_classification_system(
         return;
     }
 
-    // Species representatives: first organism encountered for each species
     let mut species_reps: Vec<(u64, Genome)> = Vec::new();
-    let mut next_species_id: u64 = species_reps.len() as u64 + 1;
+    let mut next_species_id: u64 = 1;
 
-    // Find existing species representatives
     let mut seen_species: HashMap<u64, usize> = HashMap::new();
     for (_entity, genome, species_id) in &org_data {
         if *species_id > 0 && !seen_species.contains_key(species_id) {
@@ -348,7 +546,6 @@ fn species_classification_system(
         }
     }
 
-    // Classify each organism
     let mut assignments: HashMap<Entity, u64> = HashMap::new();
 
     for (entity, genome, _old_species) in &org_data {
@@ -366,7 +563,6 @@ fn species_classification_system(
         let assigned = if let Some(id) = best_species {
             id
         } else {
-            // New species
             let new_id = next_species_id;
             next_species_id += 1;
             species_reps.push((new_id, genome.clone()));
@@ -377,7 +573,6 @@ fn species_classification_system(
         assignments.insert(*entity, assigned);
     }
 
-    // Apply assignments
     for (entity, _genome, mut species_id) in &mut organisms {
         if let Some(&new_id) = assignments.get(&entity) {
             species_id.0 = new_id;
@@ -403,12 +598,14 @@ pub fn spawn_initial_population(
         commands.spawn((
             Organism,
             Energy(config.max_organism_energy * 0.5),
+            Health(1.0),
             Position(Vec2::new(x, y)),
             Velocity(Vec2::ZERO),
             BodySize(body_size),
             Age(0),
             SpeciesId(0),
             BrainOutput::default(),
+            BrainMemory([0.0; NUM_MEMORY]),
             brain,
             genome,
         ));

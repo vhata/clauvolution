@@ -22,9 +22,9 @@ impl InnovationCounter {
 
 // --- Brain I/O ---
 
-// Phase 2 expanded brain inputs
-pub const NUM_INPUTS: usize = 13;
-pub const NUM_OUTPUTS: usize = 4;
+pub const NUM_INPUTS: usize = 19;
+pub const NUM_OUTPUTS: usize = 9;
+pub const NUM_MEMORY: usize = 3;
 
 // Inputs:
 //  0: energy_level (0-1)
@@ -39,13 +39,24 @@ pub const NUM_OUTPUTS: usize = 4;
 //  9: terrain_nutrients (0-1)
 // 10: light_level (0-1)
 // 11: own_aquatic_adaptation (0-1)
-// 12: bias (always 1.0)
+// 12: own_health (0-1) — damage taken
+// 13: nearest_organism_is_same_species (0 or 1)
+// 14: memory_0 (from previous tick)
+// 15: memory_1
+// 16: memory_2
+// 17: nearest_organism_photo_hint (0=predator-like, 1=plant-like)
+// 18: bias (always 1.0)
 
 // Outputs:
 //  0: move_x (-1 to 1)
 //  1: move_y (-1 to 1)
-//  2: eat (> 0.5 = attempt eat)
+//  2: eat (> 0.5 = attempt eat food)
 //  3: reproduce (> 0.5 = attempt reproduce)
+//  4: attack (> 0.5 = attempt attack nearest organism)
+//  5: signal_0 — chemical signal emission
+//  6: memory_out_0
+//  7: memory_out_1
+//  8: memory_out_2
 
 // --- Neuron / Connection genes ---
 
@@ -108,17 +119,21 @@ pub enum SegmentType {
     Eye,
     Mouth,
     PhotoSurface,
+    Claw,
+    ArmorPlate,
 }
 
 impl SegmentType {
     pub fn random(rng: &mut impl Rng) -> Self {
-        match rng.gen_range(0..6) {
+        match rng.gen_range(0..8) {
             0 => SegmentType::Torso,
             1 => SegmentType::Limb,
             2 => SegmentType::Fin,
             3 => SegmentType::Eye,
             4 => SegmentType::Mouth,
-            _ => SegmentType::PhotoSurface,
+            5 => SegmentType::PhotoSurface,
+            6 => SegmentType::Claw,
+            _ => SegmentType::ArmorPlate,
         }
     }
 }
@@ -180,6 +195,8 @@ pub struct Genome {
     pub sense_range: f32,
     pub aquatic_adaptation: f32,
     pub photosynthesis_rate: f32,
+    pub armor: f32,
+    pub attack_power: f32,
 }
 
 impl Genome {
@@ -247,12 +264,38 @@ impl Genome {
             sense_range: rng.gen_range(30.0..80.0),
             aquatic_adaptation: rng.gen_range(0.0..0.5),
             photosynthesis_rate: rng.gen_range(0.0..0.1),
+            armor: rng.gen_range(0.0..0.1),
+            attack_power: rng.gen_range(0.0..0.1),
         }
     }
 
     /// Derived traits from body segments
     pub fn has_fins(&self) -> bool {
         self.body_segments.iter().any(|s| s.segment_type == SegmentType::Fin)
+    }
+
+    pub fn has_claws(&self) -> bool {
+        self.body_segments.iter().any(|s| s.segment_type == SegmentType::Claw)
+    }
+
+    pub fn has_armor(&self) -> bool {
+        self.body_segments.iter().any(|s| s.segment_type == SegmentType::ArmorPlate)
+    }
+
+    pub fn claw_power(&self) -> f32 {
+        self.body_segments.iter()
+            .filter(|s| s.segment_type == SegmentType::Claw)
+            .map(|s| s.size)
+            .sum::<f32>()
+            + self.attack_power
+    }
+
+    pub fn armor_value(&self) -> f32 {
+        self.body_segments.iter()
+            .filter(|s| s.segment_type == SegmentType::ArmorPlate)
+            .map(|s| s.size)
+            .sum::<f32>()
+            + self.armor
     }
 
     pub fn has_limbs(&self) -> bool {
@@ -359,6 +402,14 @@ impl Genome {
         if rng.gen::<f32>() < rate {
             self.photosynthesis_rate += normal.sample(rng) as f32 * 0.05;
             self.photosynthesis_rate = self.photosynthesis_rate.clamp(0.0, 1.0);
+        }
+        if rng.gen::<f32>() < rate {
+            self.armor += normal.sample(rng) as f32 * 0.05;
+            self.armor = self.armor.clamp(0.0, 1.0);
+        }
+        if rng.gen::<f32>() < rate {
+            self.attack_power += normal.sample(rng) as f32 * 0.05;
+            self.attack_power = self.attack_power.clamp(0.0, 1.0);
         }
 
         // Mutate existing body segments
@@ -532,6 +583,8 @@ impl Genome {
             sense_range: self.sense_range * t + other.sense_range * (1.0 - t),
             aquatic_adaptation: self.aquatic_adaptation * t + other.aquatic_adaptation * (1.0 - t),
             photosynthesis_rate: self.photosynthesis_rate * t + other.photosynthesis_rate * (1.0 - t),
+            armor: self.armor * t + other.armor * (1.0 - t),
+            attack_power: self.attack_power * t + other.attack_power * (1.0 - t),
         }
     }
 
@@ -575,7 +628,9 @@ impl Genome {
             + (self.speed_factor - other.speed_factor).abs()
             + (self.sense_range - other.sense_range).abs() * 0.01
             + (self.aquatic_adaptation - other.aquatic_adaptation).abs()
-            + (self.photosynthesis_rate - other.photosynthesis_rate).abs();
+            + (self.photosynthesis_rate - other.photosynthesis_rate).abs()
+            + (self.armor - other.armor).abs()
+            + (self.attack_power - other.attack_power).abs();
 
         (c1 * excess as f32 / n) + (c2 * disjoint as f32 / n) + (c3 * avg_weight_diff) + body_diff * 0.5
     }
