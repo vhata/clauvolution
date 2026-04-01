@@ -5,5 +5,4 @@ edition = "2021"
 
 [dependencies]
 bevy = { workspace = true }
-clauvolution_core = { path = "../clauvolution_core" }
 clauvolution_genome = { path = "../clauvolution_genome" }

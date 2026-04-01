@@ -7,5 +7,5 @@ edition = "2021"
 bevy = { workspace = true }
 clauvolution_core = { path = "../clauvolution_core" }
 clauvolution_genome = { path = "../clauvolution_genome" }
-clauvolution_brain = { path = "../clauvolution_brain" }
+clauvolution_body = { path = "../clauvolution_body" }
 clauvolution_world = { path = "../clauvolution_world" }

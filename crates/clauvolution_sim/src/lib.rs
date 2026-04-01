@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use clauvolution_brain::Brain;
 use clauvolution_core::*;
 use clauvolution_genome::{Genome, InnovationCounter, NUM_INPUTS};
-use clauvolution_world::SpatialHash;
+use clauvolution_world::{SpatialHash, TileMap};
 use rand::Rng;
 
 pub struct SimPlugin;
@@ -14,6 +14,7 @@ impl Plugin for SimPlugin {
             (
                 sensing_and_brain_system,
                 action_system,
+                photosynthesis_system,
                 metabolism_system,
                 death_system,
                 reproduction_system,
@@ -24,7 +25,6 @@ impl Plugin for SimPlugin {
     }
 }
 
-/// Sensory input + brain output stored per organism per tick
 #[derive(Component)]
 pub struct BrainOutput {
     pub move_x: f32,
@@ -44,10 +44,10 @@ impl Default for BrainOutput {
     }
 }
 
-/// Sensing + brain evaluation combined
 fn sensing_and_brain_system(
     config: Res<SimConfig>,
     spatial_hash: Res<SpatialHash>,
+    tile_map: Res<TileMap>,
     mut organisms: Query<
         (Entity, &Position, &Energy, &Genome, &Brain, &BodySize, &mut BrainOutput),
         With<Organism>,
@@ -55,18 +55,16 @@ fn sensing_and_brain_system(
     food_query: Query<(Entity, &Position), (With<Food>, Without<Organism>)>,
     all_positions: Query<(&Position, &BodySize), (With<Organism>, Without<Food>)>,
 ) {
-    // Build a quick list of food positions for sensing
     let food_positions: Vec<(Entity, Vec2)> = food_query.iter().map(|(e, p)| (e, p.0)).collect();
 
-    // For each organism, build sensory input and evaluate brain
     for (entity, pos, energy, genome, brain, body_size, mut output) in &mut organisms {
         let mut inputs = [0.0f32; NUM_INPUTS];
 
-        // Input 0: energy level (normalized 0-1)
+        // Input 0: energy level
         inputs[0] = energy.0 / config.max_organism_energy;
 
-        // Find nearest food within sense range
-        let sense_range = genome.sense_range;
+        // Find nearest food
+        let sense_range = genome.effective_sense_range();
         let mut nearest_food_dist = f32::MAX;
         let mut nearest_food_dir = Vec2::ZERO;
 
@@ -85,7 +83,7 @@ fn sensing_and_brain_system(
             inputs[3] = 1.0 - (nearest_food_dist / sense_range).min(1.0);
         }
 
-        // Find nearest organism within sense range
+        // Find nearest organism
         let nearby_entities = spatial_hash.query_radius(pos.0, sense_range);
         let mut nearest_org_dist = f32::MAX;
         let mut nearest_org_dir = Vec2::ZERO;
@@ -113,12 +111,17 @@ fn sensing_and_brain_system(
             inputs[7] = nearest_org_size_ratio.min(2.0) / 2.0;
         }
 
-        // Input 8: bias
-        inputs[8] = 1.0;
+        // Terrain inputs
+        let tile = tile_map.tile_at_pos(pos.0);
+        inputs[8] = if tile.terrain.is_water() { 1.0 } else { 0.0 };
+        inputs[9] = tile.nutrients;
+        inputs[10] = tile.light_level;
+        inputs[11] = genome.aquatic_adaptation;
 
-        // Evaluate brain
+        // Bias
+        inputs[12] = 1.0;
+
         let brain_out = brain.evaluate(&inputs);
-
         output.move_x = brain_out[0];
         output.move_y = brain_out[1];
         output.eat = brain_out[2];
@@ -126,9 +129,9 @@ fn sensing_and_brain_system(
     }
 }
 
-/// Execute organism actions based on brain outputs
 fn action_system(
     config: Res<SimConfig>,
+    tile_map: Res<TileMap>,
     mut organisms: Query<
         (&mut Position, &mut Energy, &BrainOutput, &Genome, &BodySize),
         (With<Organism>, Without<Food>),
@@ -136,7 +139,6 @@ fn action_system(
     food_query: Query<(Entity, &Position, &FoodEnergy), (With<Food>, Without<Organism>)>,
     mut commands: Commands,
 ) {
-    // Collect food entities for eating
     let foods: Vec<(Entity, Vec2, f32)> = food_query
         .iter()
         .map(|(e, p, fe)| (e, p.0, fe.0))
@@ -145,22 +147,38 @@ fn action_system(
     let mut eaten_food: Vec<Entity> = Vec::new();
 
     for (mut pos, mut energy, output, genome, body_size) in &mut organisms {
-        // Movement
+        // Movement with terrain-dependent cost
         let move_dir = Vec2::new(output.move_x, output.move_y);
         let speed = genome.speed_factor * 2.0 / body_size.0.sqrt();
         let movement = move_dir * speed;
-        pos.0 += movement;
 
-        // Wrap around world edges
+        let tile = tile_map.tile_at_pos(pos.0);
+
+        // Terrain movement cost: interpolate between land and water cost based on aquatic adaptation
+        let aqua = genome.aquatic_adaptation;
+        let fin_bonus = genome.fin_area() * 0.3;
+        let limb_bonus = genome.limb_count() as f32 * 0.15;
+
+        let terrain_cost = if tile.terrain.is_water() {
+            let base = tile.terrain.water_move_cost();
+            // Fins help in water, aquatic adaptation helps
+            (base * (1.0 - aqua * 0.5) * (1.0 - fin_bonus.min(0.5))).max(0.5)
+        } else {
+            let base = tile.terrain.land_move_cost();
+            // Limbs help on land, low aquatic adaptation helps
+            (base * (1.0 + aqua * 0.5) * (1.0 - limb_bonus.min(0.4))).max(0.5)
+        };
+
+        pos.0 += movement;
         pos.0.x = pos.0.x.rem_euclid(config.world_width as f32);
         pos.0.y = pos.0.y.rem_euclid(config.world_height as f32);
 
-        // Movement energy cost
-        let move_cost = movement.length() * config.movement_energy_cost * body_size.0;
+        let move_cost = movement.length() * config.movement_energy_cost * body_size.0 * terrain_cost;
         energy.0 -= move_cost;
 
-        // Eating
+        // Eating — need a mouth to eat effectively
         if output.eat > 0.0 {
+            let mouth_bonus = if genome.has_mouth() { 1.0 } else { 0.3 };
             let eat_range = body_size.0 * 3.0;
             for &(food_entity, food_pos, food_energy) in &foods {
                 if eaten_food.contains(&food_entity) {
@@ -168,7 +186,7 @@ fn action_system(
                 }
                 let dist = (pos.0 - food_pos).length();
                 if dist < eat_range {
-                    energy.0 = (energy.0 + food_energy).min(config.max_organism_energy);
+                    energy.0 = (energy.0 + food_energy * mouth_bonus).min(config.max_organism_energy);
                     eaten_food.push(food_entity);
                     break;
                 }
@@ -176,25 +194,42 @@ fn action_system(
         }
     }
 
-    // Despawn eaten food
     for food_entity in eaten_food {
         commands.entity(food_entity).despawn();
     }
 }
 
-/// Subtract base metabolism cost each tick
+/// Photosynthesis: organisms with photo surfaces gain energy from light
+fn photosynthesis_system(
+    tile_map: Res<TileMap>,
+    mut organisms: Query<(&Position, &mut Energy, &Genome), With<Organism>>,
+    config: Res<SimConfig>,
+) {
+    for (pos, mut energy, genome) in &mut organisms {
+        if genome.photosynthesis_rate > 0.01 && genome.has_photo_surface() {
+            let tile = tile_map.tile_at_pos(pos.0);
+            let photo_area = genome.total_photo_surface_area();
+            let gained = genome.photosynthesis_rate * photo_area * tile.light_level * 2.0;
+            energy.0 = (energy.0 + gained).min(config.max_organism_energy);
+        }
+    }
+}
+
 fn metabolism_system(
     config: Res<SimConfig>,
     mut organisms: Query<(&mut Energy, &BodySize, &Genome), With<Organism>>,
 ) {
     for (mut energy, body_size, genome) in &mut organisms {
-        // Larger organisms and faster ones cost more to maintain
-        let cost = config.base_metabolism_cost * body_size.0 * (1.0 + genome.speed_factor * 0.2);
+        // Base cost scales with body size and speed
+        let mut cost = config.base_metabolism_cost * body_size.0 * (1.0 + genome.speed_factor * 0.2);
+        // Extra body parts have maintenance cost
+        cost += genome.body_segments.len() as f32 * 0.005;
+        // Brain complexity has a cost
+        cost += genome.neurons.len() as f32 * 0.001;
         energy.0 -= cost;
     }
 }
 
-/// Remove dead organisms
 fn death_system(
     mut commands: Commands,
     organisms: Query<(Entity, &Energy), With<Organism>>,
@@ -202,13 +237,12 @@ fn death_system(
 ) {
     for (entity, energy) in &organisms {
         if energy.0 <= 0.0 {
-            commands.entity(entity).despawn();
+            commands.entity(entity).despawn_recursive();
             stats.total_deaths += 1;
         }
     }
 }
 
-/// Reproduction: organisms with enough energy can reproduce
 fn reproduction_system(
     mut commands: Commands,
     config: Res<SimConfig>,
@@ -223,15 +257,12 @@ fn reproduction_system(
     let mut new_organisms: Vec<(Vec2, Genome)> = Vec::new();
 
     for (_entity, pos, mut energy, genome, output, _body_size) in &mut organisms {
-        // Must want to reproduce AND have enough energy
         if output.reproduce > 0.5 && energy.0 > config.reproduction_energy_threshold {
             energy.0 -= config.reproduction_energy_cost;
 
-            // Asexual reproduction with mutation (Phase 1)
             let mut child_genome = genome.clone();
             child_genome.mutate(&mut innovation, &mut rng, config.mutation_rate, config.mutation_strength);
 
-            // Offset spawn position slightly
             let offset = Vec2::new(
                 rng.gen_range(-5.0..5.0),
                 rng.gen_range(-5.0..5.0),
@@ -245,7 +276,6 @@ fn reproduction_system(
         }
     }
 
-    // Spawn children
     for (child_pos, child_genome) in new_organisms {
         let brain = Brain::from_genome(&child_genome);
         let body_size = child_genome.body_size;
@@ -267,7 +297,6 @@ fn reproduction_system(
     }
 }
 
-/// Spawn the initial population
 pub fn spawn_initial_population(
     commands: &mut Commands,
     config: &SimConfig,

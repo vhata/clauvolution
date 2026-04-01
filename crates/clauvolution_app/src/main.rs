@@ -1,9 +1,10 @@
 use bevy::prelude::*;
+use clauvolution_body::BodyPlugin;
 use clauvolution_core::*;
 use clauvolution_genome::InnovationCounter;
 use clauvolution_render::RenderPlugin;
 use clauvolution_sim::SimPlugin;
-use clauvolution_world::{self, WorldPlugin};
+use clauvolution_world::{self, TileMap, WorldPlugin};
 
 fn main() {
     App::new()
@@ -17,6 +18,7 @@ fn main() {
         }))
         .add_plugins(CorePlugin)
         .add_plugins(WorldPlugin)
+        .add_plugins(BodyPlugin)
         .add_plugins(SimPlugin)
         .add_plugins(RenderPlugin)
         .insert_resource(InnovationCounter(100))
@@ -32,15 +34,22 @@ fn setup_world(
 ) {
     let mut rng = rand::thread_rng();
 
-    // Spawn initial food
-    clauvolution_world::spawn_initial_food(&mut commands, &config, &mut rng);
+    // Generate terrain
+    let tile_map = TileMap::generate(config.world_width, config.world_height, &mut rng);
+
+    // Spawn initial food (biome-aware)
+    clauvolution_world::spawn_initial_food(&mut commands, &config, &tile_map, &mut rng);
 
     // Spawn initial organisms
     clauvolution_sim::spawn_initial_population(&mut commands, &config, &mut innovation, &mut rng);
 
+    // Insert tile map as resource
+    commands.insert_resource(tile_map);
+
     stats.total_organisms = config.initial_population;
 
-    // Add food regeneration system
-    info!("Clauvolution initialized: {} organisms, world {}x{}",
-        config.initial_population, config.world_width, config.world_height);
+    info!(
+        "Clauvolution initialized: {} organisms, world {}x{} with biomes",
+        config.initial_population, config.world_width, config.world_height
+    );
 }

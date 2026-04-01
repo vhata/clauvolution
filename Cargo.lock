@@ -1490,6 +1490,7 @@ name = "clauvolution_app"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "clauvolution_body",
  "clauvolution_brain",
  "clauvolution_core",
  "clauvolution_genome",
@@ -1504,7 +1505,6 @@ name = "clauvolution_body"
 version = "0.1.0"
 dependencies = [
  "bevy",
- "clauvolution_core",
  "clauvolution_genome",
 ]
 
@@ -1552,7 +1552,7 @@ name = "clauvolution_render"
 version = "0.1.0"
 dependencies = [
  "bevy",
- "clauvolution_brain",
+ "clauvolution_body",
  "clauvolution_core",
  "clauvolution_genome",
  "clauvolution_world",

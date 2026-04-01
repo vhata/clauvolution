@@ -20,7 +20,35 @@ impl InnovationCounter {
     }
 }
 
-/// A neuron gene in the NEAT network
+// --- Brain I/O ---
+
+// Phase 2 expanded brain inputs
+pub const NUM_INPUTS: usize = 13;
+pub const NUM_OUTPUTS: usize = 4;
+
+// Inputs:
+//  0: energy_level (0-1)
+//  1: nearest_food_dir_x (-1 to 1)
+//  2: nearest_food_dir_y (-1 to 1)
+//  3: nearest_food_dist (0-1, normalized)
+//  4: nearest_organism_dir_x
+//  5: nearest_organism_dir_y
+//  6: nearest_organism_dist
+//  7: nearest_organism_size_ratio
+//  8: terrain_is_water (0 or 1)
+//  9: terrain_nutrients (0-1)
+// 10: light_level (0-1)
+// 11: own_aquatic_adaptation (0-1)
+// 12: bias (always 1.0)
+
+// Outputs:
+//  0: move_x (-1 to 1)
+//  1: move_y (-1 to 1)
+//  2: eat (> 0.5 = attempt eat)
+//  3: reproduce (> 0.5 = attempt reproduce)
+
+// --- Neuron / Connection genes ---
+
 #[derive(Clone, Debug)]
 pub struct NeuronGene {
     pub id: u64,
@@ -61,7 +89,6 @@ impl ActivationFn {
     }
 }
 
-/// A connection gene in the NEAT network
 #[derive(Clone, Debug)]
 pub struct ConnectionGene {
     pub innovation: u64,
@@ -71,43 +98,95 @@ pub struct ConnectionGene {
     pub enabled: bool,
 }
 
-/// The full genome of an organism
+// --- Body segment genes ---
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SegmentType {
+    Torso,
+    Limb,
+    Fin,
+    Eye,
+    Mouth,
+    PhotoSurface,
+}
+
+impl SegmentType {
+    pub fn random(rng: &mut impl Rng) -> Self {
+        match rng.gen_range(0..6) {
+            0 => SegmentType::Torso,
+            1 => SegmentType::Limb,
+            2 => SegmentType::Fin,
+            3 => SegmentType::Eye,
+            4 => SegmentType::Mouth,
+            _ => SegmentType::PhotoSurface,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Symmetry {
+    None,
+    Bilateral,
+}
+
+#[derive(Clone, Debug)]
+pub struct BodySegmentGene {
+    pub segment_type: SegmentType,
+    pub size: f32,
+    pub attachment_angle: f32,
+    pub attachment_slot: u8,
+    pub symmetry: Symmetry,
+}
+
+impl BodySegmentGene {
+    pub fn random(rng: &mut impl Rng) -> Self {
+        Self {
+            segment_type: SegmentType::random(rng),
+            size: rng.gen_range(0.3..1.5),
+            attachment_angle: rng.gen_range(-std::f32::consts::PI..std::f32::consts::PI),
+            attachment_slot: rng.gen_range(0..4),
+            symmetry: if rng.gen_bool(0.6) { Symmetry::Bilateral } else { Symmetry::None },
+        }
+    }
+
+    pub fn mutate(&mut self, rng: &mut impl Rng, strength: f32) {
+        let normal = Normal::new(0.0, strength as f64).unwrap();
+
+        if rng.gen::<f32>() < 0.05 {
+            self.segment_type = SegmentType::random(rng);
+        }
+        self.size += normal.sample(rng) as f32 * 0.2;
+        self.size = self.size.clamp(0.1, 2.5);
+        self.attachment_angle += normal.sample(rng) as f32 * 0.3;
+        if rng.gen::<f32>() < 0.02 {
+            self.symmetry = if self.symmetry == Symmetry::Bilateral {
+                Symmetry::None
+            } else {
+                Symmetry::Bilateral
+            };
+        }
+    }
+}
+
+// --- Full genome ---
+
 #[derive(Component, Clone, Debug)]
 pub struct Genome {
     pub neurons: Vec<NeuronGene>,
     pub connections: Vec<ConnectionGene>,
+    pub body_segments: Vec<BodySegmentGene>,
     pub body_size: f32,
     pub speed_factor: f32,
     pub sense_range: f32,
+    pub aquatic_adaptation: f32,
+    pub photosynthesis_rate: f32,
 }
 
-// Phase 1 brain I/O layout
-pub const NUM_INPUTS: usize = 9;
-pub const NUM_OUTPUTS: usize = 4;
-
-// Inputs:
-//  0: energy_level (0-1)
-//  1: nearest_food_dir_x (-1 to 1)
-//  2: nearest_food_dir_y (-1 to 1)
-//  3: nearest_food_dist (0-1, normalized)
-//  4: nearest_organism_dir_x
-//  5: nearest_organism_dir_y
-//  6: nearest_organism_dist
-//  7: nearest_organism_size_ratio
-//  8: bias (always 1.0)
-
-// Outputs:
-//  0: move_x (-1 to 1)
-//  1: move_y (-1 to 1)
-//  2: eat (> 0.5 = attempt eat)
-//  3: reproduce (> 0.5 = attempt reproduce)
-
 impl Genome {
-    /// Create a minimal starting genome with direct input-output connections
+    /// Create a minimal starting genome
     pub fn new_minimal(innovation: &mut InnovationCounter, rng: &mut impl Rng) -> Self {
         let mut neurons = Vec::new();
 
-        // Input neurons (ids 0..NUM_INPUTS)
         for i in 0..NUM_INPUTS {
             neurons.push(NeuronGene {
                 id: i as u64,
@@ -117,7 +196,6 @@ impl Genome {
             });
         }
 
-        // Output neurons (ids NUM_INPUTS..NUM_INPUTS+NUM_OUTPUTS)
         for i in 0..NUM_OUTPUTS {
             neurons.push(NeuronGene {
                 id: (NUM_INPUTS + i) as u64,
@@ -127,14 +205,12 @@ impl Genome {
             });
         }
 
-        // Start with a few random connections from inputs to outputs
         let mut connections = Vec::new();
         let num_initial_connections = rng.gen_range(3..=8);
         for _ in 0..num_initial_connections {
             let from = rng.gen_range(0..NUM_INPUTS) as u64;
             let to = (NUM_INPUTS + rng.gen_range(0..NUM_OUTPUTS)) as u64;
 
-            // Skip if this connection already exists
             if connections.iter().any(|c: &ConnectionGene| c.from == from && c.to == to) {
                 continue;
             }
@@ -148,13 +224,83 @@ impl Genome {
             });
         }
 
+        // Start with a torso + 1-2 random body parts
+        let mut body_segments = vec![BodySegmentGene {
+            segment_type: SegmentType::Torso,
+            size: rng.gen_range(0.6..1.2),
+            attachment_angle: 0.0,
+            attachment_slot: 0,
+            symmetry: Symmetry::Bilateral,
+        }];
+
+        let extra_parts = rng.gen_range(1..=3);
+        for _ in 0..extra_parts {
+            body_segments.push(BodySegmentGene::random(rng));
+        }
+
         Self {
             neurons,
             connections,
+            body_segments,
             body_size: rng.gen_range(0.5..1.5),
             speed_factor: rng.gen_range(0.5..1.5),
             sense_range: rng.gen_range(30.0..80.0),
+            aquatic_adaptation: rng.gen_range(0.0..0.5),
+            photosynthesis_rate: rng.gen_range(0.0..0.1),
         }
+    }
+
+    /// Derived traits from body segments
+    pub fn has_fins(&self) -> bool {
+        self.body_segments.iter().any(|s| s.segment_type == SegmentType::Fin)
+    }
+
+    pub fn has_limbs(&self) -> bool {
+        self.body_segments.iter().any(|s| s.segment_type == SegmentType::Limb)
+    }
+
+    pub fn has_eyes(&self) -> bool {
+        self.body_segments.iter().any(|s| s.segment_type == SegmentType::Eye)
+    }
+
+    pub fn has_mouth(&self) -> bool {
+        self.body_segments.iter().any(|s| s.segment_type == SegmentType::Mouth)
+    }
+
+    pub fn has_photo_surface(&self) -> bool {
+        self.body_segments.iter().any(|s| s.segment_type == SegmentType::PhotoSurface)
+    }
+
+    pub fn total_photo_surface_area(&self) -> f32 {
+        self.body_segments.iter()
+            .filter(|s| s.segment_type == SegmentType::PhotoSurface)
+            .map(|s| s.size)
+            .sum()
+    }
+
+    pub fn fin_area(&self) -> f32 {
+        self.body_segments.iter()
+            .filter(|s| s.segment_type == SegmentType::Fin)
+            .map(|s| s.size)
+            .sum()
+    }
+
+    pub fn limb_count(&self) -> usize {
+        self.body_segments.iter()
+            .filter(|s| s.segment_type == SegmentType::Limb)
+            .count()
+    }
+
+    pub fn eye_count(&self) -> usize {
+        self.body_segments.iter()
+            .filter(|s| s.segment_type == SegmentType::Eye)
+            .count()
+    }
+
+    /// Effective sense range, boosted by eyes
+    pub fn effective_sense_range(&self) -> f32 {
+        let eye_bonus = self.eye_count() as f32 * 10.0;
+        self.sense_range + eye_bonus
     }
 
     /// Mutate this genome in place
@@ -165,10 +311,8 @@ impl Genome {
         for conn in &mut self.connections {
             if rng.gen::<f32>() < rate {
                 if rng.gen::<f32>() < 0.1 {
-                    // 10% chance: completely new random weight
                     conn.weight = rng.gen_range(-2.0..2.0);
                 } else {
-                    // 90% chance: perturb existing weight
                     conn.weight += normal.sample(rng) as f32;
                     conn.weight = conn.weight.clamp(-4.0, 4.0);
                 }
@@ -183,17 +327,13 @@ impl Genome {
             }
         }
 
-        // Add new connection (probability 0.05)
+        // Structural mutations
         if rng.gen::<f32>() < 0.05 {
             self.mutate_add_connection(innovation, rng);
         }
-
-        // Add new neuron by splitting a connection (probability 0.03)
         if rng.gen::<f32>() < 0.03 {
             self.mutate_add_neuron(innovation, rng);
         }
-
-        // Toggle a connection enabled/disabled (probability 0.02)
         if !self.connections.is_empty() && rng.gen::<f32>() < 0.02 {
             let idx = rng.gen_range(0..self.connections.len());
             self.connections[idx].enabled = !self.connections[idx].enabled;
@@ -212,6 +352,32 @@ impl Genome {
             self.sense_range += normal.sample(rng) as f32 * 5.0;
             self.sense_range = self.sense_range.clamp(10.0, 150.0);
         }
+        if rng.gen::<f32>() < rate {
+            self.aquatic_adaptation += normal.sample(rng) as f32 * 0.1;
+            self.aquatic_adaptation = self.aquatic_adaptation.clamp(0.0, 1.0);
+        }
+        if rng.gen::<f32>() < rate {
+            self.photosynthesis_rate += normal.sample(rng) as f32 * 0.05;
+            self.photosynthesis_rate = self.photosynthesis_rate.clamp(0.0, 1.0);
+        }
+
+        // Mutate existing body segments
+        for seg in &mut self.body_segments {
+            if rng.gen::<f32>() < rate * 0.5 {
+                seg.mutate(rng, strength);
+            }
+        }
+
+        // Add a body segment (probability 0.03)
+        if rng.gen::<f32>() < 0.03 && self.body_segments.len() < 12 {
+            self.body_segments.push(BodySegmentGene::random(rng));
+        }
+
+        // Remove a body segment (probability 0.02, never remove torso)
+        if rng.gen::<f32>() < 0.02 && self.body_segments.len() > 2 {
+            let idx = rng.gen_range(1..self.body_segments.len());
+            self.body_segments.remove(idx);
+        }
     }
 
     fn mutate_add_connection(&mut self, innovation: &mut InnovationCounter, rng: &mut impl Rng) {
@@ -228,7 +394,6 @@ impl Genome {
         let from = all_ids[rng.gen_range(0..all_ids.len())];
         let to = non_input[rng.gen_range(0..non_input.len())];
 
-        // No self-connections, no duplicates
         if from == to {
             return;
         }
@@ -272,7 +437,6 @@ impl Genome {
             bias: 0.0,
         });
 
-        // Connection from old source to new neuron with weight 1.0
         self.connections.push(ConnectionGene {
             innovation: innovation.next(),
             from: old_from,
@@ -281,7 +445,6 @@ impl Genome {
             enabled: true,
         });
 
-        // Connection from new neuron to old target with original weight
         self.connections.push(ConnectionGene {
             innovation: innovation.next(),
             from: new_id,
@@ -296,24 +459,19 @@ impl Genome {
         let mut child_neurons = self.neurons.clone();
         let mut child_connections = Vec::new();
 
-        // Align connections by innovation number
-        let mut i = 0;
-        let mut j = 0;
-        let self_conns = &self.connections;
-        let other_conns = &other.connections;
-
-        // Sort by innovation for alignment
-        let mut s_sorted: Vec<&ConnectionGene> = self_conns.iter().collect();
-        let mut o_sorted: Vec<&ConnectionGene> = other_conns.iter().collect();
+        let mut s_sorted: Vec<&ConnectionGene> = self.connections.iter().collect();
+        let mut o_sorted: Vec<&ConnectionGene> = other.connections.iter().collect();
         s_sorted.sort_by_key(|c| c.innovation);
         o_sorted.sort_by_key(|c| c.innovation);
+
+        let mut i = 0;
+        let mut j = 0;
 
         while i < s_sorted.len() && j < o_sorted.len() {
             let s = s_sorted[i];
             let o = o_sorted[j];
 
             if s.innovation == o.innovation {
-                // Matching gene — random parent
                 if rng.gen_bool(0.5) {
                     child_connections.push(s.clone());
                 } else {
@@ -322,22 +480,18 @@ impl Genome {
                 i += 1;
                 j += 1;
             } else if s.innovation < o.innovation {
-                // Disjoint from fitter parent (self) — include
                 child_connections.push(s.clone());
                 i += 1;
             } else {
-                // Disjoint from less fit parent — skip
                 j += 1;
             }
         }
 
-        // Excess genes from fitter parent
         while i < s_sorted.len() {
             child_connections.push(s_sorted[i].clone());
             i += 1;
         }
 
-        // Include any hidden neurons from other parent that are referenced by child connections
         let child_neuron_ids: std::collections::HashSet<u64> = child_neurons.iter().map(|n| n.id).collect();
         for conn in &child_connections {
             for id in [conn.from, conn.to] {
@@ -349,22 +503,43 @@ impl Genome {
             }
         }
 
-        // Interpolate body traits
+        // Crossover body segments: take from fitter parent with some mixing
+        let child_segments = if rng.gen_bool(0.7) {
+            self.body_segments.clone()
+        } else {
+            // Mix: take torso from self, then randomly pick from either parent
+            let mut segs = vec![self.body_segments[0].clone()];
+            let max_len = self.body_segments.len().max(other.body_segments.len());
+            for idx in 1..max_len {
+                if rng.gen_bool(0.5) {
+                    if idx < self.body_segments.len() {
+                        segs.push(self.body_segments[idx].clone());
+                    }
+                } else if idx < other.body_segments.len() {
+                    segs.push(other.body_segments[idx].clone());
+                }
+            }
+            segs
+        };
+
         let t = rng.gen::<f32>();
         Genome {
             neurons: child_neurons,
             connections: child_connections,
+            body_segments: child_segments,
             body_size: self.body_size * t + other.body_size * (1.0 - t),
             speed_factor: self.speed_factor * t + other.speed_factor * (1.0 - t),
             sense_range: self.sense_range * t + other.sense_range * (1.0 - t),
+            aquatic_adaptation: self.aquatic_adaptation * t + other.aquatic_adaptation * (1.0 - t),
+            photosynthesis_rate: self.photosynthesis_rate * t + other.photosynthesis_rate * (1.0 - t),
         }
     }
 
     /// Compute compatibility distance between two genomes (for speciation)
     pub fn compatibility_distance(&self, other: &Genome) -> f32 {
-        let c1 = 1.0; // excess coefficient
-        let c2 = 1.0; // disjoint coefficient
-        let c3 = 0.4; // weight difference coefficient
+        let c1 = 1.0;
+        let c2 = 1.0;
+        let c3 = 0.4;
 
         let mut s_sorted: Vec<&ConnectionGene> = self.connections.iter().collect();
         let mut o_sorted: Vec<&ConnectionGene> = other.connections.iter().collect();
@@ -396,10 +571,11 @@ impl Genome {
         let n = s_sorted.len().max(o_sorted.len()).max(1) as f32;
         let avg_weight_diff = if matching > 0 { weight_diff_sum / matching as f32 } else { 0.0 };
 
-        // Also factor in body trait differences
         let body_diff = (self.body_size - other.body_size).abs()
             + (self.speed_factor - other.speed_factor).abs()
-            + (self.sense_range - other.sense_range).abs() * 0.01;
+            + (self.sense_range - other.sense_range).abs() * 0.01
+            + (self.aquatic_adaptation - other.aquatic_adaptation).abs()
+            + (self.photosynthesis_rate - other.photosynthesis_rate).abs();
 
         (c1 * excess as f32 / n) + (c2 * disjoint as f32 / n) + (c3 * avg_weight_diff) + body_diff * 0.5
     }
