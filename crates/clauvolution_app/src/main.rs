@@ -1,29 +1,39 @@
 use bevy::prelude::*;
+use bevy::render::view::screenshot::{save_to_disk, Screenshot};
 use clauvolution_body::BodyPlugin;
 use clauvolution_core::*;
 use clauvolution_genome::InnovationCounter;
-use clauvolution_render::RenderPlugin;
+use clauvolution_render::{MainCamera, RenderPlugin};
 use clauvolution_sim::SimPlugin;
 use clauvolution_world::{self, TileMap, WorldPlugin};
 
 fn main() {
-    App::new()
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "Clauvolution".to_string(),
-                resolution: (1280.0, 720.0).into(),
-                ..default()
-            }),
+    let screenshot_mode = std::env::args().any(|a| a == "--screenshot");
+
+    let mut app = App::new();
+
+    app.add_plugins(DefaultPlugins.set(WindowPlugin {
+        primary_window: Some(Window {
+            title: "Clauvolution".to_string(),
+            resolution: (1280.0, 720.0).into(),
             ..default()
-        }))
-        .add_plugins(CorePlugin)
-        .add_plugins(WorldPlugin)
-        .add_plugins(BodyPlugin)
-        .add_plugins(SimPlugin)
-        .add_plugins(RenderPlugin)
-        .insert_resource(InnovationCounter(100))
-        .add_systems(Startup, setup_world)
-        .run();
+        }),
+        ..default()
+    }))
+    .add_plugins(CorePlugin)
+    .add_plugins(WorldPlugin)
+    .add_plugins(BodyPlugin)
+    .add_plugins(SimPlugin)
+    .add_plugins(RenderPlugin)
+    .insert_resource(InnovationCounter(100))
+    .add_systems(Startup, setup_world);
+
+    if screenshot_mode {
+        app.insert_resource(ScreenshotSchedule::new())
+            .add_systems(Update, screenshot_system);
+    }
+
+    app.run();
 }
 
 fn setup_world(
@@ -34,16 +44,9 @@ fn setup_world(
 ) {
     let mut rng = rand::thread_rng();
 
-    // Generate terrain
     let tile_map = TileMap::generate(config.world_width, config.world_height, &mut rng);
-
-    // Spawn initial food (biome-aware)
     clauvolution_world::spawn_initial_food(&mut commands, &config, &tile_map, &mut rng);
-
-    // Spawn initial organisms
     clauvolution_sim::spawn_initial_population(&mut commands, &config, &mut innovation, &mut rng);
-
-    // Insert tile map as resource
     commands.insert_resource(tile_map);
 
     stats.total_organisms = config.initial_population;
@@ -52,4 +55,98 @@ fn setup_world(
         "Clauvolution initialized: {} organisms, world {}x{} with biomes",
         config.initial_population, config.world_width, config.world_height
     );
+}
+
+// --- Screenshot mode ---
+
+#[derive(Resource)]
+struct ScreenshotSchedule {
+    shots: Vec<ScreenshotStep>,
+    current: usize,
+    frame_count: u32,
+}
+
+struct ScreenshotStep {
+    wait_frames: u32,
+    zoom: f32,
+    label: String,
+}
+
+impl ScreenshotSchedule {
+    fn new() -> Self {
+        Self {
+            shots: vec![
+                ScreenshotStep {
+                    wait_frames: 30,
+                    zoom: 1.0,
+                    label: "01_overview".to_string(),
+                },
+                ScreenshotStep {
+                    wait_frames: 60,
+                    zoom: 1.0,
+                    label: "02_after_2sec".to_string(),
+                },
+                ScreenshotStep {
+                    wait_frames: 30,
+                    zoom: 0.5,
+                    label: "03_medium_zoom".to_string(),
+                },
+                ScreenshotStep {
+                    wait_frames: 30,
+                    zoom: 0.15,
+                    label: "04_close_zoom".to_string(),
+                },
+                ScreenshotStep {
+                    wait_frames: 150,
+                    zoom: 1.0,
+                    label: "05_after_7sec".to_string(),
+                },
+                ScreenshotStep {
+                    wait_frames: 300,
+                    zoom: 1.0,
+                    label: "06_after_17sec".to_string(),
+                },
+            ],
+            current: 0,
+            frame_count: 0,
+        }
+    }
+}
+
+fn screenshot_system(
+    mut commands: Commands,
+    mut schedule: ResMut<ScreenshotSchedule>,
+    mut camera: Query<(&mut Transform, &mut OrthographicProjection), With<MainCamera>>,
+    mut exit: EventWriter<AppExit>,
+    config: Res<SimConfig>,
+) {
+    schedule.frame_count += 1;
+
+    if schedule.current >= schedule.shots.len() {
+        info!("All screenshots captured, exiting.");
+        exit.send(AppExit::Success);
+        return;
+    }
+
+    let step = &schedule.shots[schedule.current];
+
+    if schedule.frame_count >= step.wait_frames {
+        // Set camera zoom
+        if let Ok((mut transform, mut projection)) = camera.get_single_mut() {
+            projection.scale = step.zoom;
+            // Center on world
+            transform.translation.x = config.world_width as f32 / 2.0;
+            transform.translation.y = config.world_height as f32 / 2.0;
+        }
+
+        let path = format!("screenshots/{}.png", step.label);
+        info!("Capturing screenshot: {}", path);
+
+        commands
+            .spawn(Screenshot::primary_window())
+            .observe(save_to_disk(path));
+
+        schedule.current += 1;
+        schedule.frame_count = 0;
+    }
 }
