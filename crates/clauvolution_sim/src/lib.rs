@@ -425,19 +425,38 @@ fn niche_construction_system(
 
 fn metabolism_system(
     config: Res<SimConfig>,
-    mut organisms: Query<(&mut Energy, &mut Health, &BodySize, &Genome), With<Organism>>,
+    mut organisms: Query<(&mut Energy, &mut Health, &mut Age, &BodySize, &Genome), With<Organism>>,
 ) {
-    for (mut energy, mut health, body_size, genome) in &mut organisms {
+    for (mut energy, mut health, mut age, body_size, genome) in &mut organisms {
+        age.0 += 1;
+
         let mut cost = config.base_metabolism_cost * body_size.0 * (1.0 + genome.speed_factor * 0.2);
         cost += genome.body_segments.len() as f32 * 0.005;
         cost += genome.neurons.len() as f32 * 0.001;
-        // Armor and attack power have maintenance cost
         cost += genome.armor_value() * 0.01;
         cost += genome.claw_power() * 0.008;
+
+        // Aging: metabolism cost increases after maturity (age 500 ticks ~ 17 seconds)
+        let age_factor = if age.0 > 500 {
+            1.0 + (age.0 - 500) as f32 * 0.0005
+        } else {
+            1.0
+        };
+        cost *= age_factor;
+
         energy.0 -= cost;
 
-        // Health regenerates slowly
-        health.0 = (health.0 + 0.005).min(1.0);
+        // Health regenerates slower with age
+        let regen_rate = 0.005 / age_factor;
+        health.0 = (health.0 + regen_rate).min(1.0);
+
+        // Old age death: after ~3000 ticks (~100 seconds), health degrades
+        if age.0 > 3000 {
+            health.0 -= 0.002;
+            if health.0 <= 0.0 {
+                energy.0 = 0.0; // triggers death
+            }
+        }
     }
 }
 
