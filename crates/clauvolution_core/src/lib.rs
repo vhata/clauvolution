@@ -7,7 +7,10 @@ impl Plugin for CorePlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(SimConfig::default())
             .insert_resource(SimStats::default())
-            .insert_resource(TickCounter(0));
+            .insert_resource(TickCounter(0))
+            .insert_resource(SimSpeed::default())
+            .insert_resource(SpeciesColors::default())
+            .insert_resource(SelectedOrganism::default());
     }
 }
 
@@ -26,6 +29,7 @@ pub struct SimConfig {
     pub reproduction_energy_cost: f32,
     pub max_organism_energy: f32,
     pub food_energy_value: f32,
+    pub species_compat_threshold: f32,
 }
 
 impl Default for SimConfig {
@@ -44,6 +48,7 @@ impl Default for SimConfig {
             reproduction_energy_cost: 50.0,
             max_organism_energy: 100.0,
             food_energy_value: 30.0,
+            species_compat_threshold: 3.0,
         }
     }
 }
@@ -55,10 +60,50 @@ pub struct SimStats {
     pub total_births: u64,
     pub total_deaths: u64,
     pub generation: u64,
+    pub species_count: u32,
 }
 
 #[derive(Resource)]
 pub struct TickCounter(pub u64);
+
+/// Simulation speed: 0 = paused, 1 = normal, 2+ = fast
+#[derive(Resource)]
+pub struct SimSpeed {
+    pub paused: bool,
+    pub multiplier: f32,
+}
+
+impl Default for SimSpeed {
+    fn default() -> Self {
+        Self {
+            paused: false,
+            multiplier: 1.0,
+        }
+    }
+}
+
+/// Map from species ID to display colour
+#[derive(Resource, Default)]
+pub struct SpeciesColors {
+    pub colors: std::collections::HashMap<u64, Color>,
+    next_hue: f32,
+}
+
+impl SpeciesColors {
+    pub fn get_or_create(&mut self, species_id: u64) -> Color {
+        *self.colors.entry(species_id).or_insert_with(|| {
+            let hue = self.next_hue;
+            self.next_hue = (self.next_hue + 0.618033988) % 1.0; // golden ratio for good spread
+            Color::hsl(hue * 360.0, 0.7, 0.6)
+        })
+    }
+}
+
+/// Currently selected organism for inspection
+#[derive(Resource, Default)]
+pub struct SelectedOrganism {
+    pub entity: Option<Entity>,
+}
 
 #[derive(Component)]
 pub struct Organism;

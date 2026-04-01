@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::window::PrimaryWindow;
 use clauvolution_body::BodyPlan;
 use clauvolution_core::*;
 use clauvolution_genome::{Genome, SegmentType};
@@ -11,6 +12,10 @@ impl Plugin for RenderPlugin {
         app.init_resource::<CameraDragState>()
             .add_systems(Startup, setup_camera)
             .add_systems(
+                Update,
+                (speed_control_system, click_select_system),
+            )
+            .add_systems(
                 PostUpdate,
                 (
                     spawn_terrain_sprites,
@@ -18,6 +23,7 @@ impl Plugin for RenderPlugin {
                     sync_food_transforms,
                     camera_control_system,
                     update_stats_text,
+                    update_inspect_panel,
                 )
                     .chain(),
             );
@@ -31,7 +37,13 @@ pub struct MainCamera;
 pub struct StatsText;
 
 #[derive(Component)]
+pub struct InspectPanel;
+
+#[derive(Component)]
 pub struct OrganismSprite;
+
+#[derive(Component)]
+pub struct SelectionRing;
 
 #[derive(Component)]
 pub struct FoodSprite;
@@ -53,10 +65,11 @@ fn setup_camera(mut commands: Commands, config: Res<SimConfig>) {
         MainCamera,
     ));
 
+    // Stats overlay (top-left)
     commands.spawn((
         Text::new(""),
         TextFont {
-            font_size: 18.0,
+            font_size: 16.0,
             ..default()
         },
         TextColor(Color::WHITE),
@@ -68,9 +81,115 @@ fn setup_camera(mut commands: Commands, config: Res<SimConfig>) {
         },
         StatsText,
     ));
+
+    // Inspect panel (top-right)
+    commands.spawn((
+        Text::new(""),
+        TextFont {
+            font_size: 14.0,
+            ..default()
+        },
+        TextColor(Color::srgb(1.0, 1.0, 0.8)),
+        Node {
+            position_type: PositionType::Absolute,
+            right: Val::Px(10.0),
+            top: Val::Px(10.0),
+            ..default()
+        },
+        InspectPanel,
+    ));
 }
 
-/// Render terrain tiles as colored rectangles
+/// Keyboard speed controls: Space = pause, [ = slower, ] = faster
+fn speed_control_system(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut speed: ResMut<SimSpeed>,
+) {
+    if keys.just_pressed(KeyCode::Space) {
+        speed.paused = !speed.paused;
+    }
+    if keys.just_pressed(KeyCode::BracketLeft) {
+        speed.multiplier = (speed.multiplier * 0.5).max(0.125);
+    }
+    if keys.just_pressed(KeyCode::BracketRight) {
+        speed.multiplier = (speed.multiplier * 2.0).min(16.0);
+    }
+}
+
+/// Click to select an organism for inspection
+fn click_select_system(
+    mouse_buttons: Res<ButtonInput<MouseButton>>,
+    keys: Res<ButtonInput<KeyCode>>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    camera: Query<(&Transform, &OrthographicProjection), With<MainCamera>>,
+    organisms: Query<(Entity, &Position, &BodySize), With<Organism>>,
+    mut selected: ResMut<SelectedOrganism>,
+    mut commands: Commands,
+    existing_rings: Query<Entity, With<SelectionRing>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    // Don't select when dragging
+    if keys.pressed(KeyCode::ShiftLeft) {
+        return;
+    }
+
+    if !mouse_buttons.just_pressed(MouseButton::Left) {
+        return;
+    }
+
+    let Ok(window) = windows.get_single() else { return };
+    let Ok((cam_transform, projection)) = camera.get_single() else { return };
+
+    let Some(cursor_pos) = window.cursor_position() else { return };
+
+    // Convert screen position to world position
+    let window_size = Vec2::new(window.width(), window.height());
+    let ndc = (cursor_pos / window_size) * 2.0 - Vec2::ONE;
+    let world_pos = Vec2::new(
+        cam_transform.translation.x + ndc.x * window_size.x * 0.5 * projection.scale,
+        cam_transform.translation.y - ndc.y * window_size.y * 0.5 * projection.scale,
+    );
+
+    // Find nearest organism to click
+    let mut nearest = None;
+    let mut nearest_dist = f32::MAX;
+    let click_radius = 5.0 * projection.scale;
+
+    for (entity, pos, body_size) in &organisms {
+        let dist = (pos.0 - world_pos).length();
+        let hit_radius = (body_size.0 * 2.0).max(click_radius);
+        if dist < hit_radius && dist < nearest_dist {
+            nearest_dist = dist;
+            nearest = Some(entity);
+        }
+    }
+
+    // Remove old selection ring
+    for ring in &existing_rings {
+        commands.entity(ring).despawn();
+    }
+
+    if let Some(entity) = nearest {
+        selected.entity = Some(entity);
+
+        // Add selection ring
+        let mesh = meshes.add(Circle::new(1.0));
+        let material = materials.add(ColorMaterial::from(Color::srgba(1.0, 1.0, 0.0, 0.5)));
+        if let Ok((_, pos, body_size)) = organisms.get(entity) {
+            commands.spawn((
+                Mesh2d(mesh),
+                MeshMaterial2d(material),
+                Transform::from_xyz(pos.0.x, pos.0.y, 0.9)
+                    .with_scale(Vec3::splat(body_size.0 * 3.5)),
+                SelectionRing,
+            ));
+        }
+    } else {
+        selected.entity = None;
+    }
+}
+
 fn spawn_terrain_sprites(
     mut commands: Commands,
     tile_map: Option<Res<TileMap>>,
@@ -78,7 +197,6 @@ fn spawn_terrain_sprites(
     mut materials: ResMut<Assets<ColorMaterial>>,
     existing: Query<&TerrainRendered>,
 ) {
-    // Only render once
     if !existing.is_empty() {
         return;
     }
@@ -87,18 +205,15 @@ fn spawn_terrain_sprites(
         return;
     };
 
-    // Render terrain in chunks for performance (4x4 tile blocks)
     let chunk_size = 4u32;
     let tile_mesh = meshes.add(Rectangle::new(chunk_size as f32, chunk_size as f32));
 
     for cy in (0..tile_map.height).step_by(chunk_size as usize) {
         for cx in (0..tile_map.width).step_by(chunk_size as usize) {
-            // Sample center tile for color
             let sample_x = (cx + chunk_size / 2).min(tile_map.width - 1);
             let sample_y = (cy + chunk_size / 2).min(tile_map.height - 1);
             let tile = tile_map.get(sample_x, sample_y);
 
-            // Modulate color by vegetation density
             let base = tile.terrain.base_color();
             let base_rgba = base.to_srgba();
             let veg = tile.vegetation_density;
@@ -159,7 +274,7 @@ fn sync_organism_transforms(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     organisms_without_sprite: Query<
-        (Entity, &Position, &Genome, &BodyPlan),
+        (Entity, &Position, &Genome, &BodyPlan, &SpeciesId),
         (With<Organism>, Without<OrganismSprite>),
     >,
     mut organisms_with_sprite: Query<
@@ -168,20 +283,19 @@ fn sync_organism_transforms(
     >,
     camera: Query<&OrthographicProjection, With<MainCamera>>,
     config: Res<SimConfig>,
+    mut species_colors: ResMut<SpeciesColors>,
+    selected: Res<SelectedOrganism>,
+    mut selection_rings: Query<&mut Transform, (With<SelectionRing>, Without<Organism>)>,
 ) {
     let zoom_scale = camera
         .get_single()
         .map(|p| p.scale)
         .unwrap_or(1.0);
 
-    // Determine LOD level
-    let use_detailed = zoom_scale < 0.8;
+    let use_detailed = zoom_scale < 0.3;
 
-    // Spawn sprites for new organisms
-    for (entity, pos, genome, body_plan) in &organisms_without_sprite {
+    for (entity, pos, genome, body_plan, species_id) in &organisms_without_sprite {
         if use_detailed && !body_plan.parts.is_empty() {
-            // Detailed view: render body parts
-            // Spawn organism as parent entity with first part
             let first = &body_plan.parts[0];
             let mesh = segment_mesh(first.segment_type, first.size, &mut meshes);
             let color = segment_color(first.segment_type, genome);
@@ -194,7 +308,6 @@ fn sync_organism_transforms(
                 OrganismSprite,
             ));
 
-            // Spawn child entities for additional body parts
             for part in body_plan.parts.iter().skip(1) {
                 let mesh = segment_mesh(part.segment_type, part.size, &mut meshes);
                 let color = segment_color(part.segment_type, genome);
@@ -212,10 +325,15 @@ fn sync_organism_transforms(
                 commands.entity(entity).add_child(child);
             }
         } else {
-            // Simple view: colored circle
-            let r = (genome.speed_factor / 3.0).min(1.0);
-            let g = (genome.photosynthesis_rate * 2.0 + genome.aquatic_adaptation * 0.5).min(1.0);
-            let b = (genome.aquatic_adaptation).min(1.0);
+            // Species colour with trait modulation
+            let base_color = species_colors.get_or_create(species_id.0);
+            let base_rgba = base_color.to_srgba();
+
+            // Tint green for photosynthesizers
+            let photo = genome.photosynthesis_rate;
+            let r = (base_rgba.red * (1.0 - photo * 0.5)).max(0.0);
+            let g = (base_rgba.green + photo * 0.3).min(1.0);
+            let b = base_rgba.blue * (1.0 - photo * 0.3);
 
             let mesh = meshes.add(Circle::new(1.0));
             let material = materials.add(ColorMaterial::from(Color::srgb(r, g, b)));
@@ -239,9 +357,19 @@ fn sync_organism_transforms(
         let energy_factor = (energy.0 / config.max_organism_energy).clamp(0.5, 1.0);
         transform.scale = Vec3::splat(body_size.0 * 2.0 * energy_factor);
     }
+
+    // Update selection ring position
+    if let Some(sel_entity) = selected.entity {
+        if let Ok((pos, _, body_size, _)) = organisms_with_sprite.get(sel_entity) {
+            for mut ring_transform in &mut selection_rings {
+                ring_transform.translation.x = pos.0.x;
+                ring_transform.translation.y = pos.0.y;
+                ring_transform.scale = Vec3::splat(body_size.0 * 3.5);
+            }
+        }
+    }
 }
 
-/// Sync food Position to Transform
 fn sync_food_transforms(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -262,14 +390,12 @@ fn sync_food_transforms(
     }
 }
 
-/// Track mouse drag state
 #[derive(Resource, Default)]
 pub struct CameraDragState {
     dragging: bool,
     last_pos: Vec2,
 }
 
-/// Camera: WASD/arrows to pan, +/- or Q/E to zoom, scroll wheel to zoom, middle/right-click drag to pan
 fn camera_control_system(
     keys: Res<ButtonInput<KeyCode>>,
     mouse_buttons: Res<ButtonInput<MouseButton>>,
@@ -285,7 +411,6 @@ fn camera_control_system(
 
     let dt = time.delta_secs();
 
-    // Keyboard pan (WASD / arrows)
     let speed = 200.0 * projection.scale * dt;
     if keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp) {
         transform.translation.y += speed;
@@ -300,7 +425,6 @@ fn camera_control_system(
         transform.translation.x += speed;
     }
 
-    // Keyboard zoom (Q/E or +/-)
     let zoom_speed = 2.0 * dt;
     if keys.pressed(KeyCode::KeyE) || keys.pressed(KeyCode::Equal) {
         projection.scale *= 1.0 - zoom_speed;
@@ -309,7 +433,6 @@ fn camera_control_system(
         projection.scale *= 1.0 + zoom_speed;
     }
 
-    // Scroll wheel zoom — multiplicative with small factor for smooth feel
     for event in scroll_events.read() {
         let zoom_factor = 1.0 + (-event.y * 0.02).clamp(-0.15, 0.15);
         projection.scale *= zoom_factor;
@@ -317,7 +440,6 @@ fn camera_control_system(
 
     projection.scale = projection.scale.clamp(0.02, 15.0);
 
-    // Mouse drag to pan (middle or right button, or left+shift)
     let dragging = mouse_buttons.pressed(MouseButton::Middle)
         || mouse_buttons.pressed(MouseButton::Right)
         || (mouse_buttons.pressed(MouseButton::Left) && keys.pressed(KeyCode::ShiftLeft));
@@ -331,7 +453,6 @@ fn camera_control_system(
         if let Some(cursor_pos) = latest_cursor_pos {
             if drag_state.dragging {
                 let delta = cursor_pos - drag_state.last_pos;
-                // Convert screen pixels to world units
                 transform.translation.x -= delta.x * projection.scale;
                 transform.translation.y += delta.y * projection.scale;
             }
@@ -350,6 +471,7 @@ fn update_stats_text(
     stats: Res<SimStats>,
     organisms: Query<&Organism>,
     food: Query<&Food>,
+    speed: Res<SimSpeed>,
     mut text_query: Query<&mut Text, With<StatsText>>,
 ) {
     let Ok(mut text) = text_query.get_single_mut() else {
@@ -359,8 +481,91 @@ fn update_stats_text(
     let org_count = organisms.iter().len();
     let food_count = food.iter().len();
 
+    let speed_str = if speed.paused {
+        "PAUSED".to_string()
+    } else if speed.multiplier == 1.0 {
+        "1x".to_string()
+    } else if speed.multiplier < 1.0 {
+        format!("{:.2}x", speed.multiplier)
+    } else {
+        format!("{}x", speed.multiplier as u32)
+    };
+
     **text = format!(
-        "Organisms: {}\nFood: {}\nBirths: {}\nDeaths: {}",
-        org_count, food_count, stats.total_births, stats.total_deaths,
+        "Speed: {}  [Space=pause, [/]=speed]\n\
+         Organisms: {}  |  Species: {}\n\
+         Food: {}\n\
+         Births: {}  |  Deaths: {}\n\
+         \n\
+         Click organism to inspect",
+        speed_str, org_count, stats.species_count,
+        food_count, stats.total_births, stats.total_deaths,
+    );
+}
+
+/// Show details about selected organism
+fn update_inspect_panel(
+    selected: Res<SelectedOrganism>,
+    organisms: Query<(&Energy, &BodySize, &Genome, &SpeciesId, &Position), With<Organism>>,
+    mut text_query: Query<&mut Text, With<InspectPanel>>,
+    tile_map: Option<Res<TileMap>>,
+) {
+    let Ok(mut text) = text_query.get_single_mut() else {
+        return;
+    };
+
+    let Some(entity) = selected.entity else {
+        **text = String::new();
+        return;
+    };
+
+    let Ok((energy, body_size, genome, species, pos)) = organisms.get(entity) else {
+        **text = "Selected organism died".to_string();
+        return;
+    };
+
+    let terrain_name = if let Some(tm) = &tile_map {
+        let tile = tm.tile_at_pos(pos.0);
+        format!("{:?}", tile.terrain)
+    } else {
+        "?".to_string()
+    };
+
+    let body_parts: Vec<String> = genome
+        .body_segments
+        .iter()
+        .map(|s| format!("{:?}", s.segment_type))
+        .collect();
+
+    **text = format!(
+        "--- ORGANISM ---\n\
+         Species: {}\n\
+         Energy: {:.1} / {:.0}\n\
+         Position: ({:.0}, {:.0})\n\
+         Terrain: {}\n\
+         \n\
+         --- BODY ---\n\
+         Size: {:.2}\n\
+         Speed: {:.2}\n\
+         Sense range: {:.1}\n\
+         Aquatic: {:.0}%\n\
+         Photosynthesis: {:.0}%\n\
+         Parts: {}\n\
+         \n\
+         --- BRAIN ---\n\
+         Neurons: {}\n\
+         Connections: {}\n",
+        species.0,
+        energy.0, 100.0,
+        pos.0.x, pos.0.y,
+        terrain_name,
+        body_size.0,
+        genome.speed_factor,
+        genome.effective_sense_range(),
+        genome.aquatic_adaptation * 100.0,
+        genome.photosynthesis_rate * 100.0,
+        body_parts.join(", "),
+        genome.neurons.len(),
+        genome.connections.iter().filter(|c| c.enabled).count(),
     );
 }
