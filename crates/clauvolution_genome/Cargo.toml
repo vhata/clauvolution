@@ -1,0 +1,10 @@
+[package]
+name = "clauvolution_genome"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bevy = { workspace = true }
+rand = { workspace = true }
+rand_distr = { workspace = true }
+clauvolution_core = { path = "../clauvolution_core" }

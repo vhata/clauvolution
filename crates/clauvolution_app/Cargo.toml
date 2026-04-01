@@ -1,0 +1,18 @@
+[package]
+name = "clauvolution_app"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "clauvolution"
+path = "src/main.rs"
+
+[dependencies]
+bevy = { workspace = true }
+rand = { workspace = true }
+clauvolution_core = { path = "../clauvolution_core" }
+clauvolution_genome = { path = "../clauvolution_genome" }
+clauvolution_brain = { path = "../clauvolution_brain" }
+clauvolution_world = { path = "../clauvolution_world" }
+clauvolution_sim = { path = "../clauvolution_sim" }
+clauvolution_render = { path = "../clauvolution_render" }

@@ -1,0 +1,13 @@
+[package]
+name = "clauvolution_sim"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bevy = { workspace = true }
+rand = { workspace = true }
+rand_distr = { workspace = true }
+clauvolution_core = { path = "../clauvolution_core" }
+clauvolution_genome = { path = "../clauvolution_genome" }
+clauvolution_brain = { path = "../clauvolution_brain" }
+clauvolution_world = { path = "../clauvolution_world" }
