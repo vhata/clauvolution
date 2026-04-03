@@ -180,6 +180,22 @@ pub struct Velocity(pub Vec2);
 #[derive(Component, Clone)]
 pub struct BrainMemory(pub [f32; 3]);
 
+/// Tracks the last notable action for visual feedback
+#[derive(Component, Clone, Default)]
+pub struct ActionFlash {
+    pub action: ActionType,
+    pub timer: f32, // counts down from 0.3 to 0
+}
+
+#[derive(Clone, Default, PartialEq)]
+pub enum ActionType {
+    #[default]
+    None,
+    Eating,
+    Attacking,
+    Reproducing,
+}
+
 #[derive(Component)]
 pub struct BodySize(pub f32);
 

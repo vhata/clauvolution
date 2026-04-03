@@ -265,7 +265,7 @@ fn action_system(
     config: Res<SimConfig>,
     tile_map: Res<TileMap>,
     mut organisms: Query<
-        (&mut Position, &mut Energy, &mut BrainMemory, &BrainOutput, &Genome, &BodySize),
+        (&mut Position, &mut Energy, &mut BrainMemory, &mut ActionFlash, &BrainOutput, &Genome, &BodySize),
         (With<Organism>, Without<Food>),
     >,
     food_query: Query<(Entity, &Position, &FoodEnergy), (With<Food>, Without<Organism>)>,
@@ -278,7 +278,10 @@ fn action_system(
 
     let mut eaten_food: Vec<Entity> = Vec::new();
 
-    for (mut pos, mut energy, mut memory, output, genome, body_size) in &mut organisms {
+    for (mut pos, mut energy, mut memory, mut flash, output, genome, body_size) in &mut organisms {
+        // Tick down flash timer
+        flash.timer = (flash.timer - 0.033).max(0.0);
+        if flash.timer <= 0.0 { flash.action = ActionType::None; }
         // Update memory
         memory.0 = output.memory_out;
 
@@ -321,6 +324,8 @@ fn action_system(
                 if dist < eat_range {
                     energy.0 = (energy.0 + food_energy * mouth_bonus).min(config.max_organism_energy);
                     eaten_food.push(food_entity);
+                    flash.action = ActionType::Eating;
+                    flash.timer = 0.3;
                     break;
                 }
             }
@@ -337,7 +342,7 @@ fn predation_system(
     spatial_hash: Res<SpatialHash>,
     config: Res<SimConfig>,
     mut organisms: Query<
-        (Entity, &Position, &mut Energy, &mut Health, &Genome, &BodySize, &BrainOutput),
+        (Entity, &Position, &mut Energy, &mut Health, &mut ActionFlash, &Genome, &BodySize, &BrainOutput),
         With<Organism>,
     >,
     _commands: Commands,
@@ -346,8 +351,8 @@ fn predation_system(
     // Collect attack intents
     let attackers: Vec<(Entity, Vec2, f32, f32, f32)> = organisms
         .iter()
-        .filter(|(_, _, _, _, _, _, output)| output.attack > 0.5)
-        .map(|(e, pos, _, _, genome, body_size, _)| {
+        .filter(|(_, _, _, _, _, _, _, output)| output.attack > 0.5)
+        .map(|(e, pos, _, _, _, genome, body_size, _)| {
             let attack_str = genome.claw_power() * body_size.0;
             let attack_range = body_size.0 * 4.0;
             (e, pos.0, attack_str, attack_range, body_size.0)
@@ -365,7 +370,7 @@ fn predation_system(
                 continue;
             }
 
-            if let Ok((_, target_pos, target_energy, _, target_genome, target_body_size, _)) =
+            if let Ok((_, target_pos, target_energy, _, _, target_genome, target_body_size, _)) =
                 organisms.get(target_entity)
             {
                 let dist = (target_pos.0 - *attacker_pos).length();
@@ -388,10 +393,12 @@ fn predation_system(
     }
 
     for (killer, victim, energy_gained) in kills {
-        if let Ok((_, _, mut killer_energy, _, _, _, _)) = organisms.get_mut(killer) {
+        if let Ok((_, _, mut killer_energy, _, mut killer_flash, _, _, _)) = organisms.get_mut(killer) {
             killer_energy.0 = (killer_energy.0 + energy_gained).min(config.max_organism_energy);
+            killer_flash.action = ActionType::Attacking;
+            killer_flash.timer = 0.3;
         }
-        if let Ok((_, _, mut victim_energy, mut victim_health, _, _, _)) = organisms.get_mut(victim) {
+        if let Ok((_, _, mut victim_energy, mut victim_health, _, _, _, _)) = organisms.get_mut(victim) {
             victim_energy.0 = 0.0;
             victim_health.0 = 0.0;
         }
@@ -498,7 +505,7 @@ fn reproduction_system(
     mut innovation: ResMut<InnovationCounter>,
     spatial_hash: Res<SpatialHash>,
     mut organisms: Query<
-        (Entity, &Position, &mut Energy, &Genome, &BrainOutput, &BodySize, &SpeciesId, &Generation),
+        (Entity, &Position, &mut Energy, &mut ActionFlash, &Genome, &BrainOutput, &BodySize, &SpeciesId, &Generation),
         With<Organism>,
     >,
     mut stats: ResMut<SimStats>,
@@ -508,8 +515,8 @@ fn reproduction_system(
     // Collect potential mate data upfront to avoid query conflicts
     let mate_candidates: Vec<(Entity, Vec2, f32, Genome, u64)> = organisms
         .iter()
-        .filter(|(_, _, _, _, output, _, _, _)| output.reproduce > 0.5)
-        .map(|(e, pos, energy, genome, _, _, species, _)| {
+        .filter(|(_, _, _, _, _, output, _, _, _)| output.reproduce > 0.5)
+        .map(|(e, pos, energy, _, genome, _, _, species, _)| {
             (e, pos.0, energy.0, genome.clone(), species.0)
         })
         .collect();
@@ -519,7 +526,7 @@ fn reproduction_system(
     let max_pop = 1200usize;
     let mut already_mated: Vec<Entity> = Vec::new();
 
-    for (entity, pos, mut energy, genome, output, body_size, species, generation) in &mut organisms {
+    for (entity, pos, mut energy, mut flash, genome, output, body_size, species, generation) in &mut organisms {
         if current_pop + new_organisms.len() >= max_pop {
             break;
         }
@@ -531,6 +538,8 @@ fn reproduction_system(
         let repro_threshold = config.reproduction_energy_threshold * (0.5 + body_size.0 * 0.5);
         if output.reproduce > 0.5 && energy.0 > repro_threshold {
             energy.0 -= repro_cost;
+            flash.action = ActionType::Reproducing;
+            flash.timer = 0.3;
 
             // Try to find a mate from pre-collected candidates
             let mate_range = body_size.0 * 8.0;
@@ -590,6 +599,7 @@ fn reproduction_system(
             SpeciesId(parent_species),
             BrainOutput::default(),
             BrainMemory([0.0; NUM_MEMORY]),
+            ActionFlash::default(),
             brain,
             child_genome,
         ));
@@ -749,6 +759,7 @@ pub fn spawn_initial_population(
             SpeciesId(0),
             BrainOutput::default(),
             BrainMemory([0.0; NUM_MEMORY]),
+            ActionFlash::default(),
             brain,
             genome,
         ));

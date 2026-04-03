@@ -380,7 +380,7 @@ fn sync_organism_transforms(
         (With<Organism>, Without<OrganismSprite>),
     >,
     mut organisms_with_sprite: Query<
-        (&Position, &Energy, &BodySize, &mut Transform),
+        (&Position, &Energy, &BodySize, &ActionFlash, &mut Transform),
         (With<Organism>, With<OrganismSprite>),
     >,
     camera: Query<&OrthographicProjection, With<MainCamera>>,
@@ -482,18 +482,23 @@ fn sync_organism_transforms(
     }
 
     // Update existing transforms (preserve z-level set at spawn)
-    for (pos, energy, body_size, mut transform) in &mut organisms_with_sprite {
+    for (pos, energy, body_size, flash, mut transform) in &mut organisms_with_sprite {
         transform.translation.x = pos.0.x;
         transform.translation.y = pos.0.y;
-        // z preserved from spawn — photosynthesizers at 0.3, active at 1.0
 
         let energy_factor = (energy.0 / config.max_organism_energy).clamp(0.5, 1.0);
-        transform.scale = Vec3::splat(body_size.0 * 2.0 * energy_factor);
+        // Flash pulse — organisms briefly grow when eating/attacking/reproducing
+        let flash_pulse = if flash.timer > 0.0 {
+            1.0 + flash.timer * 1.5 // up to 1.45x size
+        } else {
+            1.0
+        };
+        transform.scale = Vec3::splat(body_size.0 * 2.0 * energy_factor * flash_pulse);
     }
 
     // Update selection ring position
     if let Some(sel_entity) = selected.entity {
-        if let Ok((pos, _, body_size, _)) = organisms_with_sprite.get(sel_entity) {
+        if let Ok((pos, _, body_size, _, _)) = organisms_with_sprite.get(sel_entity) {
             for mut ring_transform in &mut selection_rings {
                 ring_transform.translation.x = pos.0.x;
                 ring_transform.translation.y = pos.0.y;
