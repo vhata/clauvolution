@@ -357,7 +357,7 @@ fn sync_organism_transforms(
             let mesh = segment_mesh(first.segment_type, first.size, &mut meshes);
             let base_color = segment_color(first.segment_type, genome);
             let rgba = base_color.to_srgba();
-            let alpha = if is_plant { 0.65 } else { 1.0 };
+            let alpha = 1.0; // all opaque now
             let color = Color::srgba(rgba.red, rgba.green, rgba.blue, alpha);
             let material = materials.add(ColorMaterial::from(color));
 
@@ -394,21 +394,20 @@ fn sync_organism_transforms(
             let predator = genome.claw_power().min(1.0);
             let is_plant = photo > 0.2 && genome.has_photo_surface();
 
-            // Photosynthesizers shift green, predators shift red, foragers keep base
-            let r = (base_rgba.red * (1.0 - photo * 0.6) + predator * 0.4).clamp(0.1, 1.0);
-            let g = (base_rgba.green * (1.0 - predator * 0.4) + photo * 0.4).clamp(0.1, 1.0);
-            let b = (base_rgba.blue * (1.0 - photo * 0.3 - predator * 0.3)).clamp(0.05, 1.0);
-
-            // Plants: subtle, transparent, low z-level (ground cover)
-            // Active organisms: opaque, higher z-level, with outline
-            let (alpha, z_level, scale_mult) = if is_plant {
-                (0.65, 0.3, 1.8) // semi-transparent, behind, larger (ground cover)
+            let (r, g, b, z_level, scale_mult) = if is_plant {
+                // Plants: bright yellow-green, distinct from terrain, behind active organisms
+                let bright = 0.5 + photo * 0.5;
+                (0.5 * bright, 0.9 * bright, 0.15, 0.3, 1.5)
             } else {
-                (1.0, 1.0, 2.0) // fully visible
+                // Active organisms: species colour with predator red shift
+                let r = (base_rgba.red * (1.0 - photo * 0.6) + predator * 0.4).clamp(0.1, 1.0);
+                let g = (base_rgba.green * (1.0 - predator * 0.4) + photo * 0.4).clamp(0.1, 1.0);
+                let b = (base_rgba.blue * (1.0 - photo * 0.3 - predator * 0.3)).clamp(0.05, 1.0);
+                (r, g, b, 1.0, 2.0)
             };
 
             let mesh = shared_meshes.circle.clone().unwrap();
-            let material = materials.add(ColorMaterial::from(Color::srgba(r, g, b, alpha)));
+            let material = materials.add(ColorMaterial::from(Color::srgb(r, g, b)));
 
             commands.entity(entity).insert((
                 Mesh2d(mesh.clone()),
