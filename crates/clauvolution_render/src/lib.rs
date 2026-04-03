@@ -681,7 +681,7 @@ fn update_graph(
     }
 
     let width = 60usize; // characters wide
-    let height = 8usize; // rows tall
+    let _height = 8usize;
     let blocks = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 
     let snaps = &history.snapshots;
@@ -689,41 +689,68 @@ fn update_graph(
     let start = snaps.len() - display_count;
     let display = &snaps[start..];
 
-    let org_line = sparkline(display, |s| s.organisms as f32, &blocks, height);
-    let food_line = sparkline(display, |s| s.food as f32, &blocks, height);
-    let species_line = sparkline(display, |s| s.species as f32, &blocks, height);
-    let births_line = sparkline(display, |s| s.births_per_sec as f32, &blocks, height);
-    let deaths_line = sparkline(display, |s| s.deaths_per_sec as f32, &blocks, height);
+    let (org_line, org_range) = sparkline_ranged(display, |s| s.organisms as f32, &blocks);
+    let (food_line, food_range) = sparkline_ranged(display, |s| s.food as f32, &blocks);
+    let (species_line, sp_range) = sparkline_ranged(display, |s| s.species as f32, &blocks);
+    // Births/deaths use zero-anchored since they're rates
+    let (births_line, _) = sparkline_zero(display, |s| s.births_per_sec as f32, &blocks);
+    let (deaths_line, _) = sparkline_zero(display, |s| s.deaths_per_sec as f32, &blocks);
 
     let latest = snaps.last().unwrap();
 
     **text = format!(
-        "--- Population ({display_count} samples, G=toggle) ---\n\
-         Organisms {now_org:>4}: {org_line}\n\
-         Food      {now_food:>4}: {food_line}\n\
-         Species   {now_sp:>4}: {species_line}\n\
+        "--- Population ({display_count}s, G=toggle) ---\n\
+         Organisms {now:>4} ({lo}-{hi}): {line}\n\
+         Food      {now_f:>4} ({flo}-{fhi}): {fline}\n\
+         Species   {now_s:>4} ({slo}-{shi}): {sline}\n\
          Births/s  {now_b:>4}: {births_line}\n\
          Deaths/s  {now_d:>4}: {deaths_line}",
-        now_org = latest.organisms,
-        now_food = latest.food,
-        now_sp = latest.species,
+        now = latest.organisms,
+        lo = org_range.0, hi = org_range.1, line = org_line,
+        now_f = latest.food,
+        flo = food_range.0, fhi = food_range.1, fline = food_line,
+        now_s = latest.species,
+        slo = sp_range.0, shi = sp_range.1, sline = species_line,
         now_b = latest.births_per_sec,
         now_d = latest.deaths_per_sec,
     );
 }
 
-fn sparkline(data: &[PopSnapshot], extract: impl Fn(&PopSnapshot) -> f32, blocks: &[char; 8], _height: usize) -> String {
+/// Min-max normalized sparkline — shows relative variation within the data range.
+/// Good for levels (population, food) where you want to see wobble.
+fn sparkline_ranged(data: &[PopSnapshot], extract: impl Fn(&PopSnapshot) -> f32, blocks: &[char; 8]) -> (String, (u32, u32)) {
     if data.is_empty() {
-        return String::new();
+        return (String::new(), (0, 0));
     }
 
     let values: Vec<f32> = data.iter().map(&extract).collect();
-    // Anchor at zero so the graph shows absolute scale, not just relative wobble
+    let min = values.iter().cloned().fold(f32::MAX, f32::min);
+    let max = values.iter().cloned().fold(f32::MIN, f32::max);
+    let range = (max - min).max(1.0);
+
+    let line: String = values.iter().map(|&v| {
+        let normalized = ((v - min) / range).clamp(0.0, 1.0);
+        let idx = (normalized * 7.0) as usize;
+        blocks[idx.min(7)]
+    }).collect();
+
+    (line, (min as u32, max as u32))
+}
+
+/// Zero-anchored sparkline — good for rates (births/s, deaths/s) that spike from zero.
+fn sparkline_zero(data: &[PopSnapshot], extract: impl Fn(&PopSnapshot) -> f32, blocks: &[char; 8]) -> (String, (u32, u32)) {
+    if data.is_empty() {
+        return (String::new(), (0, 0));
+    }
+
+    let values: Vec<f32> = data.iter().map(&extract).collect();
     let max = values.iter().cloned().fold(1.0f32, f32::max);
 
-    values.iter().map(|&v| {
+    let line: String = values.iter().map(|&v| {
         let normalized = (v / max).clamp(0.0, 1.0);
         let idx = (normalized * 7.0) as usize;
         blocks[idx.min(7)]
-    }).collect()
+    }).collect();
+
+    (line, (0, max as u32))
 }
