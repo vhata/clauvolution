@@ -553,7 +553,7 @@ fn camera_control_system(
 
 fn update_stats_text(
     stats: Res<SimStats>,
-    organisms: Query<&Organism>,
+    organisms: Query<&Genome, With<Organism>>,
     food: Query<&Food>,
     speed: Res<SimSpeed>,
     mut text_query: Query<&mut Text, With<StatsText>>,
@@ -564,6 +564,19 @@ fn update_stats_text(
 
     let org_count = organisms.iter().len();
     let food_count = food.iter().len();
+
+    let mut photosynthesizers = 0u32;
+    let mut predators = 0u32;
+    let mut foragers = 0u32;
+    for genome in &organisms {
+        if genome.photosynthesis_rate > 0.2 && genome.has_photo_surface() {
+            photosynthesizers += 1;
+        } else if genome.claw_power() > 0.5 {
+            predators += 1;
+        } else {
+            foragers += 1;
+        }
+    }
 
     let speed_str = if speed.paused {
         "PAUSED".to_string()
@@ -578,12 +591,14 @@ fn update_stats_text(
     **text = format!(
         "Speed: {}  [Space=pause, [/]=speed]\n\
          Organisms: {}  |  Species: {}\n\
+         Plants: {}  Predators: {}  Foragers: {}\n\
          Food: {}  |  Generation: {}\n\
          Births: {}  |  Deaths: {}\n\
          \n\
          X=asteroid  I=ice age  V=volcano  G=graph\n\
          Click organism to inspect",
         speed_str, org_count, stats.species_count,
+        photosynthesizers, predators, foragers,
         food_count, stats.max_generation,
         stats.total_births, stats.total_deaths,
     );
