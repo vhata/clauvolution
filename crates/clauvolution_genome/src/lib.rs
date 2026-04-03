@@ -385,7 +385,7 @@ impl Genome {
         // Mutate body traits
         if rng.gen::<f32>() < rate {
             self.body_size += normal.sample(rng) as f32 * 0.2;
-            self.body_size = self.body_size.clamp(0.2, 3.0);
+            self.body_size = self.body_size.clamp(0.3, 2.0);
         }
         if rng.gen::<f32>() < rate {
             self.speed_factor += normal.sample(rng) as f32 * 0.2;

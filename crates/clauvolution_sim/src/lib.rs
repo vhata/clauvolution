@@ -373,7 +373,7 @@ fn predation_system(
                 if damage > 0.1 {
                     // Size advantage matters — can't easily eat things bigger than you
                     if *attacker_size > target_body_size.0 * 0.6 {
-                        let energy_gained = target_body_size.0 * 15.0;
+                        let energy_gained = target_body_size.0 * 8.0;
                         kills.push((*attacker_entity, target_entity, energy_gained));
                         break; // Only one kill per tick
                     }
@@ -437,20 +437,19 @@ fn metabolism_system(
     for (mut energy, mut health, mut age, body_size, genome) in &mut organisms {
         age.0 += 1;
 
-        // Minimum base cost prevents tiny organisms from cheating the energy economy
+        // Body size costs quadratically — being big is VERY expensive
         let effective_size = body_size.0.max(0.5);
-        let mut cost = config.base_metabolism_cost * effective_size * (1.0 + genome.speed_factor * 0.2);
-        // Each body part has a maintenance cost — more parts = more expensive
-        cost += genome.body_segments.len() as f32 * 0.01;
+        let size_cost = effective_size * effective_size;
+        let mut cost = config.base_metabolism_cost * size_cost * (1.0 + genome.speed_factor * 0.2);
+        // Each body part has a maintenance cost scaled by body size
+        cost += genome.body_segments.len() as f32 * 0.015 * effective_size;
         cost += genome.neurons.len() as f32 * 0.001;
-        // Armor is heavy — slows you down AND costs energy. Quadratic scaling.
+        // Armor, claws, speed all cost quadratically
         let armor = genome.armor_value();
-        cost += armor * armor * 0.03;
-        // Claws need maintenance too
+        cost += armor * armor * 0.05;
         let claws = genome.claw_power();
-        cost += claws * claws * 0.02;
-        // Speed also costs quadratically — being fast is expensive
-        cost += genome.speed_factor * genome.speed_factor * 0.01;
+        cost += claws * claws * 0.03;
+        cost += genome.speed_factor * genome.speed_factor * 0.015;
 
         // Aging: metabolism cost increases after maturity (age 500 ticks ~ 17 seconds)
         let age_factor = if age.0 > 500 {
@@ -513,7 +512,7 @@ fn reproduction_system(
 
     let mut new_organisms: Vec<(Vec2, Genome, u64, u32)> = Vec::new();
     let current_pop = organisms.iter().len();
-    let max_pop = 2000usize;
+    let max_pop = 1200usize;
     let mut already_mated: Vec<Entity> = Vec::new();
 
     for (entity, pos, mut energy, genome, output, body_size, species, generation) in &mut organisms {
