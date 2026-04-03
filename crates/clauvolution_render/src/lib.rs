@@ -394,7 +394,7 @@ fn sync_organism_transforms(
         .map(|p| p.scale)
         .unwrap_or(1.0);
 
-    let use_detailed = zoom_scale < 0.3;
+    let use_detailed = zoom_scale < 0.6;
 
     for (entity, pos, genome, body_plan, species_id) in &organisms_without_sprite {
         let is_plant = genome.photosynthesis_rate > 0.2 && genome.has_photo_surface();
