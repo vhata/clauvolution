@@ -348,7 +348,8 @@ fn predation_system(
         })
         .collect();
 
-    let mut kills: Vec<(Entity, Entity, f32)> = Vec::new(); // (killer, victim, energy_gained)
+    // (killer, victim, victim_energy) — energy transfer computed at kill time
+    let mut kills: Vec<(Entity, Entity, f32)> = Vec::new();
 
     for (attacker_entity, attacker_pos, attack_str, attack_range, attacker_size) in &attackers {
         let nearby = spatial_hash.query_radius(*attacker_pos, *attack_range);
@@ -358,7 +359,7 @@ fn predation_system(
                 continue;
             }
 
-            if let Ok((_, target_pos, _, _, target_genome, target_body_size, _)) =
+            if let Ok((_, target_pos, target_energy, _, target_genome, target_body_size, _)) =
                 organisms.get(target_entity)
             {
                 let dist = (target_pos.0 - *attacker_pos).length();
@@ -366,23 +367,20 @@ fn predation_system(
                     continue;
                 }
 
-                // Attack succeeds if attacker is strong enough relative to target defense
                 let defense = target_genome.armor_value() * target_body_size.0;
                 let damage = (attack_str - defense * 0.5).max(0.0);
 
-                if damage > 0.1 {
-                    // Size advantage matters — can't easily eat things bigger than you
-                    if *attacker_size > target_body_size.0 * 0.6 {
-                        let energy_gained = target_body_size.0 * 8.0;
-                        kills.push((*attacker_entity, target_entity, energy_gained));
-                        break; // Only one kill per tick
-                    }
+                if damage > 0.1 && *attacker_size > target_body_size.0 * 0.6 {
+                    // Energy pyramid: predator gets 10% of prey's actual stored energy.
+                    // This is thermodynamics — most energy is lost as heat.
+                    let energy_gained = target_energy.0 * 0.1;
+                    kills.push((*attacker_entity, target_entity, energy_gained));
+                    break;
                 }
             }
         }
     }
 
-    // Apply kills — set victim energy to 0, death_system handles despawn
     for (killer, victim, energy_gained) in kills {
         if let Ok((_, _, mut killer_energy, _, _, _, _)) = organisms.get_mut(killer) {
             killer_energy.0 = (killer_energy.0 + energy_gained).min(config.max_organism_energy);
