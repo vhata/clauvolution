@@ -420,7 +420,7 @@ impl Genome {
         }
 
         // Add a body segment (probability 0.03)
-        if rng.gen::<f32>() < 0.03 && self.body_segments.len() < 12 {
+        if rng.gen::<f32>() < 0.03 && self.body_segments.len() < 8 {
             self.body_segments.push(BodySegmentGene::random(rng));
         }
 

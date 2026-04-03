@@ -277,7 +277,9 @@ fn action_system(
         memory.0 = output.memory_out;
 
         let move_dir = Vec2::new(output.move_x, output.move_y);
-        let speed = genome.speed_factor * 2.0 / body_size.0.sqrt();
+        // Armor slows you down — heavy organisms are slower
+        let armor_drag = 1.0 / (1.0 + genome.armor_value() * 0.3);
+        let speed = genome.speed_factor * 2.0 / body_size.0.sqrt() * armor_drag;
         let movement = move_dir * speed;
 
         let tile = tile_map.tile_at_pos(pos.0);
@@ -438,10 +440,17 @@ fn metabolism_system(
         // Minimum base cost prevents tiny organisms from cheating the energy economy
         let effective_size = body_size.0.max(0.5);
         let mut cost = config.base_metabolism_cost * effective_size * (1.0 + genome.speed_factor * 0.2);
-        cost += genome.body_segments.len() as f32 * 0.005;
+        // Each body part has a maintenance cost — more parts = more expensive
+        cost += genome.body_segments.len() as f32 * 0.01;
         cost += genome.neurons.len() as f32 * 0.001;
-        cost += genome.armor_value() * 0.01;
-        cost += genome.claw_power() * 0.008;
+        // Armor is heavy — slows you down AND costs energy. Quadratic scaling.
+        let armor = genome.armor_value();
+        cost += armor * armor * 0.03;
+        // Claws need maintenance too
+        let claws = genome.claw_power();
+        cost += claws * claws * 0.02;
+        // Speed also costs quadratically — being fast is expensive
+        cost += genome.speed_factor * genome.speed_factor * 0.01;
 
         // Aging: metabolism cost increases after maturity (age 500 ticks ~ 17 seconds)
         let age_factor = if age.0 > 500 {

@@ -689,26 +689,26 @@ fn update_graph(
     let start = snaps.len() - display_count;
     let display = &snaps[start..];
 
-    // Build sparkline for organism count
     let org_line = sparkline(display, |s| s.organisms as f32, &blocks, height);
     let food_line = sparkline(display, |s| s.food as f32, &blocks, height);
     let species_line = sparkline(display, |s| s.species as f32, &blocks, height);
+    let births_line = sparkline(display, |s| s.births_per_sec as f32, &blocks, height);
+    let deaths_line = sparkline(display, |s| s.deaths_per_sec as f32, &blocks, height);
 
-    // Get current values for labels
-    let _latest = snaps.last().unwrap();
-    let max_org = display.iter().map(|s| s.organisms).max().unwrap_or(1);
-    let max_food = display.iter().map(|s| s.food).max().unwrap_or(1);
-    let max_species = display.iter().map(|s| s.species).max().unwrap_or(1);
+    let latest = snaps.last().unwrap();
 
     **text = format!(
-        "--- Population ({} samples, G=toggle) ---\n\
-         Organisms (max {}): {}\n\
-         Food (max {}):      {}\n\
-         Species (max {}):   {}",
-        display_count,
-        max_org, org_line,
-        max_food, food_line,
-        max_species, species_line,
+        "--- Population ({display_count} samples, G=toggle) ---\n\
+         Organisms {now_org:>4}: {org_line}\n\
+         Food      {now_food:>4}: {food_line}\n\
+         Species   {now_sp:>4}: {species_line}\n\
+         Births/s  {now_b:>4}: {births_line}\n\
+         Deaths/s  {now_d:>4}: {deaths_line}",
+        now_org = latest.organisms,
+        now_food = latest.food,
+        now_sp = latest.species,
+        now_b = latest.births_per_sec,
+        now_d = latest.deaths_per_sec,
     );
 }
 
@@ -718,12 +718,11 @@ fn sparkline(data: &[PopSnapshot], extract: impl Fn(&PopSnapshot) -> f32, blocks
     }
 
     let values: Vec<f32> = data.iter().map(&extract).collect();
-    let min = values.iter().cloned().fold(f32::MAX, f32::min);
-    let max = values.iter().cloned().fold(f32::MIN, f32::max);
-    let range = (max - min).max(1.0);
+    // Anchor at zero so the graph shows absolute scale, not just relative wobble
+    let max = values.iter().cloned().fold(1.0f32, f32::max);
 
     values.iter().map(|&v| {
-        let normalized = ((v - min) / range).clamp(0.0, 1.0);
+        let normalized = (v / max).clamp(0.0, 1.0);
         let idx = (normalized * 7.0) as usize;
         blocks[idx.min(7)]
     }).collect()
