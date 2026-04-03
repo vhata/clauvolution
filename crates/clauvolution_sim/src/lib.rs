@@ -722,10 +722,18 @@ pub fn spawn_initial_population(
     innovation: &mut InnovationCounter,
     rng: &mut impl Rng,
 ) {
-    for _ in 0..config.initial_population {
+    let photo_count = config.initial_population / 3; // 30% photosynthesizers
+
+    for i in 0..config.initial_population {
         let x = rng.gen_range(0.0..config.world_width as f32);
         let y = rng.gen_range(0.0..config.world_height as f32);
-        let genome = Genome::new_minimal(innovation, rng);
+
+        let genome = if i < photo_count {
+            Genome::new_photosynthesizer(innovation, rng)
+        } else {
+            Genome::new_minimal(innovation, rng)
+        };
+
         let brain = Brain::from_genome(&genome);
         let body_size = genome.body_size;
 

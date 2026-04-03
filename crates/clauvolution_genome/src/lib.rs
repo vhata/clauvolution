@@ -269,6 +269,47 @@ impl Genome {
         }
     }
 
+    /// Create a dedicated photosynthesizer genome
+    pub fn new_photosynthesizer(innovation: &mut InnovationCounter, rng: &mut impl Rng) -> Self {
+        let mut genome = Self::new_minimal(innovation, rng);
+
+        // High photosynthesis rate
+        genome.photosynthesis_rate = rng.gen_range(0.4..0.8);
+
+        // Guarantee photo surfaces — replace some body parts
+        genome.body_segments = vec![
+            BodySegmentGene {
+                segment_type: SegmentType::Torso,
+                size: rng.gen_range(0.5..1.0),
+                attachment_angle: 0.0,
+                attachment_slot: 0,
+                symmetry: Symmetry::Bilateral,
+            },
+            BodySegmentGene {
+                segment_type: SegmentType::PhotoSurface,
+                size: rng.gen_range(0.5..1.2),
+                attachment_angle: rng.gen_range(-1.0..1.0),
+                attachment_slot: 1,
+                symmetry: Symmetry::Bilateral,
+            },
+            BodySegmentGene {
+                segment_type: SegmentType::PhotoSurface,
+                size: rng.gen_range(0.4..1.0),
+                attachment_angle: rng.gen_range(-1.0..1.0),
+                attachment_slot: 2,
+                symmetry: Symmetry::Bilateral,
+            },
+        ];
+
+        // Plants are slower, smaller, less aggressive
+        genome.body_size = rng.gen_range(0.3..0.8);
+        genome.speed_factor = rng.gen_range(0.2..0.6);
+        genome.attack_power = 0.0;
+        genome.armor = rng.gen_range(0.0..0.2);
+
+        genome
+    }
+
     /// Derived traits from body segments
     pub fn has_fins(&self) -> bool {
         self.body_segments.iter().any(|s| s.segment_type == SegmentType::Fin)
