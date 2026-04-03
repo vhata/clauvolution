@@ -357,7 +357,7 @@ fn sync_organism_transforms(
             let mesh = segment_mesh(first.segment_type, first.size, &mut meshes);
             let base_color = segment_color(first.segment_type, genome);
             let rgba = base_color.to_srgba();
-            let alpha = if is_plant { 0.4 } else { 1.0 };
+            let alpha = if is_plant { 0.65 } else { 1.0 };
             let color = Color::srgba(rgba.red, rgba.green, rgba.blue, alpha);
             let material = materials.add(ColorMaterial::from(color));
 
@@ -402,7 +402,7 @@ fn sync_organism_transforms(
             // Plants: subtle, transparent, low z-level (ground cover)
             // Active organisms: opaque, higher z-level, with outline
             let (alpha, z_level, scale_mult) = if is_plant {
-                (0.4, 0.3, 1.5) // transparent, behind, slightly larger (they're ground cover)
+                (0.65, 0.3, 1.8) // semi-transparent, behind, larger (ground cover)
             } else {
                 (1.0, 1.0, 2.0) // fully visible
             };
