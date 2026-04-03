@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use clauvolution_brain::Brain;
 use clauvolution_core::*;
 use clauvolution_genome::{Genome, InnovationCounter, NUM_INPUTS, NUM_MEMORY};
-use clauvolution_phylogeny::{PhyloTree, SpeciesStrategy};
+use clauvolution_phylogeny::{PhyloTree, SpeciesStrategy, WorldChronicle};
 use clauvolution_world::{SpatialHash, TileMap};
 use rand::Rng;
 use std::collections::HashMap;
@@ -97,6 +97,8 @@ fn mass_extinction_input_system(
     organisms: Query<(Entity, &Position, &Energy), With<Organism>>,
     mut tile_map: Option<ResMut<TileMap>>,
     mut stats: ResMut<SimStats>,
+    tick: Res<TickCounter>,
+    mut chronicle: ResMut<WorldChronicle>,
 ) {
     cooldown.0.tick(time.delta());
     if !cooldown.0.finished() {
@@ -117,6 +119,7 @@ fn mass_extinction_input_system(
             }
         }
         stats.total_deaths += killed as u64;
+        chronicle.log(tick.0, format!("ASTEROID IMPACT! {} organisms killed", killed));
         triggered = true;
     }
 
@@ -128,6 +131,7 @@ fn mass_extinction_input_system(
                 tile.temperature *= 0.5;
                 tile.moisture *= 0.7;
             }
+            chronicle.log(tick.0, "ICE AGE! Temperature halved, moisture reduced".to_string());
             triggered = true;
         }
     }
@@ -161,6 +165,7 @@ fn mass_extinction_input_system(
                 }
             }
         }
+        chronicle.log(tick.0, format!("VOLCANIC ERUPTION! {} organisms killed near ({:.0}, {:.0})", killed, center_x, center_y));
         triggered = true;
     }
 
@@ -620,6 +625,7 @@ fn species_classification_system(
     mut stats: ResMut<SimStats>,
     mut species_colors: ResMut<SpeciesColors>,
     mut phylo: ResMut<PhyloTree>,
+    mut chronicle: ResMut<WorldChronicle>,
 ) {
     timer.0.tick(time.delta());
     if !timer.0.just_finished() {
@@ -683,6 +689,18 @@ fn species_classification_system(
             let parent = if *_old_species > 0 { Some(*_old_species) } else { None };
             phylo.record_species(new_id, parent, tick.0, color, strategy);
 
+            let strategy_name = match strategy {
+                SpeciesStrategy::Photosynthesizer => "Plant",
+                SpeciesStrategy::Predator => "Predator",
+                SpeciesStrategy::Forager => "Forager",
+            };
+            let parent_str = if let Some(p) = parent {
+                format!(" (from species {})", p)
+            } else {
+                String::new()
+            };
+            chronicle.log(tick.0, format!("New {} species {}{}", strategy_name, new_id, parent_str));
+
             new_id
         };
 
@@ -697,7 +715,30 @@ fn species_classification_system(
     for (_, assigned_id) in &assignments {
         *species_counts.entry(*assigned_id).or_insert(0) += 1;
     }
+    // Detect extinctions before updating
+    let previously_living: Vec<u64> = phylo.nodes.iter()
+        .filter(|(_, n)| n.extinct_tick.is_none() && n.current_population > 0)
+        .map(|(id, _)| *id)
+        .collect();
+
     phylo.update_populations(&species_counts, tick.0);
+
+    // Log extinctions
+    for species_id in &previously_living {
+        if let Some(node) = phylo.nodes.get(species_id) {
+            if node.current_population == 0 {
+                let strategy_name = match node.strategy {
+                    SpeciesStrategy::Photosynthesizer => "Plant",
+                    SpeciesStrategy::Predator => "Predator",
+                    SpeciesStrategy::Forager => "Forager",
+                };
+                chronicle.log(tick.0, format!(
+                    "{} species {} went extinct (peak: {})",
+                    strategy_name, species_id, node.peak_population
+                ));
+            }
+        }
+    }
 
     for (entity, _genome, mut species_id) in &mut organisms {
         if let Some(&new_id) = assignments.get(&entity) {

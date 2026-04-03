@@ -3,7 +3,7 @@ use bevy::window::PrimaryWindow;
 use clauvolution_body::BodyPlan;
 use clauvolution_core::*;
 use clauvolution_genome::{Genome, SegmentType};
-use clauvolution_phylogeny::PhyloTree;
+use clauvolution_phylogeny::{PhyloTree, WorldChronicle};
 use clauvolution_world::TileMap;
 
 pub struct RenderPlugin;
@@ -13,10 +13,11 @@ impl Plugin for RenderPlugin {
         app.init_resource::<CameraDragState>()
             .init_resource::<SharedMeshes>()
             .init_resource::<HelpVisible>()
+            .init_resource::<ChronicleVisible>()
             .add_systems(Startup, (setup_camera, setup_shared_meshes))
             .add_systems(
                 Update,
-                (speed_control_system, click_select_system, toggle_graph_system, toggle_help_system),
+                (speed_control_system, click_select_system, toggle_graph_system, toggle_help_system, toggle_chronicle_system),
             )
             .add_systems(
                 PostUpdate,
@@ -30,6 +31,7 @@ impl Plugin for RenderPlugin {
                     update_graph,
                     update_phylo_tree,
                     update_help_overlay,
+                    update_chronicle,
                 )
                     .chain(),
             );
@@ -59,6 +61,12 @@ pub struct GraphText;
 
 #[derive(Resource, Default)]
 pub struct HelpVisible(pub bool);
+
+#[derive(Resource, Default)]
+pub struct ChronicleVisible(pub bool);
+
+#[derive(Component)]
+pub struct ChronicleText;
 
 #[derive(Component)]
 pub struct HelpOverlay;
@@ -172,6 +180,23 @@ fn setup_camera(mut commands: Commands, config: Res<SimConfig>) {
             ..default()
         },
         PhyloText,
+    ));
+
+    // Chronicle (left side, above graphs)
+    commands.spawn((
+        Text::new(""),
+        TextFont {
+            font_size: 11.0,
+            ..default()
+        },
+        TextColor(Color::srgba(1.0, 0.9, 0.7, 0.9)),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(10.0),
+            top: Val::Percent(40.0),
+            ..default()
+        },
+        ChronicleText,
     ));
 
     // Help overlay (centered, hidden by default)
@@ -648,7 +673,8 @@ fn update_stats_text(
          Food: {}  |  Generation: {}\n\
          Births: {}  |  Deaths: {}\n\
          \n\
-         X=asteroid  I=ice  V=volcano  G=graph  H=help\n\
+         X=asteroid  I=ice  V=volcano\n\
+         G=graph  C=chronicle  H=help\n\
          Click organism to inspect",
         speed_str, org_count, stats.species_count,
         photosynthesizers, predators, foragers,
@@ -934,4 +960,30 @@ fn update_help_overlay(
   I .............. ice age (halves temperature)
   V .............. volcano (kills area, boosts nutrients)
 ".to_string();
+}
+
+fn toggle_chronicle_system(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut visible: ResMut<ChronicleVisible>,
+) {
+    if keys.just_pressed(KeyCode::KeyC) {
+        visible.0 = !visible.0;
+    }
+}
+
+fn update_chronicle(
+    visible: Res<ChronicleVisible>,
+    chronicle: Res<WorldChronicle>,
+    mut text_query: Query<&mut Text, With<ChronicleText>>,
+) {
+    let Ok(mut text) = text_query.get_single_mut() else {
+        return;
+    };
+
+    if !visible.0 {
+        **text = String::new();
+        return;
+    }
+
+    **text = chronicle.render_text();
 }

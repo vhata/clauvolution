@@ -5,7 +5,61 @@ pub struct PhylogenyPlugin;
 
 impl Plugin for PhylogenyPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(PhyloTree::default());
+        app.insert_resource(PhyloTree::default())
+            .insert_resource(WorldChronicle::default());
+    }
+}
+
+/// A log of significant evolutionary events
+#[derive(Resource)]
+pub struct WorldChronicle {
+    pub entries: Vec<ChronicleEntry>,
+    pub max_display: usize,
+}
+
+#[derive(Clone)]
+pub struct ChronicleEntry {
+    pub tick: u64,
+    pub text: String,
+}
+
+impl Default for WorldChronicle {
+    fn default() -> Self {
+        Self {
+            entries: Vec::new(),
+            max_display: 20,
+        }
+    }
+}
+
+impl WorldChronicle {
+    pub fn log(&mut self, tick: u64, text: String) {
+        self.entries.push(ChronicleEntry { tick, text });
+    }
+
+    pub fn render_text(&self) -> String {
+        if self.entries.is_empty() {
+            return String::new();
+        }
+
+        let mut lines = vec!["--- World Chronicle (C=toggle) ---".to_string()];
+        let start = if self.entries.len() > self.max_display {
+            self.entries.len() - self.max_display
+        } else {
+            0
+        };
+
+        for entry in &self.entries[start..] {
+            let time_secs = entry.tick / 30;
+            let time_str = if time_secs >= 60 {
+                format!("{}m{:02}s", time_secs / 60, time_secs % 60)
+            } else {
+                format!("{:3}s", time_secs)
+            };
+            lines.push(format!("[{}] {}", time_str, entry.text));
+        }
+
+        lines.join("\n")
     }
 }
 
