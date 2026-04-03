@@ -430,7 +430,9 @@ fn metabolism_system(
     for (mut energy, mut health, mut age, body_size, genome) in &mut organisms {
         age.0 += 1;
 
-        let mut cost = config.base_metabolism_cost * body_size.0 * (1.0 + genome.speed_factor * 0.2);
+        // Minimum base cost prevents tiny organisms from cheating the energy economy
+        let effective_size = body_size.0.max(0.5);
+        let mut cost = config.base_metabolism_cost * effective_size * (1.0 + genome.speed_factor * 0.2);
         cost += genome.body_segments.len() as f32 * 0.005;
         cost += genome.neurons.len() as f32 * 0.001;
         cost += genome.armor_value() * 0.01;
@@ -497,7 +499,7 @@ fn reproduction_system(
 
     let mut new_organisms: Vec<(Vec2, Genome, u64, u32)> = Vec::new();
     let current_pop = organisms.iter().len();
-    let max_pop = (config.world_width * config.world_height / 4) as usize;
+    let max_pop = 2000usize;
     let mut already_mated: Vec<Entity> = Vec::new();
 
     for (entity, pos, mut energy, genome, output, body_size, species, generation) in &mut organisms {
@@ -507,8 +509,11 @@ fn reproduction_system(
         if already_mated.contains(&entity) {
             continue;
         }
-        if output.reproduce > 0.5 && energy.0 > config.reproduction_energy_threshold {
-            energy.0 -= config.reproduction_energy_cost;
+        // Reproduction cost scales with body size — small organisms can't reproduce for free
+        let repro_cost = config.reproduction_energy_cost * (0.5 + body_size.0 * 0.5);
+        let repro_threshold = config.reproduction_energy_threshold * (0.5 + body_size.0 * 0.5);
+        if output.reproduce > 0.5 && energy.0 > repro_threshold {
+            energy.0 -= repro_cost;
 
             // Try to find a mate from pre-collected candidates
             let mate_range = body_size.0 * 8.0;
