@@ -1494,6 +1494,7 @@ dependencies = [
  "clauvolution_brain",
  "clauvolution_core",
  "clauvolution_genome",
+ "clauvolution_phylogeny",
  "clauvolution_render",
  "clauvolution_sim",
  "clauvolution_world",
@@ -1555,6 +1556,7 @@ dependencies = [
  "clauvolution_body",
  "clauvolution_core",
  "clauvolution_genome",
+ "clauvolution_phylogeny",
  "clauvolution_world",
 ]
 
@@ -1566,6 +1568,7 @@ dependencies = [
  "clauvolution_brain",
  "clauvolution_core",
  "clauvolution_genome",
+ "clauvolution_phylogeny",
  "clauvolution_world",
  "rand",
  "rand_distr",

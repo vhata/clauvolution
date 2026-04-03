@@ -4,6 +4,7 @@ use clauvolution_body::BodyPlugin;
 use clauvolution_core::*;
 use clauvolution_genome::InnovationCounter;
 use clauvolution_render::{MainCamera, RenderPlugin};
+use clauvolution_phylogeny::PhylogenyPlugin;
 use clauvolution_sim::SimPlugin;
 use clauvolution_world::{self, TileMap, WorldPlugin};
 
@@ -24,6 +25,7 @@ fn main() {
     .add_plugins(WorldPlugin)
     .add_plugins(BodyPlugin)
     .add_plugins(SimPlugin)
+    .add_plugins(PhylogenyPlugin)
     .add_plugins(RenderPlugin)
     .insert_resource(InnovationCounter(100))
     .add_systems(Startup, setup_world);

@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use clauvolution_brain::Brain;
 use clauvolution_core::*;
 use clauvolution_genome::{Genome, InnovationCounter, NUM_INPUTS, NUM_MEMORY};
+use clauvolution_phylogeny::{PhyloTree, SpeciesStrategy};
 use clauvolution_world::{SpatialHash, TileMap};
 use rand::Rng;
 use std::collections::HashMap;
@@ -14,6 +15,7 @@ impl Plugin for SimPlugin {
             .add_systems(
                 FixedUpdate,
                 (
+                    tick_counter_system,
                     sensing_and_brain_system,
                     action_system,
                     predation_system,
@@ -69,6 +71,10 @@ impl Default for BrainOutput {
             memory_out: [0.0; NUM_MEMORY],
         }
     }
+}
+
+fn tick_counter_system(mut tick: ResMut<TickCounter>) {
+    tick.0 += 1;
 }
 
 fn sim_speed_system(
@@ -599,9 +605,11 @@ fn species_classification_system(
     time: Res<Time>,
     mut timer: ResMut<SpeciesClassificationTimer>,
     config: Res<SimConfig>,
+    tick: Res<TickCounter>,
     mut organisms: Query<(Entity, &Genome, &mut SpeciesId), With<Organism>>,
     mut stats: ResMut<SimStats>,
     mut species_colors: ResMut<SpeciesColors>,
+    mut phylo: ResMut<PhyloTree>,
 ) {
     timer.0.tick(time.delta());
     if !timer.0.just_finished() {
@@ -651,12 +659,35 @@ fn species_classification_system(
             let new_id = next_species_id;
             next_species_id += 1;
             species_reps.push((new_id, genome.clone()));
-            species_colors.get_or_create(new_id);
+            let color = species_colors.get_or_create(new_id);
+
+            // Record new species in phylogenetic tree
+            let strategy = if genome.photosynthesis_rate > 0.2 && genome.has_photo_surface() {
+                SpeciesStrategy::Photosynthesizer
+            } else if genome.claw_power() > 0.5 {
+                SpeciesStrategy::Predator
+            } else {
+                SpeciesStrategy::Forager
+            };
+            // Parent is the old species this organism was classified as
+            let parent = if *_old_species > 0 { Some(*_old_species) } else { None };
+            phylo.record_species(new_id, parent, tick.0, color, strategy);
+
             new_id
         };
 
         assignments.insert(*entity, assigned);
     }
+
+    // Update population counts in phylo tree
+    let mut species_counts: HashMap<u64, u32> = HashMap::new();
+    for (_, _, _old_species) in &org_data {
+        // Use assigned species, not old
+    }
+    for (_, assigned_id) in &assignments {
+        *species_counts.entry(*assigned_id).or_insert(0) += 1;
+    }
+    phylo.update_populations(&species_counts, tick.0);
 
     for (entity, _genome, mut species_id) in &mut organisms {
         if let Some(&new_id) = assignments.get(&entity) {

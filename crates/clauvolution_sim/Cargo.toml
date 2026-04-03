@@ -11,3 +11,4 @@ clauvolution_core = { path = "../clauvolution_core" }
 clauvolution_genome = { path = "../clauvolution_genome" }
 clauvolution_brain = { path = "../clauvolution_brain" }
 clauvolution_world = { path = "../clauvolution_world" }
+clauvolution_phylogeny = { path = "../clauvolution_phylogeny" }

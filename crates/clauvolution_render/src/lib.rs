@@ -3,6 +3,7 @@ use bevy::window::PrimaryWindow;
 use clauvolution_body::BodyPlan;
 use clauvolution_core::*;
 use clauvolution_genome::{Genome, SegmentType};
+use clauvolution_phylogeny::PhyloTree;
 use clauvolution_world::TileMap;
 
 pub struct RenderPlugin;
@@ -26,6 +27,7 @@ impl Plugin for RenderPlugin {
                     update_stats_text,
                     update_inspect_panel,
                     update_graph,
+                    update_phylo_tree,
                 )
                     .chain(),
             );
@@ -52,6 +54,9 @@ pub struct FoodSprite;
 
 #[derive(Component)]
 pub struct GraphText;
+
+#[derive(Component)]
+pub struct PhyloText;
 
 /// Shared mesh handles to avoid creating thousands of identical meshes
 #[derive(Resource, Default)]
@@ -142,6 +147,23 @@ fn setup_camera(mut commands: Commands, config: Res<SimConfig>) {
             ..default()
         },
         GraphText,
+    ));
+
+    // Phylogenetic tree (bottom-right)
+    commands.spawn((
+        Text::new(""),
+        TextFont {
+            font_size: 11.0,
+            ..default()
+        },
+        TextColor(Color::srgba(1.0, 0.95, 0.8, 0.9)),
+        Node {
+            position_type: PositionType::Absolute,
+            right: Val::Px(10.0),
+            bottom: Val::Px(10.0),
+            ..default()
+        },
+        PhyloText,
     ));
 }
 
@@ -785,4 +807,17 @@ fn sparkline_zero(data: &[PopSnapshot], extract: impl Fn(&PopSnapshot) -> f32, b
     }).collect();
 
     (line, (0, max as u32))
+}
+
+/// Render the phylogenetic tree as text
+fn update_phylo_tree(
+    phylo: Res<PhyloTree>,
+    tick: Res<TickCounter>,
+    mut text_query: Query<&mut Text, With<PhyloText>>,
+) {
+    let Ok(mut text) = text_query.get_single_mut() else {
+        return;
+    };
+
+    **text = phylo.render_text(tick.0);
 }
