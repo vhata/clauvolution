@@ -349,22 +349,30 @@ fn sync_organism_transforms(
     let use_detailed = zoom_scale < 0.3;
 
     for (entity, pos, genome, body_plan, species_id) in &organisms_without_sprite {
+        let is_plant = genome.photosynthesis_rate > 0.2 && genome.has_photo_surface();
+        let z_level = if is_plant { 0.3 } else { 1.0 };
+
         if use_detailed && !body_plan.parts.is_empty() {
             let first = &body_plan.parts[0];
             let mesh = segment_mesh(first.segment_type, first.size, &mut meshes);
-            let color = segment_color(first.segment_type, genome);
+            let base_color = segment_color(first.segment_type, genome);
+            let rgba = base_color.to_srgba();
+            let alpha = if is_plant { 0.4 } else { 1.0 };
+            let color = Color::srgba(rgba.red, rgba.green, rgba.blue, alpha);
             let material = materials.add(ColorMaterial::from(color));
 
             commands.entity(entity).insert((
                 Mesh2d(mesh),
                 MeshMaterial2d(material),
-                Transform::from_xyz(pos.0.x, pos.0.y, 1.0),
+                Transform::from_xyz(pos.0.x, pos.0.y, z_level),
                 OrganismSprite,
             ));
 
             for part in body_plan.parts.iter().skip(1) {
                 let mesh = segment_mesh(part.segment_type, part.size, &mut meshes);
-                let color = segment_color(part.segment_type, genome);
+                let base_color = segment_color(part.segment_type, genome);
+                let rgba = base_color.to_srgba();
+                let color = Color::srgba(rgba.red, rgba.green, rgba.blue, alpha);
                 let material = materials.add(ColorMaterial::from(color));
 
                 let child = commands
@@ -379,48 +387,58 @@ fn sync_organism_transforms(
                 commands.entity(entity).add_child(child);
             }
         } else {
-            // Species colour with strategy-based modulation
             let base_color = species_colors.get_or_create(species_id.0);
             let base_rgba = base_color.to_srgba();
 
             let photo = genome.photosynthesis_rate;
             let predator = genome.claw_power().min(1.0);
+            let is_plant = photo > 0.2 && genome.has_photo_surface();
 
             // Photosynthesizers shift green, predators shift red, foragers keep base
             let r = (base_rgba.red * (1.0 - photo * 0.6) + predator * 0.4).clamp(0.1, 1.0);
             let g = (base_rgba.green * (1.0 - predator * 0.4) + photo * 0.4).clamp(0.1, 1.0);
             let b = (base_rgba.blue * (1.0 - photo * 0.3 - predator * 0.3)).clamp(0.05, 1.0);
 
+            // Plants: subtle, transparent, low z-level (ground cover)
+            // Active organisms: opaque, higher z-level, with outline
+            let (alpha, z_level, scale_mult) = if is_plant {
+                (0.4, 0.3, 1.5) // transparent, behind, slightly larger (they're ground cover)
+            } else {
+                (1.0, 1.0, 2.0) // fully visible
+            };
+
             let mesh = shared_meshes.circle.clone().unwrap();
-            let material = materials.add(ColorMaterial::from(Color::srgb(r, g, b)));
+            let material = materials.add(ColorMaterial::from(Color::srgba(r, g, b, alpha)));
 
             commands.entity(entity).insert((
                 Mesh2d(mesh.clone()),
                 MeshMaterial2d(material),
-                Transform::from_xyz(pos.0.x, pos.0.y, 1.0)
-                    .with_scale(Vec3::splat(genome.body_size * 2.0)),
+                Transform::from_xyz(pos.0.x, pos.0.y, z_level)
+                    .with_scale(Vec3::splat(genome.body_size * scale_mult)),
                 OrganismSprite,
             ));
 
-            // Dark outline behind organism for visibility
-            if let Some(outline_mat) = &shared_meshes.outline_material {
-                let outline = commands.spawn((
-                    Mesh2d(mesh),
-                    MeshMaterial2d(outline_mat.clone()),
-                    Transform::from_xyz(0.0, 0.0, -0.1)
-                        .with_scale(Vec3::splat(1.3)),
-                    OrganismOutline,
-                )).id();
-                commands.entity(entity).add_child(outline);
+            // Only active organisms get outlines
+            if !is_plant {
+                if let Some(outline_mat) = &shared_meshes.outline_material {
+                    let outline = commands.spawn((
+                        Mesh2d(mesh),
+                        MeshMaterial2d(outline_mat.clone()),
+                        Transform::from_xyz(0.0, 0.0, -0.1)
+                            .with_scale(Vec3::splat(1.3)),
+                        OrganismOutline,
+                    )).id();
+                    commands.entity(entity).add_child(outline);
+                }
             }
         }
     }
 
-    // Update existing transforms
+    // Update existing transforms (preserve z-level set at spawn)
     for (pos, energy, body_size, mut transform) in &mut organisms_with_sprite {
         transform.translation.x = pos.0.x;
         transform.translation.y = pos.0.y;
-        transform.translation.z = 1.0;
+        // z preserved from spawn — photosynthesizers at 0.3, active at 1.0
 
         let energy_factor = (energy.0 / config.max_organism_energy).clamp(0.5, 1.0);
         transform.scale = Vec3::splat(body_size.0 * 2.0 * energy_factor);
