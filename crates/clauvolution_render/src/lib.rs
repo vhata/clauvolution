@@ -14,7 +14,7 @@ impl Plugin for RenderPlugin {
             .add_systems(Startup, (setup_camera, setup_shared_meshes))
             .add_systems(
                 Update,
-                (speed_control_system, click_select_system),
+                (speed_control_system, click_select_system, toggle_graph_system),
             )
             .add_systems(
                 PostUpdate,
@@ -25,6 +25,7 @@ impl Plugin for RenderPlugin {
                     camera_control_system,
                     update_stats_text,
                     update_inspect_panel,
+                    update_graph,
                 )
                     .chain(),
             );
@@ -48,6 +49,9 @@ pub struct SelectionRing;
 
 #[derive(Component)]
 pub struct FoodSprite;
+
+#[derive(Component)]
+pub struct GraphText;
 
 /// Shared mesh handles to avoid creating thousands of identical meshes
 #[derive(Resource, Default)]
@@ -121,6 +125,23 @@ fn setup_camera(mut commands: Commands, config: Res<SimConfig>) {
             ..default()
         },
         InspectPanel,
+    ));
+
+    // Population graph (bottom-left)
+    commands.spawn((
+        Text::new(""),
+        TextFont {
+            font_size: 11.0,
+            ..default()
+        },
+        TextColor(Color::srgba(0.8, 0.9, 1.0, 0.9)),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(10.0),
+            bottom: Val::Px(10.0),
+            ..default()
+        },
+        GraphText,
     ));
 }
 
@@ -543,7 +564,7 @@ fn update_stats_text(
          Food: {}  |  Generation: {}\n\
          Births: {}  |  Deaths: {}\n\
          \n\
-         X=asteroid  I=ice age  V=volcano\n\
+         X=asteroid  I=ice age  V=volcano  G=graph\n\
          Click organism to inspect",
         speed_str, org_count, stats.species_count,
         food_count, stats.max_generation,
@@ -633,4 +654,77 @@ fn update_inspect_panel(
         genome.neurons.len(),
         genome.connections.iter().filter(|c| c.enabled).count(),
     );
+}
+
+/// Toggle population graph visibility
+fn toggle_graph_system(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut history: ResMut<PopulationHistory>,
+) {
+    if keys.just_pressed(KeyCode::KeyG) {
+        history.visible = !history.visible;
+    }
+}
+
+/// Render population graph as text-based sparklines
+fn update_graph(
+    history: Res<PopulationHistory>,
+    mut text_query: Query<&mut Text, With<GraphText>>,
+) {
+    let Ok(mut text) = text_query.get_single_mut() else {
+        return;
+    };
+
+    if !history.visible || history.snapshots.len() < 2 {
+        **text = String::new();
+        return;
+    }
+
+    let width = 60usize; // characters wide
+    let height = 8usize; // rows tall
+    let blocks = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+
+    let snaps = &history.snapshots;
+    let display_count = snaps.len().min(width);
+    let start = snaps.len() - display_count;
+    let display = &snaps[start..];
+
+    // Build sparkline for organism count
+    let org_line = sparkline(display, |s| s.organisms as f32, &blocks, height);
+    let food_line = sparkline(display, |s| s.food as f32, &blocks, height);
+    let species_line = sparkline(display, |s| s.species as f32, &blocks, height);
+
+    // Get current values for labels
+    let _latest = snaps.last().unwrap();
+    let max_org = display.iter().map(|s| s.organisms).max().unwrap_or(1);
+    let max_food = display.iter().map(|s| s.food).max().unwrap_or(1);
+    let max_species = display.iter().map(|s| s.species).max().unwrap_or(1);
+
+    **text = format!(
+        "--- Population ({} samples, G=toggle) ---\n\
+         Organisms (max {}): {}\n\
+         Food (max {}):      {}\n\
+         Species (max {}):   {}",
+        display_count,
+        max_org, org_line,
+        max_food, food_line,
+        max_species, species_line,
+    );
+}
+
+fn sparkline(data: &[PopSnapshot], extract: impl Fn(&PopSnapshot) -> f32, blocks: &[char; 8], _height: usize) -> String {
+    if data.is_empty() {
+        return String::new();
+    }
+
+    let values: Vec<f32> = data.iter().map(&extract).collect();
+    let min = values.iter().cloned().fold(f32::MAX, f32::min);
+    let max = values.iter().cloned().fold(f32::MIN, f32::max);
+    let range = (max - min).max(1.0);
+
+    values.iter().map(|&v| {
+        let normalized = ((v - min) / range).clamp(0.0, 1.0);
+        let idx = (normalized * 7.0) as usize;
+        blocks[idx.min(7)]
+    }).collect()
 }

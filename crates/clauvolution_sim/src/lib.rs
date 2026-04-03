@@ -23,6 +23,7 @@ impl Plugin for SimPlugin {
                     death_system,
                     reproduction_system,
                     species_classification_system,
+                    record_population_history,
                 )
                     .chain(),
             )
@@ -31,12 +32,16 @@ impl Plugin for SimPlugin {
                 3.0,
                 TimerMode::Repeating,
             )))
-            .insert_resource(ExtinctionCooldown(Timer::from_seconds(2.0, TimerMode::Once)));
+            .insert_resource(ExtinctionCooldown(Timer::from_seconds(2.0, TimerMode::Once)))
+            .insert_resource(PopHistoryTimer(Timer::from_seconds(1.0, TimerMode::Repeating)));
     }
 }
 
 #[derive(Resource)]
 struct SpeciesClassificationTimer(Timer);
+
+#[derive(Resource)]
+struct PopHistoryTimer(Timer);
 
 #[derive(Resource)]
 struct ExtinctionCooldown(Timer);
@@ -654,6 +659,24 @@ fn species_classification_system(
     }
 
     stats.species_count = species_reps.len() as u32;
+}
+
+fn record_population_history(
+    time: Res<Time>,
+    mut timer: ResMut<PopHistoryTimer>,
+    stats: Res<SimStats>,
+    organisms: Query<&Organism>,
+    food: Query<&Food>,
+    mut history: ResMut<PopulationHistory>,
+) {
+    timer.0.tick(time.delta());
+    if !timer.0.just_finished() {
+        return;
+    }
+
+    let org_count = organisms.iter().len() as u32;
+    let food_count = food.iter().len() as u32;
+    history.record(&stats, org_count, food_count);
 }
 
 pub fn spawn_initial_population(

@@ -10,7 +10,8 @@ impl Plugin for CorePlugin {
             .insert_resource(TickCounter(0))
             .insert_resource(SimSpeed::default())
             .insert_resource(SpeciesColors::default())
-            .insert_resource(SelectedOrganism::default());
+            .insert_resource(SelectedOrganism::default())
+            .insert_resource(PopulationHistory::default());
     }
 }
 
@@ -65,6 +66,61 @@ pub struct SimStats {
 
 #[derive(Resource)]
 pub struct TickCounter(pub u64);
+
+/// A snapshot of population metrics at a point in time
+#[derive(Clone, Default)]
+pub struct PopSnapshot {
+    pub organisms: u32,
+    pub food: u32,
+    pub species: u32,
+    pub births_per_sec: u32,
+    pub deaths_per_sec: u32,
+    pub max_generation: u32,
+}
+
+/// Ring buffer of population history for graphing
+#[derive(Resource)]
+pub struct PopulationHistory {
+    pub snapshots: Vec<PopSnapshot>,
+    pub max_entries: usize,
+    pub visible: bool,
+    prev_births: u64,
+    prev_deaths: u64,
+}
+
+impl Default for PopulationHistory {
+    fn default() -> Self {
+        Self {
+            snapshots: Vec::new(),
+            max_entries: 300, // 5 minutes at 1 snapshot/sec
+            visible: true,
+            prev_births: 0,
+            prev_deaths: 0,
+        }
+    }
+}
+
+impl PopulationHistory {
+    pub fn record(&mut self, stats: &SimStats, organism_count: u32, food_count: u32) {
+        let births_per_sec = (stats.total_births - self.prev_births) as u32;
+        let deaths_per_sec = (stats.total_deaths - self.prev_deaths) as u32;
+        self.prev_births = stats.total_births;
+        self.prev_deaths = stats.total_deaths;
+
+        self.snapshots.push(PopSnapshot {
+            organisms: organism_count,
+            food: food_count,
+            species: stats.species_count,
+            births_per_sec,
+            deaths_per_sec,
+            max_generation: stats.max_generation,
+        });
+
+        if self.snapshots.len() > self.max_entries {
+            self.snapshots.remove(0);
+        }
+    }
+}
 
 /// Simulation speed: 0 = paused, 1 = normal, 2+ = fast
 #[derive(Resource)]
