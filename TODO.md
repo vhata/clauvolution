@@ -2,61 +2,79 @@
 
 An evolution simulator where you watch life emerge, adapt, compete, and speciate in real time.
 
-## Status
+## What's Done
 
-### What's Working (The Good)
-- [x] Rust + Bevy ECS workspace — solid architecture, compiles clean, runs smooth
+- [x] Rust + Bevy ECS workspace — solid architecture, compiles clean
 - [x] Per-organism NEAT neural networks with 19 inputs, 9 outputs, recurrent memory
 - [x] Organisms sense food, neighbors, terrain, species, health — brains decide everything
-- [x] Natural selection running — population finds equilibrium with healthy turnover
-- [x] Procedural terrain generation — oceans, deserts, grasslands, forests, rock
-- [x] Biome-aware food spawning — more food in fertile areas
-- [x] Terrain-dependent movement costs — fins help in water, limbs help on land
+- [x] Procedural terrain — oceans, deserts, grasslands, forests, rock
+- [x] Biome-aware food spawning + terrain-dependent movement costs
 - [x] Photosynthesis — organisms with photo surfaces gain energy from light
-- [x] Body segment genes — torso, limbs, fins, eyes, mouth, photosynthetic surfaces, claws, armor plates
-- [x] Smooth camera controls — scroll zoom, mouse drag pan, keyboard zoom/pan
-- [x] Species classification (NEAT compatibility distance) with distinct colours
-- [x] Predation — organisms attack and eat each other (claws vs armor, size advantage)
-- [x] Sexual reproduction with genome crossover when mates are nearby
-- [x] Niche construction — photosynthesizers terraform tiles, all organisms add nutrients
+- [x] Body segments — torso, limbs, fins, eyes, mouth, photo surfaces, claws, armor plates
+- [x] Predation — attack and eat other organisms (claws vs armor, size advantage)
+- [x] Sexual reproduction with genome crossover
+- [x] Niche construction — organisms terraform tiles
 - [x] Mass extinction events — asteroid (X), ice age (I), volcanic eruption (V)
-- [x] Brain memory — 3 recurrent slots enabling learning-like behaviour
-- [x] Organism aging — increasing metabolism, natural death from old age
-- [x] Generation tracking — lineage depth visible per organism and globally
-- [x] Click-to-inspect — full stat panel: energy, health, body parts, brain size, strategy label
-- [x] Pause/play (Space), speed control ([ / ]) from 0.125x to 16x
-- [x] Dark outlines on organisms for terrain contrast
-- [x] Predators tinted red, photosynthesizers tinted green
-- [x] Population cap to prevent runaway growth
+- [x] Brain memory — 3 recurrent slots
+- [x] Organism aging and natural death
+- [x] Generation tracking
+- [x] Species classification with distinct colours
+- [x] Click-to-inspect with full stat panel
+- [x] Pause/play, speed control, smooth camera
+- [x] Population sparkline graphs
+- [x] Strategy breakdown (Plants / Predators / Foragers counts)
+- [x] Photosynthesizers render as ground cover (behind active organisms)
 - [x] Screenshot verification mode (--screenshot)
 
-### What Could Be Better (The Bad)
-- [ ] **Body part rendering at close zoom** — detailed view exists but LOD threshold is aggressive
-- [ ] **No population graphs or history** — just live counts, no sense of trends over time
-- [ ] **No phylogenetic tree** — can't see species ancestry or divergence history
-- [ ] **Food is just green dots** — no visual difference by biome
-- [ ] **No indication of active behaviour** — eating, attacking, reproducing all look the same visually
+## What's Next (prioritised)
 
-### What's Next (The Ugly)
-- [ ] **World narrative / chronicle** — a living log of the world's history. Automatic entries for: new species emerging, species going extinct, mass extinction events and recovery, population milestones (e.g. "population hit 1000 for the first time"), first predator kill, dominant species shifts. Each entry timestamped with generation/tick count, and optionally paired with an auto-screenshot. Viewable as a scrollable timeline in-app and/or saved to disk as a log file with screenshots. The fossil record, written in real time.
-- [ ] Phylogenetic tree visualisation — sidebar showing species branching
-- [ ] Population graphs — organism count, species count, births/deaths over time
-- [ ] Convergent evolution detection — notice when unrelated species evolve similar strategies
-- [ ] Social behaviour — cooperation, pack hunting, alarm calls
-- [ ] Symbiosis — mutualism, parasitism
-- [ ] Better LOD — smooth transition from body parts to dots to heatmaps
-- [ ] Save/load simulation state
-- [ ] GPU compute for neural net batching at scale
-- [ ] WASM+WebGPU browser build
+### 1. Energy pyramid / trophic efficiency (structural balance fix)
+Predators should only get ~10% of the energy their prey had. This is how real ecosystems self-balance — it's thermodynamics, not tuning. Without this, predator meta always dominates because eating things is free energy. One structural change that replaces endless number tweaking.
+
+### 2. Phylogenetic tree
+The feature that turns dots-on-a-map into a story. A living family tree showing when species branched, which ones went extinct, and how everything alive today is related. Without this, speciation is just a number going up.
+
+### 3. World narrative / chronicle
+Automatic log of evolutionary history: new species emerging, extinctions, mass extinction events and recovery, population milestones, dominant species shifts. Timestamped with generation/tick count, optionally paired with auto-screenshots. The fossil record, written in real time.
+
+### 4. Seed initial diversity
+Start some organisms as dedicated photosynthesizers (high photo rate + photo surfaces) so the strategy exists from day one. Currently photosynthesis has to evolve from nearly zero, which may not happen if foraging is easier. We're not rigging the game — just providing initial diversity for evolution to work with.
+
+### 5. Better LOD / close-zoom rendering
+The detailed body-part rendering exists but the LOD threshold is too aggressive. When zoomed in, you should see torsos, limbs, fins, claws — not just circles. Smooth transition between detail levels.
+
+### 6. Active behaviour indicators
+Eating, attacking, reproducing all look the same visually. Some indication of what organisms are doing — a flash, a direction indicator, something.
+
+### 7. Population history graphs (improvement)
+Current sparklines work but could be richer. Per-species population over time. Area chart showing strategy breakdown changing. Historical events marked on the timeline.
+
+### 8. Convergent evolution detection
+Notice when unrelated species independently evolve similar strategies (e.g. fins in two separate ocean populations). This is one of the most fascinating things in real evolution.
+
+### 9. Social behaviour
+Cooperation, pack hunting, alarm calls, herding. Requires organisms to sense relatedness and evolve signalling. Late-game but spectacular when it emerges.
+
+### 10. Symbiosis
+Mutualism, parasitism, commensalism. Two organisms evolving to depend on each other.
+
+### 11. Save/load simulation state
+Quality of life — pause a run, come back to it later.
+
+### 12. GPU compute for neural net batching
+Performance scaling — batch neural net forward passes on GPU for 100k+ organisms.
+
+### 13. WASM+WebGPU browser build
+Accessibility — run in a browser without installing anything.
 
 ---
 
 ## Core Vision
 
 - [x] **Visual simulation** — watch evolution happen in real time
-- [x] **Emergent speciation** — 100+ species diverge from common ancestors
+- [x] **Emergent speciation** — species diverge from common ancestors
 - [x] **Competition** — creatures compete for resources, territory, and each other
-- [x] **No hard categories** — photosynthesizers, predators, foragers all emerge from evolution
+- [x] **No hard categories** — strategies emerge from evolution
 - [x] **Biomes** — different environments with different selection pressures
 - [x] **Niche construction** — species reshape biomes, biomes reshape species back
 - [x] **Phenotype rendering** — creatures visually express evolved traits
