@@ -38,6 +38,7 @@ An evolution simulator where you watch life emerge, adapt, compete, and speciate
 - [ ] **No indication of active behaviour** — eating, attacking, reproducing all look the same visually
 
 ### What's Next (The Ugly)
+- [ ] **World narrative / chronicle** — a living log of the world's history. Automatic entries for: new species emerging, species going extinct, mass extinction events and recovery, population milestones (e.g. "population hit 1000 for the first time"), first predator kill, dominant species shifts. Each entry timestamped with generation/tick count, and optionally paired with an auto-screenshot. Viewable as a scrollable timeline in-app and/or saved to disk as a log file with screenshots. The fossil record, written in real time.
 - [ ] Phylogenetic tree visualisation — sidebar showing species branching
 - [ ] Population graphs — organism count, species count, births/deaths over time
 - [ ] Convergent evolution detection — notice when unrelated species evolve similar strategies
