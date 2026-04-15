@@ -753,7 +753,7 @@ fn record_population_history(
     time: Res<Time>,
     mut timer: ResMut<PopHistoryTimer>,
     stats: Res<SimStats>,
-    organisms: Query<&Organism>,
+    organisms: Query<&Genome, With<Organism>>,
     food: Query<&Food>,
     mut history: ResMut<PopulationHistory>,
 ) {
@@ -762,9 +762,22 @@ fn record_population_history(
         return;
     }
 
-    let org_count = organisms.iter().len() as u32;
+    let mut plants = 0u32;
+    let mut predators = 0u32;
+    let mut foragers = 0u32;
+    for genome in &organisms {
+        if genome.photosynthesis_rate > 0.2 && genome.has_photo_surface() {
+            plants += 1;
+        } else if genome.claw_power() > 0.5 {
+            predators += 1;
+        } else {
+            foragers += 1;
+        }
+    }
+
+    let org_count = plants + predators + foragers;
     let food_count = food.iter().len() as u32;
-    history.record(&stats, org_count, food_count);
+    history.record(&stats, org_count, food_count, plants, predators, foragers);
 }
 
 pub fn spawn_initial_population(

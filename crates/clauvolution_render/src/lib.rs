@@ -803,7 +803,9 @@ fn update_graph(
     let (org_line, org_range) = sparkline_ranged(display, |s| s.organisms as f32, &blocks);
     let (food_line, food_range) = sparkline_ranged(display, |s| s.food as f32, &blocks);
     let (species_line, sp_range) = sparkline_ranged(display, |s| s.species as f32, &blocks);
-    // Births/deaths use zero-anchored since they're rates
+    let (plants_line, _) = sparkline_ranged(display, |s| s.plants as f32, &blocks);
+    let (predators_line, _) = sparkline_ranged(display, |s| s.predators as f32, &blocks);
+    let (foragers_line, _) = sparkline_ranged(display, |s| s.foragers as f32, &blocks);
     let (births_line, _) = sparkline_zero(display, |s| s.births_per_sec as f32, &blocks);
     let (deaths_line, _) = sparkline_zero(display, |s| s.deaths_per_sec as f32, &blocks);
 
@@ -814,6 +816,9 @@ fn update_graph(
          Organisms {now:>4} ({lo}-{hi}): {line}\n\
          Food      {now_f:>4} ({flo}-{fhi}): {fline}\n\
          Species   {now_s:>4} ({slo}-{shi}): {sline}\n\
+         Plants    {now_p:>4}: {plants_line}\n\
+         Predators {now_x:>4}: {predators_line}\n\
+         Foragers  {now_g:>4}: {foragers_line}\n\
          Births/s  {now_b:>4}: {births_line}\n\
          Deaths/s  {now_d:>4}: {deaths_line}",
         now = latest.organisms,
@@ -822,6 +827,9 @@ fn update_graph(
         flo = food_range.0, fhi = food_range.1, fline = food_line,
         now_s = latest.species,
         slo = sp_range.0, shi = sp_range.1, sline = species_line,
+        now_p = latest.plants,
+        now_x = latest.predators,
+        now_g = latest.foragers,
         now_b = latest.births_per_sec,
         now_d = latest.deaths_per_sec,
     );

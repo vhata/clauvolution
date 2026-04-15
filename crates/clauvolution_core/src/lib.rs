@@ -76,6 +76,9 @@ pub struct PopSnapshot {
     pub births_per_sec: u32,
     pub deaths_per_sec: u32,
     pub max_generation: u32,
+    pub plants: u32,
+    pub predators: u32,
+    pub foragers: u32,
 }
 
 /// Ring buffer of population history for graphing
@@ -101,7 +104,7 @@ impl Default for PopulationHistory {
 }
 
 impl PopulationHistory {
-    pub fn record(&mut self, stats: &SimStats, organism_count: u32, food_count: u32) {
+    pub fn record(&mut self, stats: &SimStats, organism_count: u32, food_count: u32, plants: u32, predators: u32, foragers: u32) {
         let births_per_sec = (stats.total_births - self.prev_births) as u32;
         let deaths_per_sec = (stats.total_deaths - self.prev_deaths) as u32;
         self.prev_births = stats.total_births;
@@ -114,6 +117,9 @@ impl PopulationHistory {
             births_per_sec,
             deaths_per_sec,
             max_generation: stats.max_generation,
+            plants,
+            predators,
+            foragers,
         });
 
         if self.snapshots.len() > self.max_entries {
