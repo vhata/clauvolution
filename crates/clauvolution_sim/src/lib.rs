@@ -747,6 +747,20 @@ fn species_classification_system(
     }
 
     stats.species_count = species_reps.len() as u32;
+
+    // Detect convergent evolution
+    let convergences = phylo.detect_convergence();
+    for (a, b, strategy) in convergences {
+        let strategy_name = match strategy {
+            SpeciesStrategy::Photosynthesizer => "photosynthesis",
+            SpeciesStrategy::Predator => "predation",
+            SpeciesStrategy::Forager => "foraging",
+        };
+        chronicle.log(tick.0, format!(
+            "Convergent evolution! Species {} and {} independently evolved {}",
+            a, b, strategy_name
+        ));
+    }
 }
 
 fn record_population_history(

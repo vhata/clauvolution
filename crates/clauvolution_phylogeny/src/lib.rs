@@ -150,6 +150,55 @@ impl PhyloTree {
         self.nodes.values().filter(|n| n.parent_id == Some(species_id)).collect()
     }
 
+    /// Get the lineage (chain of ancestor species IDs) for a species
+    fn lineage(&self, species_id: u64) -> Vec<u64> {
+        let mut chain = vec![species_id];
+        let mut current = species_id;
+        for _ in 0..50 {
+            if let Some(node) = self.nodes.get(&current) {
+                if let Some(parent) = node.parent_id {
+                    chain.push(parent);
+                    current = parent;
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+        chain
+    }
+
+    /// Check if two species share a recent common ancestor (within depth N)
+    pub fn shares_recent_ancestor(&self, a: u64, b: u64, max_depth: usize) -> bool {
+        let lineage_a = self.lineage(a);
+        let lineage_b = self.lineage(b);
+        let check_a: Vec<&u64> = lineage_a.iter().take(max_depth).collect();
+        let check_b: Vec<&u64> = lineage_b.iter().take(max_depth).collect();
+        check_a.iter().any(|id| check_b.contains(id))
+    }
+
+    /// Detect convergent evolution: living species with same strategy but no recent common ancestor
+    pub fn detect_convergence(&self) -> Vec<(u64, u64, SpeciesStrategy)> {
+        let living = self.living_species();
+        let mut convergences = Vec::new();
+
+        for i in 0..living.len() {
+            for j in (i + 1)..living.len() {
+                let a = living[i];
+                let b = living[j];
+                if a.strategy == b.strategy
+                    && a.current_population >= 10
+                    && b.current_population >= 10
+                    && !self.shares_recent_ancestor(a.species_id, b.species_id, 5)
+                {
+                    convergences.push((a.species_id, b.species_id, a.strategy));
+                }
+            }
+        }
+        convergences
+    }
+
     /// Build a text representation of the tree for display
     pub fn render_text(&self, current_tick: u64) -> String {
         if self.nodes.is_empty() {
