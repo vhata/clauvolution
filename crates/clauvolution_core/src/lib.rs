@@ -136,7 +136,7 @@ impl Default for SimConfig {
             reproduction_energy_cost: 40.0,
             max_organism_energy: 120.0,
             food_energy_value: 25.0,
-            species_compat_threshold: 3.0,
+            species_compat_threshold: 2.0,
             terrain_seed: rand::random(),
         }
     }

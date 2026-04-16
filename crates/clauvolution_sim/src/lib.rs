@@ -700,7 +700,7 @@ fn species_classification_system(
 
         // Hysteresis: prefer current species — only leave if nothing fits within threshold
         // but give current species a bonus (1.5x threshold to stay)
-        let stay_threshold = config.species_compat_threshold * 1.5;
+        let stay_threshold = config.species_compat_threshold * 1.3;
 
         for (species_id, rep_genome) in &species_reps {
             let dist = genome.compatibility_distance(rep_genome);
