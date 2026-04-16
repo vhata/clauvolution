@@ -154,6 +154,8 @@ fn setup_camera(mut commands: Commands, config: Res<SimConfig>, asset_server: Re
         MainCamera,
     ));
 
+    let panel_bg = BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7));
+
     // Stats overlay (top-left)
     commands.spawn((
         Text::new(""),
@@ -167,12 +169,14 @@ fn setup_camera(mut commands: Commands, config: Res<SimConfig>, asset_server: Re
             position_type: PositionType::Absolute,
             left: Val::Px(10.0),
             top: Val::Px(10.0),
+            padding: UiRect::all(Val::Px(6.0)),
             ..default()
         },
+        panel_bg,
         StatsText,
     ));
 
-    // Inspect panel (top-right)
+    // Inspect panel (top-right, below minimap)
     commands.spawn((
         Text::new(""),
         TextFont {
@@ -184,9 +188,11 @@ fn setup_camera(mut commands: Commands, config: Res<SimConfig>, asset_server: Re
         Node {
             position_type: PositionType::Absolute,
             right: Val::Px(10.0),
-            top: Val::Px(10.0),
+            top: Val::Px(180.0), // below 160px minimap + gap
+            padding: UiRect::all(Val::Px(6.0)),
             ..default()
         },
+        panel_bg,
         InspectPanel,
     ));
 
@@ -203,8 +209,10 @@ fn setup_camera(mut commands: Commands, config: Res<SimConfig>, asset_server: Re
             position_type: PositionType::Absolute,
             left: Val::Px(10.0),
             bottom: Val::Px(10.0),
+            padding: UiRect::all(Val::Px(6.0)),
             ..default()
         },
+        panel_bg,
         GraphText,
     ));
 
@@ -221,8 +229,10 @@ fn setup_camera(mut commands: Commands, config: Res<SimConfig>, asset_server: Re
             position_type: PositionType::Absolute,
             right: Val::Px(10.0),
             bottom: Val::Px(10.0),
+            padding: UiRect::all(Val::Px(6.0)),
             ..default()
         },
+        panel_bg,
         PhyloText,
     ));
 
@@ -239,8 +249,10 @@ fn setup_camera(mut commands: Commands, config: Res<SimConfig>, asset_server: Re
             position_type: PositionType::Absolute,
             left: Val::Px(10.0),
             top: Val::Percent(40.0),
+            padding: UiRect::all(Val::Px(6.0)),
             ..default()
         },
+        panel_bg,
         ChronicleText,
     ));
 
@@ -257,6 +269,7 @@ fn setup_camera(mut commands: Commands, config: Res<SimConfig>, asset_server: Re
             position_type: PositionType::Absolute,
             left: Val::Percent(15.0),
             top: Val::Percent(10.0),
+            padding: UiRect::all(Val::Px(10.0)),
             ..default()
         },
         BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.85)),
