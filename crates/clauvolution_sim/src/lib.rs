@@ -511,13 +511,24 @@ fn metabolism_system(
 
 fn death_system(
     mut commands: Commands,
-    organisms: Query<(Entity, &Energy), With<Organism>>,
+    organisms: Query<(Entity, &Energy, &Age), With<Organism>>,
     mut stats: ResMut<SimStats>,
+    mut fitness: ResMut<FitnessTracker>,
 ) {
-    for (entity, energy) in &organisms {
+    for (entity, energy, age) in &organisms {
         if energy.0 <= 0.0 {
             commands.entity(entity).despawn_recursive();
             stats.total_deaths += 1;
+
+            // Record lifespan for fitness tracking
+            fitness.recent_lifespans.push(age.0);
+            if fitness.recent_lifespans.len() > 200 {
+                fitness.recent_lifespans.remove(0);
+            }
+            if !fitness.recent_lifespans.is_empty() {
+                let sum: u64 = fitness.recent_lifespans.iter().sum();
+                fitness.avg_lifespan = sum as f32 / fitness.recent_lifespans.len() as f32;
+            }
         }
     }
 }
@@ -789,6 +800,7 @@ fn record_population_history(
     organisms: Query<&Genome, With<Organism>>,
     food: Query<&Food>,
     mut history: ResMut<PopulationHistory>,
+    fitness: Res<FitnessTracker>,
 ) {
     timer.0.tick(time.delta());
     if !timer.0.just_finished() {
@@ -810,7 +822,7 @@ fn record_population_history(
 
     let org_count = plants + predators + foragers;
     let food_count = food.iter().len() as u32;
-    history.record(&stats, org_count, food_count, plants, predators, foragers);
+    history.record(&stats, org_count, food_count, plants, predators, foragers, fitness.avg_lifespan);
 }
 
 pub fn spawn_initial_population(

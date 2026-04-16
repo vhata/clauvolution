@@ -820,6 +820,7 @@ fn update_graph(
     let (foragers_line, _) = sparkline_ranged(display, |s| s.foragers as f32, &blocks);
     let (births_line, _) = sparkline_zero(display, |s| s.births_per_sec as f32, &blocks);
     let (deaths_line, _) = sparkline_zero(display, |s| s.deaths_per_sec as f32, &blocks);
+    let (lifespan_line, _) = sparkline_ranged(display, |s| s.avg_lifespan, &blocks);
 
     let latest = snaps.last().unwrap();
 
@@ -831,6 +832,7 @@ fn update_graph(
          Plants    {now_p:>4}: {plants_line}\n\
          Predators {now_x:>4}: {predators_line}\n\
          Foragers  {now_g:>4}: {foragers_line}\n\
+         Lifespan  {now_l:>4}: {lifespan_line}\n\
          Births/s  {now_b:>4}: {births_line}\n\
          Deaths/s  {now_d:>4}: {deaths_line}",
         now = latest.organisms,
@@ -843,6 +845,7 @@ fn update_graph(
         now_x = latest.predators,
         now_g = latest.foragers,
         now_b = latest.births_per_sec,
+        now_l = latest.avg_lifespan as u32,
         now_d = latest.deaths_per_sec,
     );
 }
