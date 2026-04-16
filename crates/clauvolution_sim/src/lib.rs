@@ -761,15 +761,16 @@ fn species_classification_system(
     // Log extinctions
     for species_id in &previously_living {
         if let Some(node) = phylo.nodes.get(species_id) {
-            if node.current_population == 0 {
+            if node.current_population == 0 && node.peak_population >= 10 {
                 let strategy_name = match node.strategy {
                     SpeciesStrategy::Photosynthesizer => "Plant",
                     SpeciesStrategy::Predator => "Predator",
                     SpeciesStrategy::Forager => "Forager",
                 };
+                let age_secs = tick.0.saturating_sub(node.born_tick) / 30;
                 chronicle.log(tick.0, format!(
-                    "{} species {} went extinct (peak: {})",
-                    strategy_name, species_id, node.peak_population
+                    "{} species {} went extinct (peak: {}, lived {}s)",
+                    strategy_name, species_id, node.peak_population, age_secs
                 ));
             }
         }
