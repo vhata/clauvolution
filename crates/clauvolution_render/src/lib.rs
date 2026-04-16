@@ -437,7 +437,8 @@ fn sync_organism_transforms(
             commands.entity(entity).insert((
                 Mesh2d(mesh),
                 MeshMaterial2d(material),
-                Transform::from_xyz(pos.0.x, pos.0.y, z_level),
+                Transform::from_xyz(pos.0.x, pos.0.y, z_level)
+                    .with_scale(Vec3::splat(genome.body_size * 2.0)),
                 OrganismSprite,
             ));
 
@@ -805,7 +806,7 @@ fn update_graph(
 
     let width = 60usize; // characters wide
     let _height = 8usize;
-    let blocks = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+    let blocks = ['.', ':', '-', '=', '+', '*', '#', '@'];
 
     let snaps = &history.snapshots;
     let display_count = snaps.len().min(width);

@@ -228,12 +228,12 @@ impl PhyloTree {
             let tree_prefix = if ancestry == 0 {
                 "".to_string()
             } else {
-                format!("{}\u{2514} ", "  ".repeat((ancestry - 1).min(4) as usize))
+                format!("{}+- ", "  ".repeat((ancestry - 1).min(4) as usize))
             };
 
             // Population bar — visual indicator of size
             let bar_len = ((node.current_population as f32 / 50.0).ceil() as usize).clamp(1, 15);
-            let bar: String = "\u{2588}".repeat(bar_len);
+            let bar: String = "|".repeat(bar_len);
 
             lines.push(format!(
                 "{}{} ({}) {} [{}] {}",
