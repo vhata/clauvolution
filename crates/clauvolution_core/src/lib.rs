@@ -31,8 +31,20 @@ pub struct Session {
 
 impl Session {
     pub fn new() -> Self {
-        let name = Self::generate_name();
-        let dir = PathBuf::from("sessions").join(&name);
+        let mut name = Self::generate_name();
+        let mut dir = PathBuf::from("sessions").join(&name);
+        // If name collides, append a number
+        if dir.exists() {
+            for i in 2..100 {
+                let candidate = format!("{}-{}", name, i);
+                let candidate_dir = PathBuf::from("sessions").join(&candidate);
+                if !candidate_dir.exists() {
+                    name = candidate;
+                    dir = candidate_dir;
+                    break;
+                }
+            }
+        }
         std::fs::create_dir_all(&dir).expect("Failed to create session directory");
         Self { name, dir }
     }
