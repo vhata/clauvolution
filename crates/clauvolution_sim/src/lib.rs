@@ -100,10 +100,12 @@ fn tick_counter_system(mut tick: ResMut<TickCounter>, mut season: ResMut<Season>
 fn sim_speed_system(
     speed: Res<SimSpeed>,
     mut fixed_time: ResMut<Time<Fixed>>,
+    mut virtual_time: ResMut<Time<Virtual>>,
 ) {
     if speed.paused {
-        fixed_time.set_timestep_hz(0.001);
+        virtual_time.pause();
     } else {
+        virtual_time.unpause();
         fixed_time.set_timestep_hz(30.0 * speed.multiplier as f64);
     }
 }
