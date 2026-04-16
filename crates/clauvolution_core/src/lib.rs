@@ -387,6 +387,19 @@ pub struct SpeciesId(pub u64);
 #[derive(Component, Default)]
 pub struct GroupSize(pub u32);
 
+/// Brief visual marker spawned where an organism dies
+#[derive(Component)]
+pub struct DeathMarker {
+    pub timer: f32,
+    pub was_predated: bool, // true = killed by predator, false = starvation/old age
+}
+
+/// Tracks parentage for lineage display
+#[derive(Component, Default)]
+pub struct ParentInfo {
+    pub parent_species_id: Option<u64>,
+}
+
 #[derive(Component)]
 pub struct Food;
 

@@ -30,6 +30,7 @@ impl Plugin for RenderPlugin {
                     spawn_terrain_sprites,
                     sync_organism_transforms,
                     sync_food_transforms,
+                    update_death_markers,
                     camera_control_system,
                     update_stats_text,
                     update_inspect_panel,
@@ -646,6 +647,51 @@ fn sync_food_transforms(
     }
 }
 
+#[derive(Component)]
+pub struct DeathMarkerSprite;
+
+/// Spawn visuals for new death markers, fade and despawn existing ones
+fn update_death_markers(
+    mut commands: Commands,
+    time: Res<Time>,
+    shared_meshes: Res<SharedMeshes>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    new_markers: Query<(Entity, &Position, &DeathMarker), Without<DeathMarkerSprite>>,
+    mut existing_markers: Query<(Entity, &mut DeathMarker, &mut Transform), With<DeathMarkerSprite>>,
+) {
+    let Some(mesh) = &shared_meshes.circle else { return };
+
+    // Spawn visuals for new markers
+    for (entity, pos, marker) in &new_markers {
+        let color = if marker.was_predated {
+            Color::srgba(1.0, 0.2, 0.1, 0.8) // red for predation
+        } else {
+            Color::srgba(0.6, 0.5, 0.2, 0.6) // dim amber for starvation/old age
+        };
+        let material = materials.add(ColorMaterial::from(color));
+        commands.entity(entity).insert((
+            Mesh2d(mesh.clone()),
+            MeshMaterial2d(material),
+            Transform::from_xyz(pos.0.x, pos.0.y, 0.8)
+                .with_scale(Vec3::splat(2.0)),
+            DeathMarkerSprite,
+        ));
+    }
+
+    // Fade and despawn existing markers
+    let dt = time.delta_secs();
+    for (entity, mut marker, mut transform) in &mut existing_markers {
+        marker.timer -= dt;
+        if marker.timer <= 0.0 {
+            commands.entity(entity).try_despawn();
+            continue;
+        }
+        // Expand and fade out
+        let progress = 1.0 - marker.timer / 0.5;
+        transform.scale = Vec3::splat(2.0 + progress * 3.0);
+    }
+}
+
 #[derive(Resource, Default)]
 pub struct CameraDragState {
     dragging: bool,
@@ -790,7 +836,7 @@ fn update_stats_text(
 /// Show details about selected organism
 fn update_inspect_panel(
     selected: Res<SelectedOrganism>,
-    organisms: Query<(&Energy, &Health, &BodySize, &Genome, &SpeciesId, &Position, &Age, &Generation, &Signal, &GroupSize), With<Organism>>,
+    organisms: Query<(&Energy, &Health, &BodySize, &Genome, &SpeciesId, &Position, &Age, &Generation, &Signal, &GroupSize, &ParentInfo), With<Organism>>,
     mut text_query: Query<&mut Text, With<InspectPanel>>,
     tile_map: Option<Res<TileMap>>,
     config: Res<SimConfig>,
@@ -805,7 +851,7 @@ fn update_inspect_panel(
         return;
     };
 
-    let Ok((energy, health, body_size, genome, species, pos, age, generation, signal, group_size)) = organisms.get(entity) else {
+    let Ok((energy, health, body_size, genome, species, pos, age, generation, signal, group_size, parent_info)) = organisms.get(entity) else {
         **text = "Selected organism died".to_string();
         return;
     };
@@ -835,9 +881,15 @@ fn update_inspect_panel(
         .map(|n| n.name.as_str())
         .unwrap_or("Unknown");
 
+    let parent_name = parent_info.parent_species_id
+        .and_then(|pid| phylo.nodes.get(&pid))
+        .map(|n| n.name.as_str())
+        .unwrap_or("(origin)");
+
     **text = format!(
         "--- ORGANISM ---\n\
          {}\n\
+         Parent: {}\n\
          Gen: {}  |  Age: {}\n\
          Energy: {:.1} / {:.0}\n\
          Health: {:.0}%\n\
@@ -860,6 +912,7 @@ fn update_inspect_panel(
          Neurons: {}\n\
          Connections: {}\n",
         species_name,
+        parent_name,
         generation.0, age.0,
         energy.0, config.max_organism_energy,
         health.0 * 100.0,

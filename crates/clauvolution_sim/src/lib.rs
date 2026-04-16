@@ -546,12 +546,21 @@ fn metabolism_system(
 
 fn death_system(
     mut commands: Commands,
-    organisms: Query<(Entity, &Energy, &Age), With<Organism>>,
+    organisms: Query<(Entity, &Energy, &Health, &Position, &Age), With<Organism>>,
     mut stats: ResMut<SimStats>,
     mut fitness: ResMut<FitnessTracker>,
 ) {
-    for (entity, energy, age) in &organisms {
+    for (entity, energy, health, pos, age) in &organisms {
         if energy.0 <= 0.0 {
+            // Spawn death marker before despawning
+            commands.spawn((
+                DeathMarker {
+                    timer: 0.5,
+                    was_predated: health.0 <= 0.0,
+                },
+                Position(pos.0),
+            ));
+
             commands.entity(entity).try_despawn_recursive();
             stats.total_deaths += 1;
 
@@ -671,6 +680,7 @@ fn reproduction_system(
             ActionFlash::default(),
             Signal::default(),
             GroupSize::default(),
+            ParentInfo { parent_species_id: Some(parent_species) },
         )).insert((brain, child_genome));
 
         stats.total_births += 1;
@@ -914,6 +924,7 @@ pub fn spawn_initial_population(
             ActionFlash::default(),
             Signal::default(),
             GroupSize::default(),
+            ParentInfo::default(),
         )).insert((brain, genome));
     }
 }
