@@ -248,31 +248,25 @@ impl PhyloTree {
             pop_b.cmp(&pop_a)
         });
 
-        let mut shown = 0;
+        let mut roots_shown = 0;
         for (_root_id, mut members) in sorted_lineages {
-            if shown >= max_display { break; }
+            if roots_shown >= max_display { break; }
             members.sort_by(|a, b| b.current_population.cmp(&a.current_population));
 
-            if members.len() == 1 {
-                // Solo species — show flat
-                let node = members[0];
-                lines.push(self.format_species_line(node, 0, current_tick));
-                shown += 1;
-            } else {
-                // Lineage group — show biggest as parent, rest indented
-                let first = members[0];
-                lines.push(self.format_species_line(first, 0, current_tick));
-                shown += 1;
-                for sibling in members.iter().skip(1) {
-                    if shown >= max_display { break; }
-                    lines.push(self.format_species_line(sibling, 1, current_tick));
-                    shown += 1;
-                }
+            // Show the biggest member as the root line
+            let first = members[0];
+            lines.push(self.format_species_line(first, 0, current_tick));
+            roots_shown += 1;
+
+            // Always show ALL children — no cap on children
+            for sibling in members.iter().skip(1) {
+                lines.push(self.format_species_line(sibling, 1, current_tick));
             }
         }
 
-        if living.len() > shown {
-            lines.push(format!("  ...and {} more", living.len() - shown));
+        let total_shown = lines.len() - 1; // minus the header line
+        if living.len() > total_shown {
+            lines.push(format!("  ...and {} more", living.len() - total_shown));
         }
 
         // Recently extinct (last 3)
@@ -313,19 +307,19 @@ impl PhyloTree {
 
     fn format_species_line(&self, node: &PhyloNode, depth: usize, current_tick: u64) -> String {
         let strategy = match node.strategy {
-            SpeciesStrategy::Photosynthesizer => "Plant",
-            SpeciesStrategy::Predator => "Predator",
-            SpeciesStrategy::Forager => "Forager",
+            SpeciesStrategy::Photosynthesizer => "Plant   ",
+            SpeciesStrategy::Predator =>         "Predator",
+            SpeciesStrategy::Forager =>          "Forager ",
         };
         let age_secs = current_tick.saturating_sub(node.born_tick) / 30;
         let age_str = if age_secs >= 60 {
-            format!("{}m{}s", age_secs / 60, age_secs % 60)
+            format!("{}m{:02}s", age_secs / 60, age_secs % 60)
         } else {
             format!("{}s", age_secs)
         };
 
         let indent = if depth == 0 {
-            String::new()
+            "".to_string()
         } else {
             format!("{}\u{2514} ", "  ".repeat((depth - 1).min(4)))
         };
@@ -336,7 +330,7 @@ impl PhyloTree {
         let declining = if node.current_population < node.peak_population / 2 { " declining" } else { "" };
 
         format!(
-            "{}{} ({}) {} [{}]{}",
+            "{}{} {:>4} {} {:>6}{}",
             indent, strategy, node.current_population, bar, age_str, declining,
         )
     }
