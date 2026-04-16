@@ -1068,7 +1068,7 @@ fn lod_change_system(
             .remove::<MeshMaterial2d<ColorMaterial>>();
 
         for &child in children.iter() {
-            commands.entity(child).despawn();
+            commands.entity(child).try_despawn();
         }
     }
 }
