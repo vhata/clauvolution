@@ -49,12 +49,12 @@ Cargo workspace with 9 crates:
 
 ## What's Implemented
 
-See TODO.md "What's Done" section. Highlights: NEAT brains with memory, predation with energy pyramid, sexual reproduction, seasons, geographic barriers, phylogenetic tree, world chronicle, species naming, minimap, population graphs with per-strategy sparklines, save/load, manual screenshots.
+See TODO.md "What's Done" section. Highlights: NEAT brains with memory, predation with energy pyramid, sexual reproduction, seasons, geographic barriers, phylogenetic tree, world chronicle, species naming, minimap with click-to-navigate, population graphs with per-strategy sparklines, save/load, manual screenshots.
 
 ## What's Next (from TODO.md)
 
 1. Proper UI panels (bevy_egui) — scrollable panels
-2. Minimap click navigation (done) / Population heatmap toggle
+2. Population heatmap toggle
 3. Symbiosis
 4. GPU compute
 5. WASM browser build

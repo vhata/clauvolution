@@ -22,7 +22,9 @@ Watch organisms evolve in real time. Each creature has its own neural network br
 - **Visual phenotypes** — creatures have modular body parts (torso, limbs, fins, eyes, mouth, claws, armor plates, photosynthetic surfaces) that visually express their evolved traits.
 - **Mass extinction events** — trigger asteroid impacts, ice ages, or volcanic eruptions and watch life recover and diversify.
 - **Phylogenetic tree** — living family tree showing species ancestry, population, and extinction history.
+- **Species naming** — three-word trait-based names (habitat + body descriptor + strategy noun, e.g. "Swamp Dwarf Moss"). Child species inherit their parent's habitat and noun, like real taxonomy.
 - **World chronicle** — automatic log of evolutionary events: speciation, extinction, mass extinction, convergent evolution, season changes.
+- **Minimap** — world overview in the top-right corner showing terrain, organism positions (colour-coded by strategy), and camera viewport. Click anywhere on it to teleport the camera.
 
 ## Running
 
@@ -105,8 +107,8 @@ Rust + [Bevy](https://bevyengine.org/) ECS engine. Cargo workspace with one crat
 | `clauvolution_body` | Phenotype decoding: genome to renderable body plan |
 | `clauvolution_world` | Tile-based terrain, biomes, spatial hashing, food spawning |
 | `clauvolution_sim` | Simulation tick: sensing, actions, predation, metabolism, reproduction, speciation |
-| `clauvolution_render` | Rendering, camera, LOD, organism inspection, help overlay |
-| `clauvolution_phylogeny` | Phylogenetic tree, species ancestry tracking, world chronicle |
+| `clauvolution_render` | Rendering, camera, LOD, organism inspection, minimap, help overlay |
+| `clauvolution_phylogeny` | Phylogenetic tree, species ancestry tracking, species naming, world chronicle |
 | `clauvolution_ui` | Data visualisation panels *(planned)* |
 
 ## Roadmap
@@ -144,10 +146,13 @@ See [TODO.md](TODO.md) for the prioritised backlog.
 - JetBrains Mono font for Unicode rendering
 - Pause/speed controls
 - Screenshot verification mode + manual screenshots (S key)
+- Seed-based terrain generation (same seed = same map, saved in save files)
+- Species naming — three-word trait-based names with taxonomy-like inheritance
+- Minimap with click-to-navigate
 
 **Next:**
 - Proper UI panels (bevy_egui) — scrollable, resizable panels
-- Seed-based terrain generation (for reproducible saves)
+- Population heatmap toggle
 - Symbiosis (mutualism, parasitism)
 - GPU compute for neural net batching
 - WASM+WebGPU browser build

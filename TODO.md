@@ -42,25 +42,25 @@ An evolution simulator where you watch life emerge, adapt, compete, and speciate
 - [x] Photosynthesizers render as ground cover (behind active organisms)
 - [x] Pause/play, speed control, smooth camera
 - [x] Screenshot verification mode (--screenshot)
+- [x] Seed-based terrain generation (same seed = same map, saved in save files)
+- [x] Species naming — three-word trait-based names with taxonomy-like inheritance
+- [x] Minimap with click-to-navigate — world overview showing terrain, organisms, camera viewport
 
 ## What's Next (prioritised)
 
 ### 1. Proper UI panels (bevy_egui)
 Current text panels are fixed-size and can't scroll. Need real UI: scrollable phylogenetic tree, resizable panels, tabs for different views.
 
-### 2. Minimap
-Small overview in a corner showing the whole world with coloured dots for organism clusters. See where life concentrates at a glance.
-
-### 3. Population heatmap toggle
+### 2. Population heatmap toggle
 Overlay showing organism density as a colour gradient. Visualise where different strategies dominate geographically.
 
-### 4. Symbiosis
+### 3. Symbiosis
 Mutualism, parasitism, commensalism. Two organisms evolving to depend on each other. Research-level — may need new mechanics.
 
-### 5. GPU compute for neural net batching
+### 4. GPU compute for neural net batching
 Performance scaling — batch neural net forward passes on GPU for 100k+ organisms.
 
-### 6. WASM+WebGPU browser build
+### 5. WASM+WebGPU browser build
 Accessibility — run in a browser without installing anything.
 
 ---
