@@ -76,13 +76,14 @@ impl Default for BrainOutput {
     }
 }
 
-fn tick_counter_system(mut tick: ResMut<TickCounter>, mut season: ResMut<Season>, mut chronicle: ResMut<WorldChronicle>, session: Res<Session>) {
+fn tick_counter_system(mut tick: ResMut<TickCounter>, mut season: ResMut<Season>, mut chronicle: ResMut<WorldChronicle>, session: Res<Session>, mut bloom: ResMut<BloomEffects>) {
     // Set chronicle log path from session on first tick
     if tick.0 == 0 {
         chronicle.log_path = Some(session.log_path());
         chronicle.log(0, format!("Session '{}' started", session.name));
     }
     tick.0 += 1;
+    bloom.tick();
     let old_name = season.name();
     season.advance();
     let new_name = season.name();
@@ -110,7 +111,7 @@ fn sim_speed_system(
     }
 }
 
-/// Player-triggered mass extinction events
+/// Player-triggered mass extinction and bloom events
 fn mass_extinction_input_system(
     keys: Res<ButtonInput<KeyCode>>,
     mut commands: Commands,
@@ -121,6 +122,8 @@ fn mass_extinction_input_system(
     mut stats: ResMut<SimStats>,
     tick: Res<TickCounter>,
     mut chronicle: ResMut<WorldChronicle>,
+    config: Res<SimConfig>,
+    mut bloom: ResMut<BloomEffects>,
 ) {
     cooldown.0.tick(time.delta());
     if !cooldown.0.finished() {
@@ -188,6 +191,42 @@ fn mass_extinction_input_system(
             }
         }
         chronicle.log(tick.0, format!("VOLCANIC ERUPTION! {} organisms killed near ({:.0}, {:.0})", killed, center_x, center_y));
+        triggered = true;
+    }
+
+    // B = solar bloom (double light for 30 seconds)
+    if keys.just_pressed(KeyCode::KeyB) {
+        info!("BLOOM: Solar bloom!");
+        bloom.solar_bloom = 2.0;
+        bloom.solar_ticks = 900; // 30 seconds at 30hz
+        chronicle.log(tick.0, "SOLAR BLOOM! Light doubled — photosynthesizers surge".to_string());
+        triggered = true;
+    }
+
+    // N = nutrient rain (massive food burst)
+    if keys.just_pressed(KeyCode::KeyN) {
+        info!("BLOOM: Nutrient rain!");
+        let mut rng = rand::thread_rng();
+        let food_count = (config.world_width as f32 * config.world_height as f32 * 0.05) as u32;
+        for _ in 0..food_count {
+            let x = rng.gen_range(0.0..config.world_width as f32);
+            let y = rng.gen_range(0.0..config.world_height as f32);
+            commands.spawn((
+                Food,
+                FoodEnergy(config.food_energy_value),
+                Position(Vec2::new(x, y)),
+            ));
+        }
+        chronicle.log(tick.0, format!("NUTRIENT RAIN! {} food spawned across the world", food_count));
+        triggered = true;
+    }
+
+    // J = Cambrian spark (triple mutation rate for 30 seconds)
+    if keys.just_pressed(KeyCode::KeyJ) {
+        info!("BLOOM: Cambrian spark!");
+        bloom.mutation_boost = 3.0;
+        bloom.mutation_ticks = 900; // 30 seconds at 30hz
+        chronicle.log(tick.0, "CAMBRIAN SPARK! Mutation rate tripled — rapid speciation".to_string());
         triggered = true;
     }
 
@@ -462,8 +501,9 @@ fn photosynthesis_system(
     mut organisms: Query<(&Position, &mut Energy, &Genome), With<Organism>>,
     config: Res<SimConfig>,
     season: Res<Season>,
+    bloom: Res<BloomEffects>,
 ) {
-    let light_mult = season.light_multiplier();
+    let light_mult = season.light_multiplier() * bloom.light_multiplier();
     for (pos, mut energy, genome) in &mut organisms {
         if genome.photosynthesis_rate > 0.01 && genome.has_photo_surface() {
             let tile = tile_map.tile_at_pos(pos.0);
@@ -589,6 +629,7 @@ fn reproduction_system(
         With<Organism>,
     >,
     mut stats: ResMut<SimStats>,
+    bloom: Res<BloomEffects>,
 ) {
     let mut rng = rand::thread_rng();
 
@@ -647,7 +688,8 @@ fn reproduction_system(
                 genome.clone()
             };
 
-            child_genome.mutate(&mut innovation, &mut rng, config.mutation_rate, config.mutation_strength);
+            let effective_mutation_rate = config.mutation_rate * bloom.mutation_multiplier();
+            child_genome.mutate(&mut innovation, &mut rng, effective_mutation_rate, config.mutation_strength);
 
             let offset = Vec2::new(
                 rng.gen_range(-5.0..5.0),

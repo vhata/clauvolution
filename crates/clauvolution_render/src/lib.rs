@@ -823,6 +823,7 @@ fn update_stats_text(
          Food: {}  |  Births: {}  Deaths: {}\n\
          \n\
          X=asteroid  I=ice  V=volcano\n\
+         B=solar bloom  N=nutrient rain  J=cambrian\n\
          G=graph  C=chronicle  M=heatmap  H=help\n\
          Click organism to inspect",
         speed_str,
@@ -1139,6 +1140,11 @@ fn update_help_overlay(
   X .............. asteroid impact (kills 70%)
   I .............. ice age (halves temperature)
   V .............. volcano (kills area, boosts nutrients)
+
+  BLOOM EVENTS
+  B .............. solar bloom (double light for 30s)
+  N .............. nutrient rain (massive food burst)
+  J .............. Cambrian spark (triple mutation for 30s)
 ".to_string();
 }
 

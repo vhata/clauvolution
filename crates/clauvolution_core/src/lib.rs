@@ -18,7 +18,8 @@ impl Plugin for CorePlugin {
             .insert_resource(SelectedOrganism::default())
             .insert_resource(Season::default())
             .insert_resource(FitnessTracker::default())
-            .insert_resource(PopulationHistory::default());
+            .insert_resource(PopulationHistory::default())
+            .insert_resource(BloomEffects::default());
     }
 }
 
@@ -290,6 +291,33 @@ impl PopulationHistory {
         if self.snapshots.len() > self.max_entries {
             self.snapshots.remove(0);
         }
+    }
+}
+
+/// Active temporary bloom effects — decay over time
+#[derive(Resource, Default)]
+pub struct BloomEffects {
+    /// Light multiplier boost (decays to 0)
+    pub solar_bloom: f32,
+    /// Mutation rate multiplier (decays to 1)
+    pub mutation_boost: f32,
+    /// Remaining ticks for each effect
+    pub solar_ticks: u64,
+    pub mutation_ticks: u64,
+}
+
+impl BloomEffects {
+    pub fn light_multiplier(&self) -> f32 {
+        if self.solar_ticks > 0 { self.solar_bloom } else { 1.0 }
+    }
+
+    pub fn mutation_multiplier(&self) -> f32 {
+        if self.mutation_ticks > 0 { self.mutation_boost } else { 1.0 }
+    }
+
+    pub fn tick(&mut self) {
+        if self.solar_ticks > 0 { self.solar_ticks -= 1; }
+        if self.mutation_ticks > 0 { self.mutation_ticks -= 1; }
     }
 }
 
