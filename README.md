@@ -150,12 +150,13 @@ See [TODO.md](TODO.md) for the prioritised backlog.
 - Screenshot verification mode + manual screenshots (S key)
 - Seed-based terrain generation (same seed = same map, saved in save files)
 - Species naming — three-word trait-based names with taxonomy-like inheritance
-- Minimap with click-to-navigate
+- Minimap with click-to-navigate and population heatmap toggle (M key)
 - Social sensing (group size + average group signal brain inputs, group metabolic discount)
+- Performance: frustum culling, food hidden at far zoom, virtual time cap prevents death spiral at high speeds
+- UI panel backgrounds for readability
 
 **Next:**
 - Proper UI panels (bevy_egui) — scrollable, resizable panels
-- Population heatmap toggle
 - Symbiosis (mutualism, parasitism)
 - GPU compute for neural net batching
 - WASM+WebGPU browser build

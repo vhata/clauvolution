@@ -47,6 +47,8 @@ An evolution simulator where you watch life emerge, adapt, compete, and speciate
 - [x] Minimap with click-to-navigate — world overview showing terrain, organisms, camera viewport
 - [x] Population heatmap toggle — minimap density view coloured by strategy (M key)
 - [x] Social sensing — group size + average group signal brain inputs, group metabolic discount (~5%)
+- [x] Performance — frustum culling, food hidden at far zoom, virtual time cap (100ms) prevents death spiral
+- [x] UI panel backgrounds — semi-transparent dark backing on all text panels for readability
 
 ## What's Next (prioritised)
 
