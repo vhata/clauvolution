@@ -119,7 +119,6 @@ fn genome_to_save(g: &Genome) -> SaveGenome {
                 ActivationFn::Sigmoid => 0,
                 ActivationFn::Tanh => 1,
                 ActivationFn::Relu => 2,
-                ActivationFn::Relu => 3,
             },
             bias: n.bias,
         }).collect(),

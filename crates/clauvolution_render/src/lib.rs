@@ -755,7 +755,7 @@ fn update_inspect_panel(
         .map(|s| format!("{:?}", s.segment_type))
         .collect();
 
-    let strategy = if genome.photosynthesis_rate > 0.3 && genome.has_photo_surface() {
+    let _strategy = if genome.photosynthesis_rate > 0.3 && genome.has_photo_surface() {
         "Photosynthesizer"
     } else if genome.claw_power() > 0.5 {
         "Predator"
