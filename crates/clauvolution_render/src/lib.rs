@@ -18,10 +18,11 @@ impl Plugin for RenderPlugin {
             .init_resource::<LodState>()
             .init_resource::<HelpVisible>()
             .init_resource::<ChronicleVisible>()
+            .init_resource::<MinimapMode>()
             .add_systems(Startup, (setup_camera, setup_shared_meshes, setup_minimap))
             .add_systems(
                 Update,
-                (speed_control_system, click_select_system, toggle_graph_system, toggle_help_system, toggle_chronicle_system, lod_change_system, manual_screenshot_system, minimap_click_system),
+                (speed_control_system, click_select_system, toggle_graph_system, toggle_help_system, toggle_chronicle_system, toggle_minimap_mode_system, lod_change_system, manual_screenshot_system, minimap_click_system),
             )
             .add_systems(
                 PostUpdate,
@@ -93,6 +94,13 @@ pub struct HelpOverlay;
 
 #[derive(Component)]
 pub struct MinimapNode;
+
+#[derive(Resource, Default, PartialEq, Eq)]
+pub enum MinimapMode {
+    #[default]
+    Normal,
+    Heatmap,
+}
 
 #[derive(Resource)]
 pub struct MinimapData {
@@ -722,7 +730,7 @@ fn update_stats_text(
          Food: {}  |  Births: {}  Deaths: {}\n\
          \n\
          X=asteroid  I=ice  V=volcano\n\
-         G=graph  C=chronicle  H=help\n\
+         G=graph  C=chronicle  M=heatmap  H=help\n\
          Click organism to inspect",
         speed_str,
         season_name, light_pct, stats.max_generation,
@@ -1021,6 +1029,7 @@ fn update_help_overlay(
   Right-drag ..... pan camera
   WASD / Arrows .. pan camera
   G .............. toggle population graphs
+  M .............. toggle minimap heatmap (density by strategy)
   H .............. toggle this help
 
   MASS EXTINCTION EVENTS
@@ -1036,6 +1045,18 @@ fn toggle_chronicle_system(
 ) {
     if keys.just_pressed(KeyCode::KeyC) {
         visible.0 = !visible.0;
+    }
+}
+
+fn toggle_minimap_mode_system(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut mode: ResMut<MinimapMode>,
+) {
+    if keys.just_pressed(KeyCode::KeyM) {
+        *mode = match *mode {
+            MinimapMode::Normal => MinimapMode::Heatmap,
+            MinimapMode::Heatmap => MinimapMode::Normal,
+        };
     }
 }
 
@@ -1157,6 +1178,7 @@ fn update_minimap(
     config: Res<SimConfig>,
     organisms: Query<(&Position, &Genome), With<Organism>>,
     camera: Query<(&Transform, &OrthographicProjection), With<MainCamera>>,
+    minimap_mode: Res<MinimapMode>,
 ) {
     minimap.timer.tick(time.delta());
     if !minimap.timer.just_finished() {
@@ -1170,6 +1192,60 @@ fn update_minimap(
     let world_w = config.world_width as f32;
     let world_h = config.world_height as f32;
 
+    match *minimap_mode {
+        MinimapMode::Normal => {
+            paint_minimap_normal(image, size, world_w, world_h, &tile_map, &config, &organisms);
+        }
+        MinimapMode::Heatmap => {
+            paint_minimap_heatmap(image, size, world_w, world_h, &organisms);
+        }
+    }
+
+    // Paint camera viewport rectangle (both modes)
+    if let Ok((cam_transform, projection)) = camera.get_single() {
+        let cam_x = cam_transform.translation.x;
+        let cam_y = cam_transform.translation.y;
+        let half_w = 960.0 * projection.scale;
+        let half_h = 540.0 * projection.scale;
+
+        let left = ((cam_x - half_w) / world_w * size as f32) as i32;
+        let right = ((cam_x + half_w) / world_w * size as f32) as i32;
+        let top = size as i32 - 1 - ((cam_y + half_h) / world_h * size as f32) as i32;
+        let bottom = size as i32 - 1 - ((cam_y - half_h) / world_h * size as f32) as i32;
+
+        for x in left.max(0)..=right.min(size as i32 - 1) {
+            for &y in &[top, bottom] {
+                if y >= 0 && (y as usize) < size {
+                    let idx = (y as usize * size + x as usize) * 4;
+                    image.data[idx] = 255;
+                    image.data[idx + 1] = 255;
+                    image.data[idx + 2] = 0;
+                }
+            }
+        }
+        for y in top.max(0)..=bottom.min(size as i32 - 1) {
+            for &x in &[left, right] {
+                if x >= 0 && (x as usize) < size {
+                    let idx = (y as usize * size + x as usize) * 4;
+                    image.data[idx] = 255;
+                    image.data[idx + 1] = 255;
+                    image.data[idx + 2] = 0;
+                }
+            }
+        }
+    }
+}
+
+/// Normal minimap: terrain background with organism dots
+fn paint_minimap_normal(
+    image: &mut Image,
+    size: usize,
+    world_w: f32,
+    world_h: f32,
+    tile_map: &TileMap,
+    config: &SimConfig,
+    organisms: &Query<(&Position, &Genome), With<Organism>>,
+) {
     // Paint terrain
     for py in 0..size {
         for px in 0..size {
@@ -1195,7 +1271,7 @@ fn update_minimap(
     }
 
     // Paint organisms as bright dots
-    for (pos, genome) in &organisms {
+    for (pos, genome) in organisms {
         let px = (pos.0.x / world_w * size as f32) as usize;
         let py = size - 1 - (pos.0.y / world_h * size as f32) as usize;
 
@@ -1219,39 +1295,87 @@ fn update_minimap(
             }
         }
     }
+}
 
-    // Paint camera viewport rectangle
-    if let Ok((cam_transform, projection)) = camera.get_single() {
-        let cam_x = cam_transform.translation.x;
-        let cam_y = cam_transform.translation.y;
-        let half_w = 960.0 * projection.scale; // half window width in world coords
-        let half_h = 540.0 * projection.scale;
+/// Heatmap minimap: density gradient coloured by dominant strategy
+fn paint_minimap_heatmap(
+    image: &mut Image,
+    size: usize,
+    world_w: f32,
+    world_h: f32,
+    organisms: &Query<(&Position, &Genome), With<Organism>>,
+) {
+    // Grid cells — each cell covers a region of the minimap
+    let cell_size = 4usize; // pixels per cell
+    let grid_w = size / cell_size;
+    let grid_h = size / cell_size;
+    let grid_len = grid_w * grid_h;
 
-        let left = ((cam_x - half_w) / world_w * size as f32) as i32;
-        let right = ((cam_x + half_w) / world_w * size as f32) as i32;
-        let top = size as i32 - 1 - ((cam_y + half_h) / world_h * size as f32) as i32;
-        let bottom = size as i32 - 1 - ((cam_y - half_h) / world_h * size as f32) as i32;
+    // Count organisms per cell, tracking strategy breakdown
+    let mut plants = vec![0u32; grid_len];
+    let mut predators = vec![0u32; grid_len];
+    let mut foragers = vec![0u32; grid_len];
 
-        // Draw rectangle outline in yellow
-        for x in left.max(0)..=right.min(size as i32 - 1) {
-            for &y in &[top, bottom] {
-                if y >= 0 && (y as usize) < size {
-                    let idx = (y as usize * size + x as usize) * 4;
-                    image.data[idx] = 255;
-                    image.data[idx + 1] = 255;
-                    image.data[idx + 2] = 0;
-                }
+    for (pos, genome) in organisms {
+        let gx = (pos.0.x / world_w * grid_w as f32) as usize;
+        let gy = (pos.0.y / world_h * grid_h as f32) as usize;
+
+        if gx < grid_w && gy < grid_h {
+            let gi = gy * grid_w + gx;
+            let is_plant = genome.photosynthesis_rate > 0.2 && genome.has_photo_surface();
+            let is_predator = genome.claw_power() > 0.5;
+
+            if is_plant {
+                plants[gi] += 1;
+            } else if is_predator {
+                predators[gi] += 1;
+            } else {
+                foragers[gi] += 1;
             }
         }
-        for y in top.max(0)..=bottom.min(size as i32 - 1) {
-            for &x in &[left, right] {
-                if x >= 0 && (x as usize) < size {
-                    let idx = (y as usize * size + x as usize) * 4;
-                    image.data[idx] = 255;
-                    image.data[idx + 1] = 255;
-                    image.data[idx + 2] = 0;
-                }
+    }
+
+    // Find max density for normalization
+    let max_density = plants.iter().zip(predators.iter()).zip(foragers.iter())
+        .map(|((&p, &pr), &f)| p + pr + f)
+        .max()
+        .unwrap_or(1)
+        .max(1) as f32;
+
+    // Paint each pixel based on its grid cell
+    for py in 0..size {
+        for px in 0..size {
+            // Map pixel to grid cell (minimap y is flipped)
+            let gy = grid_h - 1 - (py / cell_size).min(grid_h - 1);
+            let gx = (px / cell_size).min(grid_w - 1);
+            let gi = gy * grid_w + gx;
+
+            let p = plants[gi] as f32;
+            let pr = predators[gi] as f32;
+            let f = foragers[gi] as f32;
+            let total = p + pr + f;
+
+            let idx = (py * size + px) * 4;
+
+            if total < 0.5 {
+                // Empty cell — dark background
+                image.data[idx] = 15;
+                image.data[idx + 1] = 15;
+                image.data[idx + 2] = 20;
+            } else {
+                // Blend colour by strategy proportion, intensity by density
+                let intensity = (total / max_density).sqrt().clamp(0.15, 1.0);
+                let r = (pr / total) * intensity;
+                let g = (p / total) * intensity;
+                let b = (f / total) * intensity * 0.6;
+                // Add white component for foragers so they're visible
+                let forager_white = (f / total) * intensity * 0.4;
+
+                image.data[idx] = ((r + forager_white) * 255.0).min(255.0) as u8;
+                image.data[idx + 1] = ((g + forager_white) * 255.0).min(255.0) as u8;
+                image.data[idx + 2] = ((b + forager_white) * 255.0).min(255.0) as u8;
             }
+            image.data[idx + 3] = 255;
         }
     }
 }
