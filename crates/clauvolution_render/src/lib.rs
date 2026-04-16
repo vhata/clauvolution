@@ -173,12 +173,12 @@ fn setup_camera(mut commands: Commands, config: Res<SimConfig>, asset_server: Re
         GraphText,
     ));
 
-    // Phylogenetic tree (bottom-right)
+    // Phylogenetic tree (right side, tall panel)
     commands.spawn((
         Text::new(""),
         TextFont {
             font: font.clone(),
-            font_size: 11.0,
+            font_size: 10.0,
             ..default()
         },
         TextColor(Color::srgba(1.0, 0.95, 0.8, 0.9)),

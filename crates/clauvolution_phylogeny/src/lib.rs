@@ -208,7 +208,7 @@ impl PhyloTree {
         let mut lines = Vec::new();
         lines.push("--- Living Species ---".to_string());
 
-        let max_display = 15;
+        let max_display = 30;
         let living = self.living_species();
 
         // Group living species by lineage: walk each species up to a
