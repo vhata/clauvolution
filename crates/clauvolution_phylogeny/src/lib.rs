@@ -208,43 +208,33 @@ impl PhyloTree {
         let mut lines = Vec::new();
         lines.push("--- Living Species ---".to_string());
 
-        let mut living: Vec<&PhyloNode> = self.living_species();
-        living.sort_by(|a, b| b.current_population.cmp(&a.current_population));
+        // Walk tree depth-first from the biggest root species
+        let max_display = 15;
+        let mut shown = 0;
 
-        let max_display = 12;
-        for node in living.iter().take(max_display) {
-            let strategy = match node.strategy {
-                SpeciesStrategy::Photosynthesizer => "Plant",
-                SpeciesStrategy::Predator => "Predator",
-                SpeciesStrategy::Forager => "Forager",
-            };
-            let age_secs = (current_tick.saturating_sub(node.born_tick)) / 30;
-            let age_str = if age_secs >= 60 {
-                format!("{}m{}s", age_secs / 60, age_secs % 60)
-            } else {
-                format!("{}s", age_secs)
-            };
-            let ancestry = self.ancestry_depth(node.species_id);
-            let tree_prefix = if ancestry == 0 {
-                "".to_string()
-            } else {
-                format!("{}\u{2514} ", "  ".repeat((ancestry - 1).min(4) as usize))
-            };
+        // Find root-level living species (no parent or parent is extinct), sorted by pop
+        let mut roots: Vec<&PhyloNode> = self.living_species().into_iter()
+            .filter(|n| {
+                match n.parent_id {
+                    None => true,
+                    Some(pid) => {
+                        // Show as root if parent is extinct or not in our nodes
+                        self.nodes.get(&pid).map_or(true, |p| p.current_population == 0)
+                    }
+                }
+            })
+            .collect();
+        roots.sort_by(|a, b| b.current_population.cmp(&a.current_population));
 
-            // Population bar — visual indicator of size
-            let bar_len = ((node.current_population as f32 / 50.0).ceil() as usize).clamp(1, 15);
-            let bar: String = "\u{2588}".repeat(bar_len);
-
-            lines.push(format!(
-                "{}{} ({}) {} [{}] {}",
-                tree_prefix, strategy, node.current_population,
-                bar, age_str,
-                if node.current_population < node.peak_population / 2 { "declining" } else { "" },
-            ));
+        // DFS from each root
+        for root in roots {
+            if shown >= max_display { break; }
+            self.render_tree_node(root, 0, &mut lines, &mut shown, max_display, current_tick);
         }
 
-        if living.len() > max_display {
-            lines.push(format!("  ...and {} more", living.len() - max_display));
+        let living = self.living_species();
+        if living.len() > shown {
+            lines.push(format!("  ...and {} more", living.len() - shown));
         }
 
         // Recently extinct (last 3)
@@ -298,5 +288,48 @@ impl PhyloTree {
             }
         }
         depth
+    }
+
+    fn render_tree_node(&self, node: &PhyloNode, depth: usize, lines: &mut Vec<String>, shown: &mut usize, max: usize, current_tick: u64) {
+        if *shown >= max { return; }
+
+        let strategy = match node.strategy {
+            SpeciesStrategy::Photosynthesizer => "Plant",
+            SpeciesStrategy::Predator => "Predator",
+            SpeciesStrategy::Forager => "Forager",
+        };
+        let age_secs = current_tick.saturating_sub(node.born_tick) / 30;
+        let age_str = if age_secs >= 60 {
+            format!("{}m{}s", age_secs / 60, age_secs % 60)
+        } else {
+            format!("{}s", age_secs)
+        };
+
+        let indent = if depth == 0 {
+            String::new()
+        } else {
+            format!("{}\u{2514} ", "  ".repeat((depth - 1).min(4)))
+        };
+
+        let bar_len = ((node.current_population as f32 / 50.0).ceil() as usize).clamp(1, 15);
+        let bar: String = "\u{2588}".repeat(bar_len);
+
+        let declining = if node.current_population < node.peak_population / 2 { " declining" } else { "" };
+
+        lines.push(format!(
+            "{}{} ({}) {} [{}]{}",
+            indent, strategy, node.current_population, bar, age_str, declining,
+        ));
+        *shown += 1;
+
+        // Show living children, sorted by population
+        let mut children: Vec<&PhyloNode> = self.nodes.values()
+            .filter(|n| n.parent_id == Some(node.species_id) && n.current_population > 0)
+            .collect();
+        children.sort_by(|a, b| b.current_population.cmp(&a.current_population));
+
+        for child in children {
+            self.render_tree_node(child, depth + 1, lines, shown, max, current_tick);
+        }
     }
 }
