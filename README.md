@@ -47,6 +47,18 @@ cargo run --release
 | **X** | Asteroid impact (kills 70%) |
 | **I** | Ice age (halves temperature) |
 | **V** | Volcanic eruption (local kill zone + nutrient boost) |
+| **S** | Take screenshot (saved to session directory) |
+| **F5** | Save world state |
+
+### Save/load
+
+Each run gets a unique cosmic name (e.g. "pale-fading-shard"). Session data — chronicle log, screenshots, save files — lives in `sessions/<name>/`.
+
+```bash
+# Save: press F5 during gameplay
+# Load a saved session:
+cargo run --release -- --load sessions/pale-fading-shard
+```
 
 ### Screenshot mode
 
@@ -125,14 +137,17 @@ See [TODO.md](TODO.md) for the prioritised backlog.
 - Help overlay (H key) explaining everything
 - Action flash (organisms pulse when eating/attacking/reproducing)
 - Initial diversity seeding (30% photosynthesizers)
+- Dynamic LOD — body parts re-render when zoom level changes
+- Species stability — hysteresis prevents flip-flopping between species
+- Save/load (F5 to save, --load to restore)
+- Named sessions with cosmic names, per-session logs and screenshots
+- JetBrains Mono font for Unicode rendering
 - Pause/speed controls
-- Screenshot verification mode
+- Screenshot verification mode + manual screenshots (S key)
 
 **Next:**
-- Proper UI panels (bevy_egui) — scrollable, resizable panels for phylo tree, graphs, chronicle
-- Dynamic LOD — body parts re-render when zooming, not just at spawn time
-- Species stability tuning — slow down reclassification for more meaningful phylogeny
-- Save/load simulation state
+- Proper UI panels (bevy_egui) — scrollable, resizable panels
+- Seed-based terrain generation (for reproducible saves)
 - Symbiosis (mutualism, parasitism)
 - GPU compute for neural net batching
 - WASM+WebGPU browser build

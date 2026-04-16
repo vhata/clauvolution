@@ -5,8 +5,8 @@ An evolution simulator where you watch life emerge, adapt, compete, and speciate
 ## What's Done
 
 - [x] Rust + Bevy ECS workspace
-- [x] Per-organism NEAT neural networks with 19 inputs, 9 outputs, recurrent memory
-- [x] Organisms sense food, neighbors, terrain, species, health — brains decide everything
+- [x] Per-organism NEAT neural networks with 20 inputs, 9 outputs, recurrent memory
+- [x] Organisms sense food, neighbors, terrain, species, health, signals — brains decide everything
 - [x] Procedural terrain — oceans, deserts, grasslands, forests, rock
 - [x] Biome-aware food spawning + terrain-dependent movement costs
 - [x] Photosynthesis — organisms with photo surfaces gain energy from light
@@ -19,11 +19,11 @@ An evolution simulator where you watch life emerge, adapt, compete, and speciate
 - [x] Brain memory — 3 recurrent slots
 - [x] Organism aging and natural death
 - [x] Generation tracking
-- [x] Species classification with distinct colours
-- [x] Phylogenetic tree with ancestry tracking
-- [x] World chronicle — automatic event log (speciation, extinction, convergence)
-- [x] Convergent evolution detection
-- [x] Population sparkline graphs with per-strategy breakdown
+- [x] Species classification with distinct colours + hysteresis for stability
+- [x] Phylogenetic tree with ancestry tracking and lineage grouping
+- [x] World chronicle — automatic event log (speciation, extinction, convergence, seasons)
+- [x] Convergent evolution detection (summarised, not per-pair spam)
+- [x] Population sparkline graphs with per-strategy breakdown + fitness tracking
 - [x] Strategy breakdown (Plants / Predators / Foragers counts)
 - [x] Click-to-inspect with full stat panel
 - [x] Help overlay (H key) explaining everything for newcomers
@@ -32,9 +32,14 @@ An evolution simulator where you watch life emerge, adapt, compete, and speciate
 - [x] Chemical signalling between organisms (brain input + output)
 - [x] Seasonal cycles — 60-second year, affects light and food production
 - [x] Geographic barriers — oceans/mountains isolate populations for speciation
-- [x] Fitness tracking — average lifespan sparkline proves evolution is happening
+- [x] Fitness tracking — average lifespan sparkline
+- [x] Dynamic LOD — body parts re-render when zoom changes
+- [x] Species stability — higher threshold, slower reclassification, hysteresis
+- [x] Save/load — F5 saves to session directory, --load restores
+- [x] Named sessions — cosmic three-word names, logs + screenshots per session
+- [x] Manual screenshots (S key) saved to session directory
+- [x] JetBrains Mono font for proper Unicode rendering
 - [x] Photosynthesizers render as ground cover (behind active organisms)
-- [x] Better LOD — body parts visible at medium zoom
 - [x] Pause/play, speed control, smooth camera
 - [x] Screenshot verification mode (--screenshot)
 
@@ -43,22 +48,16 @@ An evolution simulator where you watch life emerge, adapt, compete, and speciate
 ### 1. Proper UI panels (bevy_egui)
 Current text panels are fixed-size and can't scroll. Need real UI: scrollable phylogenetic tree, resizable panels, tabs for different views. This unblocks everything else — graphs, tree, chronicle all need more space than text overlays can provide.
 
-### 2. Dynamic LOD
-Body parts only render for organisms spawned while zoomed in. Need to re-render organisms when zoom level changes so you can zoom in and see detail on existing organisms.
+### 2. Seed-based terrain generation
+Terrain currently regenerates randomly on load, so saved worlds get different maps. Need a seed stored in the save file so terrain is deterministic and reproducible.
 
-### 3. Species stability
-Species turn over too fast for the phylogenetic tree to be meaningful. Need to either increase the compatibility threshold, slow down reclassification, or both. The tree should show real evolutionary branching, not noise.
-
-### 4. Save/load simulation state
-Quality of life — pause a run, come back to it later. Serialize all ECS state to disk.
-
-### 5. Symbiosis
+### 3. Symbiosis
 Mutualism, parasitism, commensalism. Two organisms evolving to depend on each other. Research-level — may need new mechanics.
 
-### 6. GPU compute for neural net batching
+### 4. GPU compute for neural net batching
 Performance scaling — batch neural net forward passes on GPU for 100k+ organisms.
 
-### 7. WASM+WebGPU browser build
+### 5. WASM+WebGPU browser build
 Accessibility — run in a browser without installing anything.
 
 ---
