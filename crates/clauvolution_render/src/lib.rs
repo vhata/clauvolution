@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::render::view::screenshot::{save_to_disk, Screenshot};
 use bevy::window::PrimaryWindow;
 use clauvolution_body::BodyPlan;
 use clauvolution_core::*;
@@ -18,7 +19,7 @@ impl Plugin for RenderPlugin {
             .add_systems(Startup, (setup_camera, setup_shared_meshes))
             .add_systems(
                 Update,
-                (speed_control_system, click_select_system, toggle_graph_system, toggle_help_system, toggle_chronicle_system, lod_change_system),
+                (speed_control_system, click_select_system, toggle_graph_system, toggle_help_system, toggle_chronicle_system, lod_change_system, manual_screenshot_system),
             )
             .add_systems(
                 PostUpdate,
@@ -1070,5 +1071,23 @@ fn lod_change_system(
         for &child in children.iter() {
             commands.entity(child).try_despawn();
         }
+    }
+}
+
+/// S key takes a manual screenshot, saved to session directory
+fn manual_screenshot_system(
+    mut commands: Commands,
+    keys: Res<ButtonInput<KeyCode>>,
+    session: Res<Session>,
+    tick: Res<TickCounter>,
+) {
+    if keys.just_pressed(KeyCode::KeyS) {
+        let time_secs = tick.0 / 30;
+        let label = format!("screenshot_{}s", time_secs);
+        let path = session.screenshot_path(&label).to_string_lossy().to_string();
+        info!("Screenshot: {}", path);
+        commands
+            .spawn(Screenshot::primary_window())
+            .observe(save_to_disk(path));
     }
 }
