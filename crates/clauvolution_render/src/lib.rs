@@ -21,7 +21,7 @@ impl Plugin for RenderPlugin {
             .add_systems(Startup, (setup_camera, setup_shared_meshes, setup_minimap))
             .add_systems(
                 Update,
-                (speed_control_system, click_select_system, toggle_graph_system, toggle_help_system, toggle_chronicle_system, lod_change_system, manual_screenshot_system),
+                (speed_control_system, click_select_system, toggle_graph_system, toggle_help_system, toggle_chronicle_system, lod_change_system, manual_screenshot_system, minimap_click_system),
             )
             .add_systems(
                 PostUpdate,
@@ -1253,5 +1253,49 @@ fn update_minimap(
                 }
             }
         }
+    }
+}
+
+/// Click on minimap to teleport camera
+fn minimap_click_system(
+    mouse: Res<ButtonInput<MouseButton>>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    minimap_node: Query<(&Node, &ComputedNode), With<MinimapNode>>,
+    minimap: Option<Res<MinimapData>>,
+    config: Res<SimConfig>,
+    mut camera: Query<&mut Transform, With<MainCamera>>,
+) {
+    if !mouse.just_pressed(MouseButton::Left) {
+        return;
+    }
+    let Some(minimap) = minimap else { return };
+    let Ok(window) = windows.get_single() else { return };
+    let Some(cursor_pos) = window.cursor_position() else { return };
+
+    // Get minimap screen position and size
+    let Ok((_node, _computed)) = minimap_node.get_single() else { return };
+
+    // The minimap is positioned at right:10, top:10 with fixed size
+    let map_size = minimap.size as f32;
+    let win_w = window.width();
+    let map_right = 10.0;
+    let map_top = 10.0;
+    let map_left = win_w - map_right - map_size;
+
+    // Check if click is within minimap bounds
+    let local_x = cursor_pos.x - map_left;
+    let local_y = cursor_pos.y - map_top;
+
+    if local_x < 0.0 || local_x > map_size || local_y < 0.0 || local_y > map_size {
+        return;
+    }
+
+    // Convert minimap pixel to world coordinate
+    let world_x = local_x / map_size * config.world_width as f32;
+    let world_y = (1.0 - local_y / map_size) * config.world_height as f32;
+
+    if let Ok(mut cam_transform) = camera.get_single_mut() {
+        cam_transform.translation.x = world_x;
+        cam_transform.translation.y = world_y;
     }
 }
