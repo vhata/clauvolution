@@ -44,6 +44,7 @@ cargo run --release
 | **Space** | Pause / unpause |
 | **[** / **]** | Slow down / speed up (0.125x to 16x) |
 | **G** | Toggle population graphs |
+| **M** | Toggle minimap heatmap (density by strategy) |
 | **C** | Toggle world chronicle |
 | **H** | Toggle help overlay |
 | **X** | Asteroid impact (kills 70%) |

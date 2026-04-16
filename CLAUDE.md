@@ -54,10 +54,9 @@ See TODO.md "What's Done" section. Highlights: NEAT brains with memory, predatio
 ## What's Next (from TODO.md)
 
 1. Proper UI panels (bevy_egui) — scrollable panels
-2. Population heatmap toggle
-3. Symbiosis
-4. GPU compute
-5. WASM browser build
+2. Symbiosis
+3. GPU compute
+4. WASM browser build
 
 ## Build & Run
 
@@ -69,4 +68,4 @@ cargo run --release -- --load sessions/<name>    # load saved session
 
 ## Controls
 
-Space=pause, [/]=speed, WASD=pan, scroll=zoom, click=inspect, S=screenshot, F5=save, G=graphs, C=chronicle, H=help, X=asteroid, I=ice age, V=volcano
+Space=pause, [/]=speed, WASD=pan, scroll=zoom, click=inspect, S=screenshot, F5=save, G=graphs, M=heatmap, C=chronicle, H=help, X=asteroid, I=ice age, V=volcano
