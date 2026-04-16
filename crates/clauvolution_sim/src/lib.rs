@@ -32,6 +32,7 @@ impl Plugin for SimPlugin {
                     .chain(),
             )
             .insert_resource(Time::<Fixed>::from_hz(30.0))
+            .insert_resource(Time::<Virtual>::from_max_delta(std::time::Duration::from_millis(100)))
             .insert_resource(SpeciesClassificationTimer(Timer::from_seconds(
                 5.0,
                 TimerMode::Repeating,
