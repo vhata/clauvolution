@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{save_to_disk, Screenshot};
 use clauvolution_body::BodyPlugin;
+use bevy::window::PrimaryWindow;
 use clauvolution_core::*;
 use clauvolution_genome::InnovationCounter;
 use clauvolution_render::{MainCamera, RenderPlugin};
@@ -28,7 +29,7 @@ fn main() {
     .add_plugins(PhylogenyPlugin)
     .add_plugins(RenderPlugin)
     .insert_resource(InnovationCounter(100))
-    .add_systems(Startup, setup_world);
+    .add_systems(Startup, (setup_world, set_window_title));
 
     if screenshot_mode {
         app.insert_resource(ScreenshotSchedule::new())
@@ -118,6 +119,7 @@ impl ScreenshotSchedule {
 fn screenshot_system(
     mut commands: Commands,
     mut schedule: ResMut<ScreenshotSchedule>,
+    session: Res<Session>,
     mut camera: Query<(&mut Transform, &mut OrthographicProjection), With<MainCamera>>,
     mut exit: EventWriter<AppExit>,
     config: Res<SimConfig>,
@@ -141,7 +143,7 @@ fn screenshot_system(
             transform.translation.y = config.world_height as f32 / 2.0;
         }
 
-        let path = format!("screenshots/{}.png", step.label);
+        let path = session.screenshot_path(&step.label).to_string_lossy().to_string();
         info!("Capturing screenshot: {}", path);
 
         commands
@@ -150,5 +152,14 @@ fn screenshot_system(
 
         schedule.current += 1;
         schedule.frame_count = 0;
+    }
+}
+
+fn set_window_title(
+    session: Res<Session>,
+    mut windows: Query<&mut Window, With<PrimaryWindow>>,
+) {
+    if let Ok(mut window) = windows.get_single_mut() {
+        window.title = format!("Clauvolution — {}", session.name);
     }
 }

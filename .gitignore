@@ -1,5 +1,6 @@
 /target
 /screenshots
+/sessions
 **/*.rs.bk
 *.swp
 *.swo

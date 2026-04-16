@@ -15,6 +15,7 @@ impl Plugin for PhylogenyPlugin {
 pub struct WorldChronicle {
     pub entries: Vec<ChronicleEntry>,
     pub max_display: usize,
+    pub log_path: Option<std::path::PathBuf>,
 }
 
 #[derive(Clone)]
@@ -28,12 +29,26 @@ impl Default for WorldChronicle {
         Self {
             entries: Vec::new(),
             max_display: 20,
+            log_path: None,
         }
     }
 }
 
 impl WorldChronicle {
     pub fn log(&mut self, tick: u64, text: String) {
+        // Write to file if path is set
+        if let Some(ref path) = self.log_path {
+            use std::io::Write;
+            let time_secs = tick / 30;
+            let time_str = if time_secs >= 60 {
+                format!("{}m{:02}s", time_secs / 60, time_secs % 60)
+            } else {
+                format!("{:3}s", time_secs)
+            };
+            if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+                let _ = writeln!(file, "[{}] {}", time_str, text);
+            }
+        }
         self.entries.push(ChronicleEntry { tick, text });
     }
 

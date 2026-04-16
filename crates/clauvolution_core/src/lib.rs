@@ -1,11 +1,16 @@
 use bevy::prelude::*;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 pub struct CorePlugin;
 
 impl Plugin for CorePlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(SimConfig::default())
+        let session = Session::new();
+        info!("Session: {} ({})", session.name, session.dir.display());
+        app.insert_resource(session)
+            .insert_resource(SimConfig::default())
             .insert_resource(SimStats::default())
             .insert_resource(TickCounter(0))
             .insert_resource(SimSpeed::default())
@@ -14,6 +19,61 @@ impl Plugin for CorePlugin {
             .insert_resource(Season::default())
             .insert_resource(FitnessTracker::default())
             .insert_resource(PopulationHistory::default());
+    }
+}
+
+/// A named session with a storage directory for logs and screenshots
+#[derive(Resource)]
+pub struct Session {
+    pub name: String,
+    pub dir: PathBuf,
+}
+
+impl Session {
+    pub fn new() -> Self {
+        let name = Self::generate_name();
+        let dir = PathBuf::from("sessions").join(&name);
+        std::fs::create_dir_all(&dir).expect("Failed to create session directory");
+        Self { name, dir }
+    }
+
+    fn generate_name() -> String {
+        let mut rng = rand::thread_rng();
+
+        let adjectives1 = [
+            "ancient", "bright", "cosmic", "dark", "eternal", "frozen",
+            "golden", "hidden", "infinite", "jade", "keen", "luminous",
+            "molten", "nebular", "obsidian", "pale", "quiet", "radiant",
+            "silent", "twisted", "vast", "wandering", "young", "zealous",
+        ];
+
+        let adjectives2 = [
+            "burning", "crystalline", "drifting", "echoing", "fading",
+            "glowing", "hollow", "iron", "jagged", "kindled", "living",
+            "massive", "nameless", "orbital", "pulsing", "restless",
+            "shattered", "tidal", "unbound", "volatile", "woven",
+        ];
+
+        let nouns = [
+            "nebula", "aurora", "comet", "void", "pulsar", "quasar",
+            "nova", "eclipse", "rift", "storm", "ember", "tide",
+            "forge", "spire", "abyss", "bloom", "shard", "vortex",
+            "haven", "crown", "drift", "flare", "genesis", "horizon",
+        ];
+
+        let a1 = adjectives1[rng.gen_range(0..adjectives1.len())];
+        let a2 = adjectives2[rng.gen_range(0..adjectives2.len())];
+        let n = nouns[rng.gen_range(0..nouns.len())];
+
+        format!("{}-{}-{}", a1, a2, n)
+    }
+
+    pub fn log_path(&self) -> PathBuf {
+        self.dir.join("chronicle.log")
+    }
+
+    pub fn screenshot_path(&self, label: &str) -> PathBuf {
+        self.dir.join(format!("{}.png", label))
     }
 }
 

@@ -73,7 +73,12 @@ impl Default for BrainOutput {
     }
 }
 
-fn tick_counter_system(mut tick: ResMut<TickCounter>, mut season: ResMut<Season>, mut chronicle: ResMut<WorldChronicle>) {
+fn tick_counter_system(mut tick: ResMut<TickCounter>, mut season: ResMut<Season>, mut chronicle: ResMut<WorldChronicle>, session: Res<Session>) {
+    // Set chronicle log path from session on first tick
+    if tick.0 == 0 {
+        chronicle.log_path = Some(session.log_path());
+        chronicle.log(0, format!("Session '{}' started", session.name));
+    }
     tick.0 += 1;
     let old_name = season.name();
     season.advance();
