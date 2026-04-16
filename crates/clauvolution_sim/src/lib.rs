@@ -1,3 +1,5 @@
+pub mod save;
+
 use bevy::prelude::*;
 use clauvolution_brain::Brain;
 use clauvolution_core::*;
@@ -11,7 +13,7 @@ pub struct SimPlugin;
 
 impl Plugin for SimPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (sim_speed_system, mass_extinction_input_system))
+        app.add_systems(Update, (sim_speed_system, mass_extinction_input_system, save_system))
             .add_systems(
                 FixedUpdate,
                 (
@@ -885,4 +887,38 @@ pub fn spawn_initial_population(
             genome,
         ));
     }
+}
+
+/// F5 saves the world to the session directory
+fn save_system(
+    keys: Res<ButtonInput<KeyCode>>,
+    session: Res<Session>,
+    tick: Res<TickCounter>,
+    season: Res<Season>,
+    stats: Res<SimStats>,
+    innovation: Res<InnovationCounter>,
+    organisms: Query<(&Position, &Energy, &Health, &Age, &Generation, &SpeciesId, &Signal, &BrainMemory, &Genome), With<Organism>>,
+    food: Query<(&Position, &FoodEnergy), With<Food>>,
+    phylo: Res<PhyloTree>,
+    chronicle: Res<WorldChronicle>,
+) {
+    if !keys.just_pressed(KeyCode::F5) {
+        return;
+    }
+
+    let org_data: Vec<_> = organisms.iter()
+        .map(|(pos, energy, health, age, gen, species, signal, memory, genome)| {
+            (pos.0, energy.0, health.0, age.0, gen.0, species.0, signal.0, memory.0, genome.clone())
+        })
+        .collect();
+
+    let food_data: Vec<_> = food.iter()
+        .map(|(pos, fe)| (pos.0, fe.0))
+        .collect();
+
+    let save_path = session.dir.join("save.json");
+    save::save_world(&save_path, &tick, &season, &stats, &innovation, &org_data, &food_data, &phylo, &chronicle);
+    chronicle.entries.last().map(|_| {
+        info!("World saved to {}", save_path.display());
+    });
 }

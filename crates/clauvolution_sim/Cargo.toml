@@ -12,3 +12,5 @@ clauvolution_genome = { path = "../clauvolution_genome" }
 clauvolution_brain = { path = "../clauvolution_brain" }
 clauvolution_world = { path = "../clauvolution_world" }
 clauvolution_phylogeny = { path = "../clauvolution_phylogeny" }
+serde = { workspace = true }
+serde_json = { workspace = true }

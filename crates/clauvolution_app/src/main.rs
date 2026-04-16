@@ -3,14 +3,18 @@ use bevy::render::view::screenshot::{save_to_disk, Screenshot};
 use clauvolution_body::BodyPlugin;
 use bevy::window::PrimaryWindow;
 use clauvolution_core::*;
+use clauvolution_sim::save;
 use clauvolution_genome::InnovationCounter;
 use clauvolution_render::{MainCamera, RenderPlugin};
-use clauvolution_phylogeny::PhylogenyPlugin;
+use clauvolution_phylogeny::{PhylogenyPlugin, PhyloTree, WorldChronicle};
 use clauvolution_sim::SimPlugin;
 use clauvolution_world::{self, TileMap, WorldPlugin};
 
 fn main() {
     let screenshot_mode = std::env::args().any(|a| a == "--screenshot");
+    let load_path = std::env::args()
+        .position(|a| a == "--load")
+        .and_then(|i| std::env::args().nth(i + 1));
 
     let mut app = App::new();
 
@@ -29,7 +33,8 @@ fn main() {
     .add_plugins(PhylogenyPlugin)
     .add_plugins(RenderPlugin)
     .insert_resource(InnovationCounter(100))
-    .add_systems(Startup, (setup_world, set_window_title));
+    .insert_resource(LoadPath(load_path))
+    .add_systems(Startup, (startup_system, set_window_title));
 
     if screenshot_mode {
         app.insert_resource(ScreenshotSchedule::new())
@@ -37,6 +42,84 @@ fn main() {
     }
 
     app.run();
+}
+
+#[derive(Resource)]
+struct LoadPath(Option<String>);
+
+fn startup_system(
+    commands: Commands,
+    config: Res<SimConfig>,
+    innovation: ResMut<InnovationCounter>,
+    stats: ResMut<SimStats>,
+    tick: ResMut<TickCounter>,
+    season: ResMut<Season>,
+    phylo: ResMut<PhyloTree>,
+    chronicle: ResMut<WorldChronicle>,
+    load_path: Res<LoadPath>,
+) {
+    if let Some(ref path) = load_path.0 {
+        let save_path = std::path::Path::new(path).join("save.json");
+        if save_path.exists() {
+            load_saved_world(commands, config, innovation, stats, tick, season, phylo, chronicle, &save_path);
+            return;
+        } else {
+            warn!("Save file not found: {}, starting fresh", save_path.display());
+        }
+    }
+    fresh_world(commands, config, innovation, stats);
+}
+
+fn load_saved_world(
+    mut commands: Commands,
+    config: Res<SimConfig>,
+    mut innovation: ResMut<InnovationCounter>,
+    mut stats: ResMut<SimStats>,
+    mut tick: ResMut<TickCounter>,
+    mut season: ResMut<Season>,
+    mut phylo: ResMut<PhyloTree>,
+    mut chronicle: ResMut<WorldChronicle>,
+    save_path: &std::path::Path,
+) {
+    let Some(state) = save::load_world(save_path) else {
+        warn!("Failed to load save file, starting fresh");
+        return;
+    };
+
+    info!("Loading world from {} ({} organisms, {} food)", save_path.display(), state.organisms.len(), state.food.len());
+
+    // Restore state
+    tick.0 = state.tick;
+    season.current_tick = state.season_tick;
+    stats.total_births = state.stats.total_births;
+    stats.total_deaths = state.stats.total_deaths;
+    stats.max_generation = state.stats.max_generation;
+    innovation.0 = state.innovation_counter;
+
+    // Generate terrain (same seed = same terrain for now)
+    let mut rng = rand::thread_rng();
+    let tile_map = clauvolution_world::TileMap::generate(config.world_width, config.world_height, &mut rng);
+    commands.insert_resource(tile_map);
+
+    // Restore organisms and food
+    save::spawn_saved_organisms(&mut commands, &state.organisms);
+    save::spawn_saved_food(&mut commands, &state.food);
+
+    // Restore phylo tree and chronicle
+    save::restore_phylo(&mut phylo, &state.phylo_nodes);
+    save::restore_chronicle(&mut chronicle, &state.chronicle_entries);
+    chronicle.log(tick.0, "World loaded from save".to_string());
+
+    stats.total_organisms = state.organisms.len() as u32;
+}
+
+fn fresh_world(
+    commands: Commands,
+    config: Res<SimConfig>,
+    innovation: ResMut<InnovationCounter>,
+    stats: ResMut<SimStats>,
+) {
+    setup_world(commands, config, innovation, stats);
 }
 
 fn setup_world(
