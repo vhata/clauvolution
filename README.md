@@ -129,8 +129,11 @@ See [TODO.md](TODO.md) for the prioritised backlog.
 - Screenshot verification mode
 
 **Next:**
-- Symbiosis (mutualism, parasitism)
+- Proper UI panels (bevy_egui) — scrollable, resizable panels for phylo tree, graphs, chronicle
+- Dynamic LOD — body parts re-render when zooming, not just at spawn time
+- Species stability tuning — slow down reclassification for more meaningful phylogeny
 - Save/load simulation state
+- Symbiosis (mutualism, parasitism)
 - GPU compute for neural net batching
 - WASM+WebGPU browser build
 

@@ -40,16 +40,25 @@ An evolution simulator where you watch life emerge, adapt, compete, and speciate
 
 ## What's Next (prioritised)
 
-### 1. Symbiosis
-Mutualism, parasitism, commensalism. Two organisms evolving to depend on each other.
+### 1. Proper UI panels (bevy_egui)
+Current text panels are fixed-size and can't scroll. Need real UI: scrollable phylogenetic tree, resizable panels, tabs for different views. This unblocks everything else — graphs, tree, chronicle all need more space than text overlays can provide.
 
-### 2. Save/load simulation state
-Quality of life — pause a run, come back to it later.
+### 2. Dynamic LOD
+Body parts only render for organisms spawned while zoomed in. Need to re-render organisms when zoom level changes so you can zoom in and see detail on existing organisms.
 
-### 3. GPU compute for neural net batching
+### 3. Species stability
+Species turn over too fast for the phylogenetic tree to be meaningful. Need to either increase the compatibility threshold, slow down reclassification, or both. The tree should show real evolutionary branching, not noise.
+
+### 4. Save/load simulation state
+Quality of life — pause a run, come back to it later. Serialize all ECS state to disk.
+
+### 5. Symbiosis
+Mutualism, parasitism, commensalism. Two organisms evolving to depend on each other. Research-level — may need new mechanics.
+
+### 6. GPU compute for neural net batching
 Performance scaling — batch neural net forward passes on GPU for 100k+ organisms.
 
-### 4. WASM+WebGPU browser build
+### 7. WASM+WebGPU browser build
 Accessibility — run in a browser without installing anything.
 
 ---
