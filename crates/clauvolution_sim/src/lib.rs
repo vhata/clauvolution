@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use clauvolution_brain::Brain;
 use clauvolution_core::*;
 use clauvolution_genome::{Genome, InnovationCounter, NUM_INPUTS, NUM_MEMORY};
-use clauvolution_phylogeny::{PhyloTree, SpeciesStrategy, WorldChronicle};
+use clauvolution_phylogeny::{PhyloTree, SpeciesStrategy, SpeciesTraits, WorldChronicle};
 use clauvolution_world::{SpatialHash, TileMap};
 use rand::Rng;
 use std::collections::HashMap;
@@ -733,19 +733,27 @@ fn species_classification_system(
             };
             // Parent is the old species this organism was classified as
             let parent = if *_old_species > 0 { Some(*_old_species) } else { None };
-            phylo.record_species(new_id, parent, tick.0, color, strategy);
-
-            let strategy_name = match strategy {
-                SpeciesStrategy::Photosynthesizer => "Plant",
-                SpeciesStrategy::Predator => "Predator",
-                SpeciesStrategy::Forager => "Forager",
+            let traits = SpeciesTraits {
+                strategy,
+                aquatic: genome.aquatic_adaptation,
+                body_size: genome.body_size,
+                speed: genome.speed_factor,
+                armor: genome.armor_value(),
+                has_fins: genome.has_fins(),
+                has_eyes: genome.eye_count() > 0,
+                has_claws: genome.has_claws(),
+                has_armor_plates: genome.has_armor(),
             };
+            phylo.record_species(new_id, parent, tick.0, color, strategy, Some(&traits));
+
+            let species_name = phylo.nodes.get(&new_id).map(|n| n.name.as_str()).unwrap_or("Unknown");
             let parent_str = if let Some(p) = parent {
-                format!(" (from species {})", p)
+                let parent_name = phylo.nodes.get(&p).map(|n| n.name.as_str()).unwrap_or("unknown");
+                format!(" (from {})", parent_name)
             } else {
                 String::new()
             };
-            chronicle.log(tick.0, format!("New {} species {}{}", strategy_name, new_id, parent_str));
+            chronicle.log(tick.0, format!("New species: {}{}", species_name, parent_str));
 
             new_id
         };
@@ -773,15 +781,10 @@ fn species_classification_system(
     for species_id in &previously_living {
         if let Some(node) = phylo.nodes.get(species_id) {
             if node.current_population == 0 && node.peak_population >= 10 {
-                let strategy_name = match node.strategy {
-                    SpeciesStrategy::Photosynthesizer => "Plant",
-                    SpeciesStrategy::Predator => "Predator",
-                    SpeciesStrategy::Forager => "Forager",
-                };
                 let age_secs = tick.0.saturating_sub(node.born_tick) / 30;
                 chronicle.log(tick.0, format!(
-                    "{} species {} went extinct (peak: {}, lived {}s)",
-                    strategy_name, species_id, node.peak_population, age_secs
+                    "{} went extinct (peak: {}, lived {}s)",
+                    node.name, node.peak_population, age_secs
                 ));
             }
         }

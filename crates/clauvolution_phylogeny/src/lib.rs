@@ -1,6 +1,67 @@
 use bevy::prelude::*;
 use std::collections::HashMap;
 
+/// Traits used to generate a species name
+pub struct SpeciesTraits {
+    pub strategy: SpeciesStrategy,
+    pub aquatic: f32,
+    pub body_size: f32,
+    pub speed: f32,
+    pub armor: f32,
+    pub has_fins: bool,
+    pub has_eyes: bool,
+    pub has_claws: bool,
+    pub has_armor_plates: bool,
+}
+
+/// Generate a species name from its traits
+pub fn generate_species_name(traits: &SpeciesTraits, species_id: u64) -> String {
+    let i = species_id as usize;
+    macro_rules! pick { ($arr:expr) => { $arr[i % $arr.len()] } }
+
+    let habitat = if traits.aquatic > 0.5 {
+        if traits.has_fins { pick!(["Reef", "Deep", "Tidal", "Pelagic", "Abyssal"]) }
+        else { pick!(["Shore", "Marsh", "Coastal", "Brackish", "Littoral"]) }
+    } else if traits.aquatic > 0.2 {
+        pick!(["Riparian", "Swamp", "Estuary", "Delta", "Wetland"])
+    } else {
+        pick!(["Plains", "Ridge", "Upland", "Steppe", "Highland"])
+    };
+
+    let body = if traits.has_armor_plates && traits.armor > 0.5 {
+        pick!(["Plated", "Armored", "Shelled", "Ironclad", "Crusted"])
+    } else if traits.has_claws {
+        pick!(["Clawed", "Hooked", "Barbed", "Serrated", "Fanged"])
+    } else if traits.has_eyes {
+        pick!(["Keen", "Sharp-eyed", "Watchful", "Bright", "Alert"])
+    } else if traits.body_size > 1.3 {
+        pick!(["Greater", "Giant", "Massive", "Hulking", "Towering"])
+    } else if traits.body_size < 0.5 {
+        pick!(["Lesser", "Dwarf", "Tiny", "Minute", "Pygmy"])
+    } else if traits.speed > 1.2 {
+        pick!(["Swift", "Fleet", "Darting", "Quick", "Racing"])
+    } else {
+        pick!(["Common", "Spotted", "Banded", "Pale", "Dusky"])
+    };
+
+    let noun = match traits.strategy {
+        SpeciesStrategy::Photosynthesizer => {
+            if traits.aquatic > 0.5 { pick!(["Kelp", "Algae", "Seagrass", "Coral", "Lichen"]) }
+            else { pick!(["Fern", "Moss", "Vine", "Shrub", "Bloom"]) }
+        }
+        SpeciesStrategy::Predator => {
+            if traits.aquatic > 0.5 { pick!(["Shark", "Eel", "Hunter", "Stalker", "Lurker"]) }
+            else { pick!(["Raptor", "Prowler", "Striker", "Ambusher", "Mauler"]) }
+        }
+        SpeciesStrategy::Forager => {
+            if traits.aquatic > 0.5 { pick!(["Drifter", "Grazer", "Filter", "Crawler", "Scavenger"]) }
+            else { pick!(["Forager", "Browser", "Gleaner", "Rooter", "Wanderer"]) }
+        }
+    };
+
+    format!("{} {} {}", habitat, body, noun)
+}
+
 pub struct PhylogenyPlugin;
 
 impl Plugin for PhylogenyPlugin {
@@ -89,6 +150,7 @@ pub struct PhyloNode {
     pub current_population: u32,
     pub strategy: SpeciesStrategy,
     pub color: Color,
+    pub name: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -114,10 +176,17 @@ impl PhyloTree {
         tick: u64,
         color: Color,
         strategy: SpeciesStrategy,
+        traits: Option<&SpeciesTraits>,
     ) {
         if self.nodes.contains_key(&species_id) {
             return;
         }
+
+        let name = if let Some(t) = traits {
+            generate_species_name(t, species_id)
+        } else {
+            format!("Species {}", species_id)
+        };
 
         let node = PhyloNode {
             species_id,
@@ -128,6 +197,7 @@ impl PhyloTree {
             current_population: 1,
             strategy,
             color,
+            name,
         };
 
         if parent_id.is_none() {
@@ -347,11 +417,6 @@ impl PhyloTree {
 
 
     fn format_species_line(&self, node: &PhyloNode, depth: usize, current_tick: u64) -> String {
-        let strategy = match node.strategy {
-            SpeciesStrategy::Photosynthesizer => "Plant   ",
-            SpeciesStrategy::Predator =>         "Predator",
-            SpeciesStrategy::Forager =>          "Forager ",
-        };
         let age_secs = current_tick.saturating_sub(node.born_tick) / 30;
         let age_str = if age_secs >= 60 {
             format!("{}m{:02}s", age_secs / 60, age_secs % 60)
@@ -359,25 +424,25 @@ impl PhyloTree {
             format!("{}s", age_secs)
         };
 
-        // Fixed-width indent: 4 chars for depth 0, "└ " prefix for children
         let indent = if depth == 0 {
             "  ".to_string()
         } else {
             format!("{}\u{2514} ", "  ".repeat((depth - 1).min(3)))
         };
-        // Pad indent to consistent width (4 chars)
         let indent = format!("{:<4}", indent);
 
-        let bar_len = ((node.current_population as f32 / 50.0).ceil() as usize).clamp(1, 15);
+        // Truncate name to fit
+        let name: String = node.name.chars().take(22).collect();
+
+        let bar_len = ((node.current_population as f32 / 50.0).ceil() as usize).clamp(1, 10);
         let bar: String = "\u{2588}".repeat(bar_len);
-        // Pad bar to fixed width so age column aligns
         let bar = format!("{:<15}", bar);
 
         let declining = if node.current_population < node.peak_population / 2 { " declining" } else { "" };
 
         format!(
-            "{}{} {:>4} {} {:>6}{}",
-            indent, strategy, node.current_population, bar, age_str, declining,
+            "{}{:<22} {:>4} {} {:>6}{}",
+            indent, name, node.current_population, bar, age_str, declining,
         )
     }
 }

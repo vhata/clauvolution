@@ -95,6 +95,7 @@ pub struct SavePhyloNode {
     pub extinct_tick: Option<u64>,
     pub peak_population: u32,
     pub strategy: u8,
+    pub name: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -258,6 +259,7 @@ pub fn save_world(
                 SpeciesStrategy::Predator => 1,
                 SpeciesStrategy::Forager => 2,
             },
+            name: n.name.clone(),
         }).collect(),
         chronicle_entries: chronicle.entries.iter().map(|e| SaveChronicleEntry {
             tick: e.tick,
@@ -331,6 +333,7 @@ pub fn restore_phylo(phylo: &mut PhyloTree, nodes: &[SavePhyloNode]) {
                 _ => SpeciesStrategy::Forager,
             },
             color: Color::WHITE, // will be reassigned by species classification
+            name: n.name.clone(),
         };
         if n.parent_id.is_none() {
             phylo.root_species.push(n.species_id);

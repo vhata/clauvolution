@@ -726,6 +726,7 @@ fn update_inspect_panel(
     mut text_query: Query<&mut Text, With<InspectPanel>>,
     tile_map: Option<Res<TileMap>>,
     config: Res<SimConfig>,
+    phylo: Res<PhyloTree>,
 ) {
     let Ok(mut text) = text_query.get_single_mut() else {
         return;
@@ -762,9 +763,13 @@ fn update_inspect_panel(
         "Forager"
     };
 
+    let species_name = phylo.nodes.get(&species.0)
+        .map(|n| n.name.as_str())
+        .unwrap_or("Unknown");
+
     **text = format!(
         "--- ORGANISM ---\n\
-         Species: {}  ({})\n\
+         {}\n\
          Gen: {}  |  Age: {}\n\
          Energy: {:.1} / {:.0}\n\
          Health: {:.0}%\n\
@@ -785,7 +790,7 @@ fn update_inspect_panel(
          --- BRAIN ---\n\
          Neurons: {}\n\
          Connections: {}\n",
-        species.0, strategy,
+        species_name,
         generation.0, age.0,
         energy.0, config.max_organism_energy,
         health.0 * 100.0,
