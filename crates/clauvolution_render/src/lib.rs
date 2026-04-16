@@ -68,6 +68,9 @@ pub struct ChronicleVisible(pub bool);
 #[derive(Component)]
 pub struct ChronicleText;
 
+#[derive(Resource)]
+pub struct UiFont(pub Handle<Font>);
+
 #[derive(Component)]
 pub struct HelpOverlay;
 
@@ -100,7 +103,9 @@ fn setup_shared_meshes(
 #[derive(Component)]
 pub struct TerrainRendered;
 
-fn setup_camera(mut commands: Commands, config: Res<SimConfig>) {
+fn setup_camera(mut commands: Commands, config: Res<SimConfig>, asset_server: Res<AssetServer>) {
+    let font: Handle<Font> = asset_server.load("fonts/JetBrainsMono-Regular.ttf");
+    commands.insert_resource(UiFont(font.clone()));
     let center_x = config.world_width as f32 / 2.0;
     let center_y = config.world_height as f32 / 2.0;
 
@@ -118,6 +123,7 @@ fn setup_camera(mut commands: Commands, config: Res<SimConfig>) {
     commands.spawn((
         Text::new(""),
         TextFont {
+            font: font.clone(),
             font_size: 16.0,
             ..default()
         },
@@ -135,6 +141,7 @@ fn setup_camera(mut commands: Commands, config: Res<SimConfig>) {
     commands.spawn((
         Text::new(""),
         TextFont {
+            font: font.clone(),
             font_size: 14.0,
             ..default()
         },
@@ -152,6 +159,7 @@ fn setup_camera(mut commands: Commands, config: Res<SimConfig>) {
     commands.spawn((
         Text::new(""),
         TextFont {
+            font: font.clone(),
             font_size: 11.0,
             ..default()
         },
@@ -169,6 +177,7 @@ fn setup_camera(mut commands: Commands, config: Res<SimConfig>) {
     commands.spawn((
         Text::new(""),
         TextFont {
+            font: font.clone(),
             font_size: 11.0,
             ..default()
         },
@@ -186,6 +195,7 @@ fn setup_camera(mut commands: Commands, config: Res<SimConfig>) {
     commands.spawn((
         Text::new(""),
         TextFont {
+            font: font.clone(),
             font_size: 11.0,
             ..default()
         },
@@ -203,6 +213,7 @@ fn setup_camera(mut commands: Commands, config: Res<SimConfig>) {
     commands.spawn((
         Text::new(""),
         TextFont {
+            font: font.clone(),
             font_size: 15.0,
             ..default()
         },
@@ -806,7 +817,7 @@ fn update_graph(
 
     let width = 60usize; // characters wide
     let _height = 8usize;
-    let blocks = ['.', ':', '-', '=', '+', '*', '#', '@'];
+    let blocks = ['\u{2581}', '\u{2582}', '\u{2583}', '\u{2584}', '\u{2585}', '\u{2586}', '\u{2587}', '\u{2588}'];
 
     let snaps = &history.snapshots;
     let display_count = snaps.len().min(width);
