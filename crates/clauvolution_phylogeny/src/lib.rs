@@ -193,25 +193,51 @@ impl PhyloTree {
         check_a.iter().any(|id| check_b.contains(id))
     }
 
-    /// Detect convergent evolution: living species with same strategy but no recent common ancestor
-    pub fn detect_convergence(&self) -> Vec<(u64, u64, SpeciesStrategy)> {
+    /// Detect convergent evolution: count independent lineages per strategy.
+    /// Returns strategies where 2+ unrelated lineages evolved the same thing.
+    pub fn detect_convergence(&self) -> Vec<(SpeciesStrategy, usize)> {
         let living = self.living_species();
-        let mut convergences = Vec::new();
+        let strategies = [
+            SpeciesStrategy::Photosynthesizer,
+            SpeciesStrategy::Predator,
+            SpeciesStrategy::Forager,
+        ];
 
-        for i in 0..living.len() {
-            for j in (i + 1)..living.len() {
-                let a = living[i];
-                let b = living[j];
-                if a.strategy == b.strategy
-                    && a.current_population >= 10
-                    && b.current_population >= 10
-                    && !self.shares_recent_ancestor(a.species_id, b.species_id, 5)
-                {
-                    convergences.push((a.species_id, b.species_id, a.strategy));
+        let mut results = Vec::new();
+
+        for &strat in &strategies {
+            let species_with_strat: Vec<&PhyloNode> = living.iter()
+                .filter(|n| n.strategy == strat && n.current_population >= 10)
+                .copied()
+                .collect();
+
+            if species_with_strat.len() < 2 {
+                continue;
+            }
+
+            // Count independent lineages: group by shared ancestry
+            let mut lineage_roots: Vec<u64> = Vec::new();
+            for sp in &species_with_strat {
+                let mut root = sp.species_id;
+                let mut current = sp.species_id;
+                for _ in 0..10 {
+                    if let Some(n) = self.nodes.get(&current) {
+                        if let Some(pid) = n.parent_id {
+                            root = pid;
+                            current = pid;
+                        } else { break; }
+                    } else { break; }
+                }
+                if !lineage_roots.contains(&root) {
+                    lineage_roots.push(root);
                 }
             }
+
+            if lineage_roots.len() >= 2 {
+                results.push((strat, lineage_roots.len()));
+            }
         }
-        convergences
+        results
     }
 
     /// Build a text representation of the tree for display

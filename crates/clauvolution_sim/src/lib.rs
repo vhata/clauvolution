@@ -783,18 +783,24 @@ fn species_classification_system(
 
     stats.species_count = species_reps.len() as u32;
 
-    // Detect convergent evolution
+    // Detect convergent evolution — only log when lineage count increases
     let convergences = phylo.detect_convergence();
-    for (a, b, strategy) in convergences {
+    for (strategy, lineage_count) in convergences {
         let strategy_name = match strategy {
             SpeciesStrategy::Photosynthesizer => "photosynthesis",
             SpeciesStrategy::Predator => "predation",
             SpeciesStrategy::Forager => "foraging",
         };
-        chronicle.log(tick.0, format!(
-            "Convergent evolution! Species {} and {} independently evolved {}",
-            a, b, strategy_name
-        ));
+        // Only log if this is a new high for this strategy
+        let already_logged = chronicle.entries.iter()
+            .filter(|e| e.text.contains(&format!("{} lineages evolved {}", lineage_count, strategy_name)))
+            .count();
+        if already_logged == 0 {
+            chronicle.log(tick.0, format!(
+                "Convergent evolution! {} independent lineages evolved {}",
+                lineage_count, strategy_name
+            ));
+        }
     }
 }
 
