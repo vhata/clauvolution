@@ -272,23 +272,6 @@ impl PhyloTree {
         lines.join("\n")
     }
 
-    /// How deep is this species in the tree (distance from root)
-    fn ancestry_depth(&self, species_id: u64) -> u32 {
-        let mut depth = 0;
-        let mut current = species_id;
-        while let Some(node) = self.nodes.get(&current) {
-            if let Some(parent) = node.parent_id {
-                depth += 1;
-                current = parent;
-                if depth > 20 {
-                    break; // safety
-                }
-            } else {
-                break;
-            }
-        }
-        depth
-    }
 
     fn render_tree_node(&self, node: &PhyloNode, depth: usize, lines: &mut Vec<String>, shown: &mut usize, max: usize, current_tick: u64) {
         if *shown >= max { return; }
