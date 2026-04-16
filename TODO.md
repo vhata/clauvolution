@@ -58,8 +58,23 @@ Current text panels are fixed-size and can't scroll. Need real UI: scrollable ph
 ### 2. Symbiosis
 Mutualism, parasitism, commensalism. Two organisms evolving to depend on each other. Research-level — may need new mechanics.
 
-### 3. GPU compute for neural net batching
-Performance scaling — batch neural net forward passes on GPU for 100k+ organisms.
+### 3. Performance Scaling
+
+Three complementary approaches, roughly in order of bang-for-buck:
+
+#### Rayon parallelization for brain evaluation
+The `sensing_and_brain_system` iterates organisms sequentially, but brain evaluation is pure computation with no side effects — textbook `par_iter`. Could halve simulation cost on multi-core machines. Bevy already parallelizes independent *systems*, but this would parallelize *within* the most expensive system.
+
+```rust
+// Conceptual — collect inputs first, evaluate brains in parallel, write outputs back
+inputs.par_iter().map(|i| brain.evaluate(i)).collect()
+```
+
+#### GPU instanced rendering
+Currently each organism gets its own `ColorMaterial`. True instanced rendering would pack per-instance data (position, scale, colour) into a single buffer and draw all organisms in one draw call. The bitmask shader trick can handle body parts: each instance carries a feature bitmask, the shader scales absent parts to zero — no entity churn for LOD changes.
+
+#### GPU compute for neural net batching
+The big one. Pad all NEAT networks to a uniform max size, flatten into GPU buffers, evaluate all 2000+ brains in a single compute shader dispatch. Requires wgpu compute pipeline. Only worth it at 10k+ organisms — the other two approaches should come first.
 
 ### 4. WASM+WebGPU browser build
 Accessibility — run in a browser without installing anything.
