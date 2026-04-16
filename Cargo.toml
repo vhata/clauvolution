@@ -13,6 +13,9 @@ members = [
     "crates/clauvolution_ui",
 ]
 
+[profile.release]
+incremental = true
+
 [workspace.dependencies]
 bevy = "0.15"
 rand = "0.8"
