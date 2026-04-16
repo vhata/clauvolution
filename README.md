@@ -7,13 +7,18 @@ Watch organisms evolve in real time. Each creature has its own neural network br
 ## What's happening
 
 - **Per-organism neural networks** — every creature has a tiny NEAT brain (5-50 nodes) that senses its environment and decides what to do. Brains have recurrent memory slots, enabling learning-like behaviour. No behaviours are designed; they emerge from selection pressure.
+- **Energy pyramid** — predators only gain 10% of their prey's energy (thermodynamics). This naturally limits predator populations, just like real food chains.
 - **Predation** — organisms can attack and eat each other. Combat depends on claw power vs armor, with size advantage. Arms races emerge naturally.
-- **Emergent speciation** — populations diverge into 100+ distinct species, driven by geographic isolation and different selection pressures. Each species gets a unique colour.
-- **No hard categories** — there are no predefined "types." Whether something photosynthesizes, hunts, or grows armor is entirely evolved. An organism's strategy emerges from its genome.
+- **Sexual reproduction** — nearby same-species organisms crossover their genomes. Falls back to asexual if no mate is available.
+- **Emergent speciation** — populations diverge into distinct species, driven by geographic isolation and different selection pressures. Each species gets a unique colour.
+- **Convergent evolution** — the simulation detects when unrelated species independently evolve the same strategy, and logs it.
+- **No hard categories** — there are no predefined "types." Whether something photosynthesizes, hunts, or grows armor is entirely evolved.
 - **Niche construction** — photosynthesizers increase vegetation and moisture on their tiles. All organisms add nutrients. The environment and its inhabitants co-evolve.
-- **Biomes** — procedurally generated terrain with oceans, deserts, grasslands, forests, and rock. Different environments exert different selection pressures. Fins help in water, limbs help on land.
+- **Biomes** — procedurally generated terrain with oceans, deserts, grasslands, forests, and rock. Different environments exert different selection pressures.
 - **Visual phenotypes** — creatures have modular body parts (torso, limbs, fins, eyes, mouth, claws, armor plates, photosynthetic surfaces) that visually express their evolved traits.
 - **Mass extinction events** — trigger asteroid impacts, ice ages, or volcanic eruptions and watch life recover and diversify.
+- **Phylogenetic tree** — living family tree showing species ancestry, population, and extinction history.
+- **World chronicle** — automatic log of evolutionary events: speciation, extinction, mass extinction, convergent evolution.
 
 ## Running
 
@@ -29,10 +34,12 @@ cargo run --release
 | **Q / E** or **- / +** | Zoom out / in |
 | **Scroll wheel** | Zoom |
 | **Right-click drag** | Pan camera |
-| **Shift + left-click drag** | Pan camera |
 | **Left click** | Select organism (inspect panel) |
 | **Space** | Pause / unpause |
 | **[** / **]** | Slow down / speed up (0.125x to 16x) |
+| **G** | Toggle population graphs |
+| **C** | Toggle world chronicle |
+| **H** | Toggle help overlay |
 | **X** | Asteroid impact (kills 70%) |
 | **I** | Ice age (halves temperature) |
 | **V** | Volcanic eruption (local kill zone + nutrient boost) |
@@ -63,10 +70,12 @@ Every tick:
 3. Actions execute (move, eat food, attack, reproduce)
 4. Photosynthesizers gain energy from light
 5. Organisms modify their tiles (niche construction)
-6. Metabolism drains energy (bigger bodies, faster speed, more body parts = higher cost)
-7. Organisms with no energy die
-8. Reproduction creates mutated offspring
-9. Species are reclassified by genome compatibility
+6. Metabolism drains energy (quadratic body size cost, armor/claw maintenance)
+7. Aging increases metabolism; old organisms eventually die
+8. Organisms with no energy die
+9. Reproduction creates mutated offspring (sexual if mate nearby, asexual otherwise)
+10. Species are reclassified by genome compatibility
+11. Convergent evolution detected across unrelated lineages
 
 ## Architecture
 
@@ -74,39 +83,48 @@ Rust + [Bevy](https://bevyengine.org/) ECS engine. Cargo workspace with one crat
 
 | Crate | Purpose |
 |-------|---------|
-| `clauvolution_core` | Shared types, config, simulation speed, species colours |
+| `clauvolution_core` | Shared types, config, population history, species colours |
 | `clauvolution_genome` | Genome representation, body segments, mutation, crossover, NEAT genes |
 | `clauvolution_brain` | NEAT neural network compilation and evaluation |
 | `clauvolution_body` | Phenotype decoding: genome to renderable body plan |
 | `clauvolution_world` | Tile-based terrain, biomes, spatial hashing, food spawning |
 | `clauvolution_sim` | Simulation tick: sensing, actions, predation, metabolism, reproduction, speciation |
-| `clauvolution_render` | Rendering, camera, LOD, organism inspection, terrain display |
-| `clauvolution_phylogeny` | Ancestry tracking, species tree *(planned)* |
+| `clauvolution_render` | Rendering, camera, LOD, organism inspection, help overlay |
+| `clauvolution_phylogeny` | Phylogenetic tree, species ancestry tracking, world chronicle |
 | `clauvolution_ui` | Data visualisation panels *(planned)* |
 
 ## Roadmap
 
-See [TODO.md](TODO.md) for the full vision.
+See [TODO.md](TODO.md) for the prioritised backlog.
 
 **Implemented:**
 - Per-organism NEAT brains with recurrent memory
+- Energy pyramid (10% trophic efficiency)
 - Procedural terrain with biome-dependent mechanics
 - Body segment evolution (limbs, fins, eyes, claws, armor, photosynthetic surfaces)
-- Predation and combat
-- Niche construction
-- Mass extinction events
+- Predation and combat (claws vs armor, size advantage)
+- Sexual reproduction with genome crossover
+- Organism aging and natural death
+- Generation tracking
+- Niche construction (organisms terraform tiles)
+- Mass extinction events (asteroid, ice age, volcano)
 - Species classification and colouring
-- Click-to-inspect organisms
+- Phylogenetic tree with ancestry tracking
+- World chronicle (automatic event log)
+- Convergent evolution detection
+- Population sparkline graphs (per-strategy breakdown)
+- Click-to-inspect organisms with full stat panel
+- Help overlay (H key) explaining everything
+- Action flash (organisms pulse when eating/attacking/reproducing)
+- Initial diversity seeding (30% photosynthesizers)
 - Pause/speed controls
+- Screenshot verification mode
 
 **Next:**
-- Phylogenetic tree visualisation
-- Population graphs and history
-- Sexual reproduction
 - Social behaviour (cooperation, signalling)
-- Convergent evolution detection
-- GPU compute for neural net batching
+- Symbiosis (mutualism, parasitism)
 - Save/load simulation state
+- GPU compute for neural net batching
 - WASM+WebGPU browser build
 
 ## License
