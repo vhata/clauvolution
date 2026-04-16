@@ -896,6 +896,7 @@ fn save_system(
     tick: Res<TickCounter>,
     season: Res<Season>,
     stats: Res<SimStats>,
+    config: Res<SimConfig>,
     innovation: Res<InnovationCounter>,
     organisms: Query<(&Position, &Energy, &Health, &Age, &Generation, &SpeciesId, &Signal, &BrainMemory, &Genome), With<Organism>>,
     food: Query<(&Position, &FoodEnergy), With<Food>>,
@@ -917,7 +918,7 @@ fn save_system(
         .collect();
 
     let save_path = session.dir.join("save.json");
-    save::save_world(&save_path, &tick, &season, &stats, &innovation, &org_data, &food_data, &phylo, &chronicle);
+    save::save_world(&save_path, &tick, &season, &stats, &innovation, &config, &org_data, &food_data, &phylo, &chronicle);
     chronicle.entries.last().map(|_| {
         info!("World saved to {}", save_path.display());
     });

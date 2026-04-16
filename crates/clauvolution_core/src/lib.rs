@@ -117,6 +117,7 @@ pub struct SimConfig {
     pub max_organism_energy: f32,
     pub food_energy_value: f32,
     pub species_compat_threshold: f32,
+    pub terrain_seed: u64,
 }
 
 impl Default for SimConfig {
@@ -136,6 +137,7 @@ impl Default for SimConfig {
             max_organism_energy: 120.0,
             food_energy_value: 25.0,
             species_compat_threshold: 3.0,
+            terrain_seed: rand::random(),
         }
     }
 }

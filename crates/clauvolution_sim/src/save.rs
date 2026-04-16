@@ -10,6 +10,7 @@ use std::path::Path;
 pub struct SaveState {
     pub tick: u64,
     pub season_tick: u64,
+    pub terrain_seed: u64,
     pub stats: SaveStats,
     pub organisms: Vec<SaveOrganism>,
     pub food: Vec<SaveFood>,
@@ -211,6 +212,7 @@ pub fn save_world(
     season: &Season,
     stats: &SimStats,
     innovation: &InnovationCounter,
+    config: &SimConfig,
     organisms: &[(Vec2, f32, f32, u64, u32, u64, f32, [f32; 3], Genome)],
     food: &[(Vec2, f32)],
     phylo: &PhyloTree,
@@ -219,6 +221,7 @@ pub fn save_world(
     let state = SaveState {
         tick: tick.0,
         season_tick: season.current_tick,
+        terrain_seed: config.terrain_seed,
         stats: SaveStats {
             total_births: stats.total_births,
             total_deaths: stats.total_deaths,

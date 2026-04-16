@@ -9,6 +9,7 @@ use clauvolution_render::{MainCamera, RenderPlugin};
 use clauvolution_phylogeny::{PhylogenyPlugin, PhyloTree, WorldChronicle};
 use clauvolution_sim::SimPlugin;
 use clauvolution_world::{self, TileMap, WorldPlugin};
+use rand::SeedableRng;
 
 fn main() {
     let screenshot_mode = std::env::args().any(|a| a == "--screenshot");
@@ -49,7 +50,7 @@ struct LoadPath(Option<String>);
 
 fn startup_system(
     commands: Commands,
-    config: Res<SimConfig>,
+    config: ResMut<SimConfig>,
     innovation: ResMut<InnovationCounter>,
     stats: ResMut<SimStats>,
     tick: ResMut<TickCounter>,
@@ -72,7 +73,7 @@ fn startup_system(
 
 fn load_saved_world(
     mut commands: Commands,
-    config: Res<SimConfig>,
+    mut config: ResMut<SimConfig>,
     mut innovation: ResMut<InnovationCounter>,
     mut stats: ResMut<SimStats>,
     mut tick: ResMut<TickCounter>,
@@ -95,9 +96,10 @@ fn load_saved_world(
     stats.total_deaths = state.stats.total_deaths;
     stats.max_generation = state.stats.max_generation;
     innovation.0 = state.innovation_counter;
+    config.terrain_seed = state.terrain_seed;
 
-    // Generate terrain (same seed = same terrain for now)
-    let mut rng = rand::thread_rng();
+    // Generate terrain from seed — same seed = same terrain
+    let mut rng = rand::rngs::StdRng::seed_from_u64(config.terrain_seed);
     let tile_map = clauvolution_world::TileMap::generate(config.world_width, config.world_height, &mut rng);
     commands.insert_resource(tile_map);
 
@@ -115,7 +117,7 @@ fn load_saved_world(
 
 fn fresh_world(
     commands: Commands,
-    config: Res<SimConfig>,
+    config: ResMut<SimConfig>,
     innovation: ResMut<InnovationCounter>,
     stats: ResMut<SimStats>,
 ) {
@@ -124,13 +126,15 @@ fn fresh_world(
 
 fn setup_world(
     mut commands: Commands,
-    config: Res<SimConfig>,
+    config: ResMut<SimConfig>,
     mut innovation: ResMut<InnovationCounter>,
     mut stats: ResMut<SimStats>,
 ) {
-    let mut rng = rand::thread_rng();
-
+    // Use seed for deterministic terrain
+    let mut rng = rand::rngs::StdRng::seed_from_u64(config.terrain_seed);
     let tile_map = TileMap::generate(config.world_width, config.world_height, &mut rng);
+    // Switch to thread_rng for non-deterministic organism placement
+    let mut rng = rand::thread_rng();
     clauvolution_world::spawn_initial_food(&mut commands, &config, &tile_map, &mut rng);
     clauvolution_sim::spawn_initial_population(&mut commands, &config, &mut innovation, &mut rng);
     commands.insert_resource(tile_map);
