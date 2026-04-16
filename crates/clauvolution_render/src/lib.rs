@@ -451,19 +451,29 @@ fn sync_organism_transforms(
         (With<Organism>, Without<OrganismSprite>),
     >,
     mut organisms_with_sprite: Query<
-        (&Position, &Energy, &BodySize, &ActionFlash, &mut Transform),
+        (&Position, &Energy, &BodySize, &ActionFlash, &mut Transform, &mut Visibility),
         (With<Organism>, With<OrganismSprite>),
     >,
-    camera: Query<&OrthographicProjection, With<MainCamera>>,
+    camera: Query<(&Transform, &OrthographicProjection), With<MainCamera>>,
     config: Res<SimConfig>,
     mut species_colors: ResMut<SpeciesColors>,
     selected: Res<SelectedOrganism>,
     mut selection_rings: Query<&mut Transform, (With<SelectionRing>, Without<Organism>)>,
 ) {
-    let zoom_scale = camera
-        .get_single()
-        .map(|p| p.scale)
-        .unwrap_or(1.0);
+    let (zoom_scale, cam_left, cam_right, cam_bottom, cam_top) = if let Ok((cam_t, proj)) = camera.get_single() {
+        let half_w = 960.0 * proj.scale;
+        let half_h = 540.0 * proj.scale;
+        let margin = 20.0 * proj.scale; // slight margin so entities don't pop in/out at edges
+        (
+            proj.scale,
+            cam_t.translation.x - half_w - margin,
+            cam_t.translation.x + half_w + margin,
+            cam_t.translation.y - half_h - margin,
+            cam_t.translation.y + half_h + margin,
+        )
+    } else {
+        (1.0, 0.0, config.world_width as f32, 0.0, config.world_height as f32)
+    };
 
     let use_detailed = zoom_scale < 0.6;
 
@@ -553,8 +563,17 @@ fn sync_organism_transforms(
         }
     }
 
-    // Update existing transforms (preserve z-level set at spawn)
-    for (pos, energy, body_size, flash, mut transform) in &mut organisms_with_sprite {
+    // Update existing transforms — frustum cull off-screen organisms
+    for (pos, energy, body_size, flash, mut transform, mut vis) in &mut organisms_with_sprite {
+        let in_view = pos.0.x >= cam_left && pos.0.x <= cam_right
+            && pos.0.y >= cam_bottom && pos.0.y <= cam_top;
+
+        if !in_view {
+            *vis = Visibility::Hidden;
+            continue;
+        }
+        *vis = Visibility::Inherited;
+
         transform.translation.x = pos.0.x;
         transform.translation.y = pos.0.y;
 
@@ -570,7 +589,7 @@ fn sync_organism_transforms(
 
     // Update selection ring position
     if let Some(sel_entity) = selected.entity {
-        if let Ok((pos, _, body_size, _, _)) = organisms_with_sprite.get(sel_entity) {
+        if let Ok((pos, _, body_size, _, _, _)) = organisms_with_sprite.get(sel_entity) {
             for mut ring_transform in &mut selection_rings {
                 ring_transform.translation.x = pos.0.x;
                 ring_transform.translation.y = pos.0.y;
@@ -584,7 +603,22 @@ fn sync_food_transforms(
     mut commands: Commands,
     shared_meshes: Res<SharedMeshes>,
     food_without_sprite: Query<(Entity, &Position), (With<Food>, Without<FoodSprite>)>,
+    mut food_with_sprite: Query<&mut Visibility, (With<Food>, With<FoodSprite>)>,
+    camera: Query<&OrthographicProjection, With<MainCamera>>,
 ) {
+    let zoom = camera.get_single().map(|p| p.scale).unwrap_or(1.0);
+    let food_visible = zoom < 2.0;
+
+    // Toggle visibility on existing food sprites
+    for mut vis in &mut food_with_sprite {
+        *vis = if food_visible { Visibility::Inherited } else { Visibility::Hidden };
+    }
+
+    // Don't spawn new food sprites if zoomed out
+    if !food_visible {
+        return;
+    }
+
     let Some(mesh) = &shared_meshes.food_circle else { return };
     let Some(material) = &shared_meshes.food_material else { return };
 
