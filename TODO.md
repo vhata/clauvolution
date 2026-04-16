@@ -46,6 +46,7 @@ An evolution simulator where you watch life emerge, adapt, compete, and speciate
 - [x] Species naming — three-word trait-based names with taxonomy-like inheritance
 - [x] Minimap with click-to-navigate — world overview showing terrain, organisms, camera viewport
 - [x] Population heatmap toggle — minimap density view coloured by strategy (M key)
+- [x] Social sensing — group size + average group signal brain inputs, group metabolic discount (~5%)
 
 ## What's Next (prioritised)
 
@@ -115,5 +116,5 @@ Organisms near each other for extended periods develop energy transfer. Parasite
 - [x] **Convergent evolution** — detection of independent lineages evolving similar solutions
 - [x] **Seasonal pressure** — changing environment forces ongoing adaptation
 - [x] **Geographic isolation** — ocean/mountain barriers drive allopatric speciation
-- [ ] **Social behaviour** — pack hunting, herding, hive structures (signalling foundation in place)
+- [x] **Social behaviour** — group sensing and metabolic discount in place, signalling wired up. Pack hunting, herding, flocking can emerge.
 - [ ] **Symbiosis** — mutualism, parasitism, commensalism

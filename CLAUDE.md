@@ -9,7 +9,7 @@ An evolution simulator built in Rust + Bevy 0.15. Organisms with NEAT neural net
 Cargo workspace with 9 crates:
 
 - `clauvolution_core` — Shared types, config, resources (SimConfig, Session, Season, PopulationHistory, FitnessTracker, etc.)
-- `clauvolution_genome` — Genome with NEAT neurons/connections, body segments (8 types), mutation, crossover. 20 brain inputs, 9 outputs.
+- `clauvolution_genome` — Genome with NEAT neurons/connections, body segments (8 types), mutation, crossover. 22 brain inputs, 9 outputs.
 - `clauvolution_brain` — Compiles genome into a neural network, evaluates per tick.
 - `clauvolution_body` — Decodes genome into renderable BodyPlan with positioned parts.
 - `clauvolution_world` — TileMap (6 terrain types), spatial hashing, food spawning/regen. Terrain generated from seed using value noise.
@@ -49,7 +49,7 @@ Cargo workspace with 9 crates:
 
 ## What's Implemented
 
-See TODO.md "What's Done" section. Highlights: NEAT brains with memory, predation with energy pyramid, sexual reproduction, seasons, geographic barriers, phylogenetic tree, world chronicle, species naming, minimap with click-to-navigate, population graphs with per-strategy sparklines, save/load, manual screenshots.
+See TODO.md "What's Done" section. Highlights: NEAT brains with memory and social sensing (22 inputs), predation with energy pyramid, sexual reproduction, seasons, geographic barriers, phylogenetic tree, world chronicle, species naming, minimap with click-to-navigate and heatmap toggle, population graphs with per-strategy sparklines, group metabolic discount, save/load, manual screenshots.
 
 ## What's Next (from TODO.md)
 

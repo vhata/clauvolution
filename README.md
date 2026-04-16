@@ -14,6 +14,7 @@ Watch organisms evolve in real time. Each creature has its own neural network br
 - **Convergent evolution** — the simulation detects when unrelated species independently evolve the same strategy, and logs it.
 - **Seasonal cycles** — 60-second year with spring, summer, autumn, winter. Light and food production rise and fall sinusoidally. Summer is abundant; winter is harsh. Organisms must adapt to changing conditions.
 - **Chemical signalling** — organisms emit a signal (-1 to 1) that nearby organisms can sense. Evolution decides what it means — could become alarm calls, mating signals, territorial markers, or nothing.
+- **Social sensing** — organisms sense how many same-species neighbours are nearby and their average signal. A small metabolic discount (~5%) for grouping creates selection pressure for social behaviour — flocking, herding, or pack hunting can emerge naturally.
 - **Geographic isolation** — deep oceans and mountains are nearly impassable barriers. Populations on different landmasses evolve independently, driving real allopatric speciation.
 - **Fitness tracking** — average lifespan graphed over time. If organisms are getting better at surviving, this line trends upward — visible proof of evolution.
 - **No hard categories** — there are no predefined "types." Whether something photosynthesizes, hunts, or grows armor is entirely evolved.
@@ -80,7 +81,7 @@ cargo run --release -- --screenshot
 
 Each organism has:
 - A **genome** encoding body segments, metabolic traits (photosynthesis, aquatic adaptation, armor, attack power), and NEAT neural network topology
-- A **brain** — a small evolved neural network with 20 sensory inputs (energy, nearest food/organism direction and distance, terrain type, health, species recognition, nearby organism's signal, memory) and 9 outputs (movement, eat, reproduce, attack, signal, memory)
+- A **brain** — a small evolved neural network with 22 sensory inputs (energy, nearest food/organism direction and distance, terrain type, health, species recognition, nearby organism's signal, group size, average group signal, memory) and 9 outputs (movement, eat, reproduce, attack, signal, memory)
 - A **body plan** — torso plus evolved appendages: limbs, fins, eyes, mouth, claws, armor plates, photosynthetic surfaces. Each affects gameplay (fins reduce water movement cost, eyes boost sensing range, claws increase attack power, etc.)
 
 Every tick:
@@ -150,6 +151,7 @@ See [TODO.md](TODO.md) for the prioritised backlog.
 - Seed-based terrain generation (same seed = same map, saved in save files)
 - Species naming — three-word trait-based names with taxonomy-like inheritance
 - Minimap with click-to-navigate
+- Social sensing (group size + average group signal brain inputs, group metabolic discount)
 
 **Next:**
 - Proper UI panels (bevy_egui) — scrollable, resizable panels
