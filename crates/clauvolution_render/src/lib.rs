@@ -309,7 +309,7 @@ fn click_select_system(
 
     // Remove old selection ring
     for ring in &existing_rings {
-        commands.entity(ring).despawn();
+        commands.entity(ring).try_despawn();
     }
 
     if let Some(entity) = nearest {

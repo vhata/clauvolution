@@ -126,7 +126,7 @@ fn mass_extinction_input_system(
         let mut killed = 0u32;
         for (entity, _, _) in &organisms {
             if rng.gen::<f32>() < 0.7 {
-                commands.entity(entity).despawn_recursive();
+                commands.entity(entity).try_despawn_recursive();
                 killed += 1;
             }
         }
@@ -159,7 +159,7 @@ fn mass_extinction_input_system(
         for (entity, pos, _) in &organisms {
             let dist = ((pos.0.x - center_x).powi(2) + (pos.0.y - center_y).powi(2)).sqrt();
             if dist < radius {
-                commands.entity(entity).despawn_recursive();
+                commands.entity(entity).try_despawn_recursive();
                 killed += 1;
             }
         }
@@ -354,7 +354,7 @@ fn action_system(
     }
 
     for food_entity in eaten_food {
-        commands.entity(food_entity).despawn();
+        commands.entity(food_entity).try_despawn();
     }
 }
 
@@ -517,7 +517,7 @@ fn death_system(
 ) {
     for (entity, energy, age) in &organisms {
         if energy.0 <= 0.0 {
-            commands.entity(entity).despawn_recursive();
+            commands.entity(entity).try_despawn_recursive();
             stats.total_deaths += 1;
 
             // Record lifespan for fitness tracking
