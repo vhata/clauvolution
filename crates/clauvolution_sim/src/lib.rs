@@ -198,7 +198,7 @@ fn sensing_and_brain_system(
     spatial_hash: Res<SpatialHash>,
     tile_map: Res<TileMap>,
     mut organisms: Query<
-        (Entity, &Position, &Energy, &Health, &Genome, &Brain, &BodySize, &SpeciesId, &BrainMemory, &mut BrainOutput),
+        (Entity, &Position, &Energy, &Health, &Genome, &Brain, &BodySize, &SpeciesId, &BrainMemory, &mut BrainOutput, &mut GroupSize),
         With<Organism>,
     >,
     food_query: Query<(Entity, &Position), (With<Food>, Without<Organism>)>,
@@ -206,7 +206,7 @@ fn sensing_and_brain_system(
 ) {
     let food_positions: Vec<(Entity, Vec2)> = food_query.iter().map(|(e, p)| (e, p.0)).collect();
 
-    for (entity, pos, energy, health, genome, brain, body_size, species_id, memory, mut output) in &mut organisms {
+    for (entity, pos, energy, health, genome, brain, body_size, species_id, memory, mut output, mut group_size) in &mut organisms {
         let mut inputs = [0.0f32; NUM_INPUTS];
 
         inputs[0] = energy.0 / config.max_organism_energy;
@@ -238,6 +238,10 @@ fn sensing_and_brain_system(
         let mut nearest_org_photo_hint = 0.5f32;
         let mut nearest_org_signal = 0.0f32;
 
+        // Social sensing: count nearby same-species, average their signals
+        let mut same_species_count = 0u32;
+        let mut same_species_signal_sum = 0.0f32;
+
         for &nearby_entity in &nearby_entities {
             if nearby_entity == entity {
                 continue;
@@ -245,6 +249,13 @@ fn sensing_and_brain_system(
             if let Ok((other_pos, other_size, other_species, other_genome, other_signal)) = all_org_data.get(nearby_entity) {
                 let diff = other_pos.0 - pos.0;
                 let dist = diff.length();
+
+                // Track same-species neighbours for social inputs
+                if dist < sense_range && other_species.0 == species_id.0 {
+                    same_species_count += 1;
+                    same_species_signal_sum += other_signal.0;
+                }
+
                 if dist < nearest_org_dist && dist < sense_range {
                     nearest_org_dist = dist;
                     nearest_org_dir = if dist > 0.001 { diff / dist } else { Vec2::ZERO };
@@ -255,6 +266,9 @@ fn sensing_and_brain_system(
                 }
             }
         }
+
+        // Store group size for metabolism system
+        group_size.0 = same_species_count;
 
         if nearest_org_dist < f32::MAX {
             inputs[4] = nearest_org_dir.x;
@@ -275,7 +289,14 @@ fn sensing_and_brain_system(
         inputs[16] = memory.0[2];
         inputs[17] = nearest_org_photo_hint;
         inputs[18] = nearest_org_signal;
-        inputs[19] = 1.0;
+        // Social inputs
+        inputs[19] = (same_species_count as f32 / 10.0).min(1.0); // 0=alone, 1=10+ nearby
+        inputs[20] = if same_species_count > 0 {
+            same_species_signal_sum / same_species_count as f32
+        } else {
+            0.0
+        };
+        inputs[21] = 1.0; // bias
 
         let brain_out = brain.evaluate(&inputs);
         output.move_x = brain_out[0];
@@ -473,9 +494,9 @@ fn niche_construction_system(
 
 fn metabolism_system(
     config: Res<SimConfig>,
-    mut organisms: Query<(&mut Energy, &mut Health, &mut Age, &BodySize, &Genome), With<Organism>>,
+    mut organisms: Query<(&mut Energy, &mut Health, &mut Age, &BodySize, &Genome, &GroupSize), With<Organism>>,
 ) {
-    for (mut energy, mut health, mut age, body_size, genome) in &mut organisms {
+    for (mut energy, mut health, mut age, body_size, genome, group_size) in &mut organisms {
         age.0 += 1;
 
         // Body size costs quadratically — being big is VERY expensive
@@ -491,6 +512,12 @@ fn metabolism_system(
         let claws = genome.claw_power();
         cost += claws * claws * 0.03;
         cost += genome.speed_factor * genome.speed_factor * 0.015;
+
+        // Group discount: reduced vigilance cost when near same-species.
+        // Diminishing returns — most benefit from first few neighbours, caps at ~5%.
+        // group_size.0 is count of same-species within sense range.
+        let group_discount = 1.0 - (group_size.0 as f32 / (group_size.0 as f32 + 5.0)) * 0.05;
+        cost *= group_discount;
 
         // Aging: metabolism cost increases after maturity (age 500 ticks ~ 17 seconds)
         let age_factor = if age.0 > 500 {
@@ -642,9 +669,8 @@ fn reproduction_system(
             BrainMemory([0.0; NUM_MEMORY]),
             ActionFlash::default(),
             Signal::default(),
-            brain,
-            child_genome,
-        ));
+            GroupSize::default(),
+        )).insert((brain, child_genome));
 
         stats.total_births += 1;
         if child_gen > stats.max_generation {
@@ -886,9 +912,8 @@ pub fn spawn_initial_population(
             BrainMemory([0.0; NUM_MEMORY]),
             ActionFlash::default(),
             Signal::default(),
-            brain,
-            genome,
-        ));
+            GroupSize::default(),
+        )).insert((brain, genome));
     }
 }
 

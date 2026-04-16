@@ -743,7 +743,7 @@ fn update_stats_text(
 /// Show details about selected organism
 fn update_inspect_panel(
     selected: Res<SelectedOrganism>,
-    organisms: Query<(&Energy, &Health, &BodySize, &Genome, &SpeciesId, &Position, &Age, &Generation, &Signal), With<Organism>>,
+    organisms: Query<(&Energy, &Health, &BodySize, &Genome, &SpeciesId, &Position, &Age, &Generation, &Signal, &GroupSize), With<Organism>>,
     mut text_query: Query<&mut Text, With<InspectPanel>>,
     tile_map: Option<Res<TileMap>>,
     config: Res<SimConfig>,
@@ -758,7 +758,7 @@ fn update_inspect_panel(
         return;
     };
 
-    let Ok((energy, health, body_size, genome, species, pos, age, generation, signal)) = organisms.get(entity) else {
+    let Ok((energy, health, body_size, genome, species, pos, age, generation, signal, group_size)) = organisms.get(entity) else {
         **text = "Selected organism died".to_string();
         return;
     };
@@ -806,6 +806,7 @@ fn update_inspect_panel(
          Attack: {:.2}\n\
          Armor: {:.2}\n\
          Signal: {:.2}\n\
+         Group: {} nearby\n\
          Parts: {}\n\
          \n\
          --- BRAIN ---\n\
@@ -825,6 +826,7 @@ fn update_inspect_panel(
         genome.claw_power(),
         genome.armor_value(),
         signal.0,
+        group_size.0,
         body_parts.join(", "),
         genome.neurons.len(),
         genome.connections.iter().filter(|c| c.enabled).count(),
@@ -1013,6 +1015,7 @@ fn update_help_overlay(
   Attack ......... claw strength
   Armor .......... damage resistance
   Signal ......... chemical signal (-1 to 1) — sensed by nearby organisms
+  Group .......... same-species organisms nearby (reduces metabolism ~5%)
   Gen ............ generation (how many ancestors since start)
   Age ............ ticks alive
 

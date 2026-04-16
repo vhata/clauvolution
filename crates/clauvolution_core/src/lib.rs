@@ -383,6 +383,10 @@ pub struct Generation(pub u32);
 #[derive(Component)]
 pub struct SpeciesId(pub u64);
 
+/// Number of same-species organisms nearby — computed by sensing, used by metabolism
+#[derive(Component, Default)]
+pub struct GroupSize(pub u32);
+
 #[derive(Component)]
 pub struct Food;
 

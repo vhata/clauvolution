@@ -22,7 +22,7 @@ impl InnovationCounter {
 
 // --- Brain I/O ---
 
-pub const NUM_INPUTS: usize = 20;
+pub const NUM_INPUTS: usize = 22;
 pub const NUM_OUTPUTS: usize = 9;
 pub const NUM_MEMORY: usize = 3;
 
@@ -46,7 +46,9 @@ pub const NUM_MEMORY: usize = 3;
 // 16: memory_2
 // 17: nearest_organism_photo_hint (0=predator-like, 1=plant-like)
 // 18: nearest_organism_signal (-1 to 1) — chemical signal emitted by nearest organism
-// 19: bias (always 1.0)
+// 19: nearby_same_species_count (0-1, normalized: 0=alone, 1=10+ nearby)
+// 20: avg_nearby_same_species_signal (-1 to 1) — average signal of nearby kin
+// 21: bias (always 1.0)
 
 // Outputs:
 //  0: move_x (-1 to 1)

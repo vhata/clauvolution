@@ -301,9 +301,8 @@ pub fn spawn_saved_organisms(
             BrainMemory(org.memory),
             ActionFlash::default(),
             Signal(org.signal),
-            brain,
-            genome,
-        ));
+            GroupSize::default(),
+        )).insert((brain, genome));
     }
 }
 
