@@ -209,43 +209,66 @@ impl PhyloTree {
         lines.push("--- Living Species ---".to_string());
 
         let max_display = 15;
-        let mut shown = 0;
         let living = self.living_species();
-        let living_ids: Vec<u64> = living.iter().map(|n| n.species_id).collect();
 
-        // For each living species, find its nearest living ancestor.
-        // A species is a "root" if no living ancestor exists in its lineage.
-        // Otherwise it's a child of that nearest living ancestor.
-        let mut living_parent: std::collections::HashMap<u64, Option<u64>> = std::collections::HashMap::new();
+        // Group living species by lineage: walk each species up to a
+        // common ancestor (max 10 steps). Species sharing an ancestor
+        // are in the same lineage.
+        let mut lineage_root: HashMap<u64, u64> = HashMap::new();
         for node in &living {
-            let mut ancestor = node.parent_id;
-            let mut found_living = None;
-            for _ in 0..50 {
-                match ancestor {
-                    None => break,
-                    Some(aid) => {
-                        if living_ids.contains(&aid) {
-                            found_living = Some(aid);
-                            break;
-                        }
-                        ancestor = self.nodes.get(&aid).and_then(|n| n.parent_id);
+            let mut root = node.species_id;
+            let mut current = node.species_id;
+            for _ in 0..10 {
+                if let Some(n) = self.nodes.get(&current) {
+                    if let Some(pid) = n.parent_id {
+                        root = pid;
+                        current = pid;
+                    } else {
+                        break;
                     }
+                } else {
+                    break;
                 }
             }
-            living_parent.insert(node.species_id, found_living);
+            lineage_root.insert(node.species_id, root);
         }
 
-        // Roots: living species with no living ancestor
-        let mut roots: Vec<&PhyloNode> = living.iter()
-            .filter(|n| living_parent.get(&n.species_id) == Some(&None))
-            .copied()
-            .collect();
-        roots.sort_by(|a, b| b.current_population.cmp(&a.current_population));
+        // Group by lineage root
+        let mut lineages: HashMap<u64, Vec<&PhyloNode>> = HashMap::new();
+        for node in &living {
+            let root = lineage_root.get(&node.species_id).copied().unwrap_or(node.species_id);
+            lineages.entry(root).or_default().push(node);
+        }
 
-        // DFS from each root, showing living children
-        for root in roots {
+        // Sort lineages by total population, show each group
+        let mut sorted_lineages: Vec<(u64, Vec<&PhyloNode>)> = lineages.into_iter().collect();
+        sorted_lineages.sort_by(|a, b| {
+            let pop_a: u32 = a.1.iter().map(|n| n.current_population).sum();
+            let pop_b: u32 = b.1.iter().map(|n| n.current_population).sum();
+            pop_b.cmp(&pop_a)
+        });
+
+        let mut shown = 0;
+        for (_root_id, mut members) in sorted_lineages {
             if shown >= max_display { break; }
-            self.render_living_tree(root, 0, &mut lines, &mut shown, max_display, current_tick, &living_parent, &living_ids);
+            members.sort_by(|a, b| b.current_population.cmp(&a.current_population));
+
+            if members.len() == 1 {
+                // Solo species — show flat
+                let node = members[0];
+                lines.push(self.format_species_line(node, 0, current_tick));
+                shown += 1;
+            } else {
+                // Lineage group — show biggest as parent, rest indented
+                let first = members[0];
+                lines.push(self.format_species_line(first, 0, current_tick));
+                shown += 1;
+                for sibling in members.iter().skip(1) {
+                    if shown >= max_display { break; }
+                    lines.push(self.format_species_line(sibling, 1, current_tick));
+                    shown += 1;
+                }
+            }
         }
 
         if living.len() > shown {
@@ -288,14 +311,7 @@ impl PhyloTree {
     }
 
 
-    fn render_living_tree(
-        &self, node: &PhyloNode, depth: usize,
-        lines: &mut Vec<String>, shown: &mut usize, max: usize, current_tick: u64,
-        living_parent: &std::collections::HashMap<u64, Option<u64>>,
-        living_ids: &[u64],
-    ) {
-        if *shown >= max { return; }
-
+    fn format_species_line(&self, node: &PhyloNode, depth: usize, current_tick: u64) -> String {
         let strategy = match node.strategy {
             SpeciesStrategy::Photosynthesizer => "Plant",
             SpeciesStrategy::Predator => "Predator",
@@ -319,22 +335,9 @@ impl PhyloTree {
 
         let declining = if node.current_population < node.peak_population / 2 { " declining" } else { "" };
 
-        lines.push(format!(
+        format!(
             "{}{} ({}) {} [{}]{}",
             indent, strategy, node.current_population, bar, age_str, declining,
-        ));
-        *shown += 1;
-
-        // Find living species whose nearest living ancestor is this node
-        let mut children: Vec<&PhyloNode> = living_ids.iter()
-            .filter(|&&id| id != node.species_id)
-            .filter(|&&id| living_parent.get(&id) == Some(&Some(node.species_id)))
-            .filter_map(|&id| self.nodes.get(&id))
-            .collect();
-        children.sort_by(|a, b| b.current_population.cmp(&a.current_population));
-
-        for child in children {
-            self.render_living_tree(child, depth + 1, lines, shown, max, current_tick, living_parent, living_ids);
-        }
+        )
     }
 }
