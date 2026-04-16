@@ -12,12 +12,13 @@ impl Plugin for RenderPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<CameraDragState>()
             .init_resource::<SharedMeshes>()
+            .init_resource::<LodState>()
             .init_resource::<HelpVisible>()
             .init_resource::<ChronicleVisible>()
             .add_systems(Startup, (setup_camera, setup_shared_meshes))
             .add_systems(
                 Update,
-                (speed_control_system, click_select_system, toggle_graph_system, toggle_help_system, toggle_chronicle_system),
+                (speed_control_system, click_select_system, toggle_graph_system, toggle_help_system, toggle_chronicle_system, lod_change_system),
             )
             .add_systems(
                 PostUpdate,
@@ -58,6 +59,18 @@ pub struct FoodSprite;
 
 #[derive(Component)]
 pub struct GraphText;
+
+/// Tracks whether we're in detailed or simple rendering mode
+#[derive(Resource)]
+pub struct LodState {
+    pub detailed: bool,
+}
+
+impl Default for LodState {
+    fn default() -> Self {
+        Self { detailed: false }
+    }
+}
 
 #[derive(Resource, Default)]
 pub struct HelpVisible(pub bool);
@@ -1022,4 +1035,40 @@ fn update_chronicle(
     }
 
     **text = chronicle.render_text();
+}
+
+/// Detect zoom crossing the LOD threshold and strip sprites so they re-render
+fn lod_change_system(
+    mut commands: Commands,
+    camera: Query<&OrthographicProjection, With<MainCamera>>,
+    mut lod_state: ResMut<LodState>,
+    organisms: Query<(Entity, &Children), (With<Organism>, With<OrganismSprite>)>,
+    _outlines: Query<Entity, With<OrganismOutline>>,
+) {
+    let zoom_scale = camera
+        .get_single()
+        .map(|p| p.scale)
+        .unwrap_or(1.0);
+
+    let should_be_detailed = zoom_scale < 0.6;
+
+    if should_be_detailed == lod_state.detailed {
+        return;
+    }
+
+    lod_state.detailed = should_be_detailed;
+
+    // Strip OrganismSprite, Mesh2d, MeshMaterial2d from all organisms
+    // so sync_organism_transforms re-creates them at the new LOD level.
+    // Also despawn child entities (body parts, outlines).
+    for (entity, children) in &organisms {
+        commands.entity(entity)
+            .remove::<OrganismSprite>()
+            .remove::<Mesh2d>()
+            .remove::<MeshMaterial2d<ColorMaterial>>();
+
+        for &child in children.iter() {
+            commands.entity(child).despawn();
+        }
+    }
 }
