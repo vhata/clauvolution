@@ -31,7 +31,7 @@ impl Plugin for SimPlugin {
             )
             .insert_resource(Time::<Fixed>::from_hz(30.0))
             .insert_resource(SpeciesClassificationTimer(Timer::from_seconds(
-                3.0,
+                5.0,
                 TimerMode::Repeating,
             )))
             .insert_resource(ExtinctionCooldown(Timer::from_seconds(2.0, TimerMode::Once)))
@@ -696,9 +696,18 @@ fn species_classification_system(
         let mut best_species = None;
         let mut best_dist = f32::MAX;
 
+        // Hysteresis: prefer current species — only leave if nothing fits within threshold
+        // but give current species a bonus (1.5x threshold to stay)
+        let stay_threshold = config.species_compat_threshold * 1.5;
+
         for (species_id, rep_genome) in &species_reps {
             let dist = genome.compatibility_distance(rep_genome);
-            if dist < config.species_compat_threshold && dist < best_dist {
+            let effective_threshold = if *species_id == *_old_species {
+                stay_threshold // easier to stay in current species
+            } else {
+                config.species_compat_threshold
+            };
+            if dist < effective_threshold && dist < best_dist {
                 best_dist = dist;
                 best_species = Some(*species_id);
             }
