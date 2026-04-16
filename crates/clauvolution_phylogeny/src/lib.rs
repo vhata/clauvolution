@@ -466,14 +466,14 @@ impl PhyloTree {
         };
 
         let indent = if depth == 0 {
-            "  ".to_string()
+            "".to_string()
         } else {
-            format!("{}\u{2514} ", "  ".repeat((depth - 1).min(3)))
+            format!("  {}\u{2514} ", "\u{2502} ".repeat((depth - 1).min(3)))
         };
-        let indent = format!("{:<4}", indent);
 
-        // Truncate name to fit
-        let name: String = node.name.chars().take(22).collect();
+        // Truncate name to fit — shorter for indented children
+        let max_name = 22 - indent.chars().count().min(10);
+        let name: String = node.name.chars().take(max_name).collect();
 
         let bar_len = ((node.current_population as f32 / 50.0).ceil() as usize).clamp(1, 10);
         let bar: String = "\u{2588}".repeat(bar_len);
@@ -481,9 +481,10 @@ impl PhyloTree {
 
         let declining = if node.current_population < node.peak_population / 2 { " declining" } else { "" };
 
+        let padded_name = format!("{}{}", indent, name);
         format!(
-            "{}{:<22} {:>4} {} {:>6}{}",
-            indent, name, node.current_population, bar, age_str, declining,
+            "{:<24} {:>4} {} {:>6}{}",
+            padded_name, node.current_population, bar, age_str, declining,
         )
     }
 }
