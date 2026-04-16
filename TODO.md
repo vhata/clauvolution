@@ -81,6 +81,15 @@ Accessibility — run in a browser without installing anything.
 
 ---
 
+## Ecosystem Balance
+
+### Plant density competition
+Photosynthesizers currently don't compete for light — 500 plants on one tile all get the same yield. This makes plant worlds a stable attractor that crowds out other strategies. Fix: photosynthesis yield should drop with local plant density (shading). More plants on a tile = less light each. Biologically honest and naturally caps plant dominance, leaving room for predators and foragers to evolve.
+
+Could be as simple as: in photosynthesis_system, count plants on the same tile (or in a small radius), divide light by that count. Plants spread out to avoid competition, which creates gaps for other strategies.
+
+---
+
 ## Cool Ideas to Try
 
 Small-to-medium features that aren't on the critical path but would be fun. Pick one when you're in the mood.
