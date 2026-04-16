@@ -302,6 +302,7 @@ pub fn spawn_saved_organisms(
             ActionFlash::default(),
             Signal(org.signal),
             GroupSize::default(),
+            ParentInfo::default(), // parent info not preserved in saves
         )).insert((brain, genome));
     }
 }
