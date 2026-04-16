@@ -42,26 +42,28 @@ impl TerrainType {
     }
 
     /// Movement cost multiplier for land-adapted organisms
+    /// Deep water is nearly impassable — creates real geographic barriers
     pub fn land_move_cost(&self) -> f32 {
         match self {
-            TerrainType::DeepWater => 4.0,
-            TerrainType::ShallowWater => 2.5,
+            TerrainType::DeepWater => 10.0,
+            TerrainType::ShallowWater => 3.0,
             TerrainType::Sand => 1.5,
             TerrainType::Grassland => 1.0,
             TerrainType::Forest => 1.3,
-            TerrainType::Rock => 2.0,
+            TerrainType::Rock => 3.0,
         }
     }
 
     /// Movement cost multiplier for water-adapted organisms
+    /// Land is hard for aquatic organisms — they stay in water
     pub fn water_move_cost(&self) -> f32 {
         match self {
             TerrainType::DeepWater => 1.0,
             TerrainType::ShallowWater => 1.0,
-            TerrainType::Sand => 4.0,
-            TerrainType::Grassland => 3.5,
-            TerrainType::Forest => 4.0,
-            TerrainType::Rock => 5.0,
+            TerrainType::Sand => 5.0,
+            TerrainType::Grassland => 4.0,
+            TerrainType::Forest => 5.0,
+            TerrainType::Rock => 8.0,
         }
     }
 }
