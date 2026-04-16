@@ -208,31 +208,46 @@ impl PhyloTree {
         let mut lines = Vec::new();
         lines.push("--- Living Species ---".to_string());
 
-        // Walk tree depth-first from the biggest root species
         let max_display = 15;
         let mut shown = 0;
+        let living = self.living_species();
+        let living_ids: Vec<u64> = living.iter().map(|n| n.species_id).collect();
 
-        // Find root-level living species (no parent or parent is extinct), sorted by pop
-        let mut roots: Vec<&PhyloNode> = self.living_species().into_iter()
-            .filter(|n| {
-                match n.parent_id {
-                    None => true,
-                    Some(pid) => {
-                        // Show as root if parent is extinct or not in our nodes
-                        self.nodes.get(&pid).map_or(true, |p| p.current_population == 0)
+        // For each living species, find its nearest living ancestor.
+        // A species is a "root" if no living ancestor exists in its lineage.
+        // Otherwise it's a child of that nearest living ancestor.
+        let mut living_parent: std::collections::HashMap<u64, Option<u64>> = std::collections::HashMap::new();
+        for node in &living {
+            let mut ancestor = node.parent_id;
+            let mut found_living = None;
+            for _ in 0..50 {
+                match ancestor {
+                    None => break,
+                    Some(aid) => {
+                        if living_ids.contains(&aid) {
+                            found_living = Some(aid);
+                            break;
+                        }
+                        ancestor = self.nodes.get(&aid).and_then(|n| n.parent_id);
                     }
                 }
-            })
+            }
+            living_parent.insert(node.species_id, found_living);
+        }
+
+        // Roots: living species with no living ancestor
+        let mut roots: Vec<&PhyloNode> = living.iter()
+            .filter(|n| living_parent.get(&n.species_id) == Some(&None))
+            .copied()
             .collect();
         roots.sort_by(|a, b| b.current_population.cmp(&a.current_population));
 
-        // DFS from each root
+        // DFS from each root, showing living children
         for root in roots {
             if shown >= max_display { break; }
-            self.render_tree_node(root, 0, &mut lines, &mut shown, max_display, current_tick);
+            self.render_living_tree(root, 0, &mut lines, &mut shown, max_display, current_tick, &living_parent, &living_ids);
         }
 
-        let living = self.living_species();
         if living.len() > shown {
             lines.push(format!("  ...and {} more", living.len() - shown));
         }
@@ -273,7 +288,12 @@ impl PhyloTree {
     }
 
 
-    fn render_tree_node(&self, node: &PhyloNode, depth: usize, lines: &mut Vec<String>, shown: &mut usize, max: usize, current_tick: u64) {
+    fn render_living_tree(
+        &self, node: &PhyloNode, depth: usize,
+        lines: &mut Vec<String>, shown: &mut usize, max: usize, current_tick: u64,
+        living_parent: &std::collections::HashMap<u64, Option<u64>>,
+        living_ids: &[u64],
+    ) {
         if *shown >= max { return; }
 
         let strategy = match node.strategy {
@@ -305,14 +325,16 @@ impl PhyloTree {
         ));
         *shown += 1;
 
-        // Show living children, sorted by population
-        let mut children: Vec<&PhyloNode> = self.nodes.values()
-            .filter(|n| n.parent_id == Some(node.species_id) && n.current_population > 0)
+        // Find living species whose nearest living ancestor is this node
+        let mut children: Vec<&PhyloNode> = living_ids.iter()
+            .filter(|&&id| id != node.species_id)
+            .filter(|&&id| living_parent.get(&id) == Some(&Some(node.species_id)))
+            .filter_map(|&id| self.nodes.get(&id))
             .collect();
         children.sort_by(|a, b| b.current_population.cmp(&a.current_population));
 
         for child in children {
-            self.render_tree_node(child, depth + 1, lines, shown, max, current_tick);
+            self.render_living_tree(child, depth + 1, lines, shown, max, current_tick, living_parent, living_ids);
         }
     }
 }
