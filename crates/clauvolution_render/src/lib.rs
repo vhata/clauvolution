@@ -1,4 +1,6 @@
 use bevy::prelude::*;
+use bevy::image::{Image, ImageSampler};
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::render::view::screenshot::{save_to_disk, Screenshot};
 use bevy::window::PrimaryWindow;
 use clauvolution_body::BodyPlan;
@@ -16,7 +18,7 @@ impl Plugin for RenderPlugin {
             .init_resource::<LodState>()
             .init_resource::<HelpVisible>()
             .init_resource::<ChronicleVisible>()
-            .add_systems(Startup, (setup_camera, setup_shared_meshes))
+            .add_systems(Startup, (setup_camera, setup_shared_meshes, setup_minimap))
             .add_systems(
                 Update,
                 (speed_control_system, click_select_system, toggle_graph_system, toggle_help_system, toggle_chronicle_system, lod_change_system, manual_screenshot_system),
@@ -34,6 +36,7 @@ impl Plugin for RenderPlugin {
                     update_phylo_tree,
                     update_help_overlay,
                     update_chronicle,
+                    update_minimap,
                 )
                     .chain(),
             );
@@ -87,6 +90,16 @@ pub struct UiFont(pub Handle<Font>);
 
 #[derive(Component)]
 pub struct HelpOverlay;
+
+#[derive(Component)]
+pub struct MinimapNode;
+
+#[derive(Resource)]
+pub struct MinimapData {
+    pub image_handle: Handle<Image>,
+    pub size: u32, // pixels per side
+    pub timer: Timer,
+}
 
 #[derive(Component)]
 pub struct PhyloText;
@@ -1094,5 +1107,151 @@ fn manual_screenshot_system(
         commands
             .spawn(Screenshot::primary_window())
             .observe(save_to_disk(path));
+    }
+}
+
+fn setup_minimap(
+    mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
+    _config: Res<SimConfig>,
+) {
+    let size = 160u32;
+
+    // Create a blank RGBA image
+    let mut image = Image::new_fill(
+        Extent3d { width: size, height: size, depth_or_array_layers: 1 },
+        TextureDimension::D2,
+        &[40, 40, 40, 255],
+        TextureFormat::Rgba8UnormSrgb,
+        bevy::render::render_asset::RenderAssetUsages::all(),
+    );
+    image.sampler = ImageSampler::nearest();
+    let image_handle = images.add(image);
+
+    // Spawn UI node for the minimap
+    commands.spawn((
+        ImageNode::new(image_handle.clone()),
+        Node {
+            position_type: PositionType::Absolute,
+            right: Val::Px(10.0),
+            top: Val::Px(10.0),
+            width: Val::Px(size as f32),
+            height: Val::Px(size as f32),
+            ..default()
+        },
+        MinimapNode,
+    ));
+
+    commands.insert_resource(MinimapData {
+        image_handle,
+        size,
+        timer: Timer::from_seconds(0.5, TimerMode::Repeating),
+    });
+}
+
+fn update_minimap(
+    time: Res<Time>,
+    mut minimap: ResMut<MinimapData>,
+    mut images: ResMut<Assets<Image>>,
+    tile_map: Option<Res<TileMap>>,
+    config: Res<SimConfig>,
+    organisms: Query<(&Position, &Genome), With<Organism>>,
+    camera: Query<(&Transform, &OrthographicProjection), With<MainCamera>>,
+) {
+    minimap.timer.tick(time.delta());
+    if !minimap.timer.just_finished() {
+        return;
+    }
+
+    let Some(tile_map) = tile_map else { return };
+    let Some(image) = images.get_mut(&minimap.image_handle) else { return };
+
+    let size = minimap.size as usize;
+    let world_w = config.world_width as f32;
+    let world_h = config.world_height as f32;
+
+    // Paint terrain
+    for py in 0..size {
+        for px in 0..size {
+            let wx = (px as f32 / size as f32 * world_w) as u32;
+            let wy = ((size - 1 - py) as f32 / size as f32 * world_h) as u32;
+            let tile = tile_map.get(wx.min(config.world_width - 1), wy.min(config.world_height - 1));
+
+            let (r, g, b) = match tile.terrain {
+                clauvolution_world::TerrainType::DeepWater => (20, 40, 120),
+                clauvolution_world::TerrainType::ShallowWater => (40, 80, 160),
+                clauvolution_world::TerrainType::Sand => (180, 170, 120),
+                clauvolution_world::TerrainType::Grassland => (60, 130, 50),
+                clauvolution_world::TerrainType::Forest => (30, 90, 30),
+                clauvolution_world::TerrainType::Rock => (120, 120, 110),
+            };
+
+            let idx = (py * size + px) * 4;
+            image.data[idx] = r;
+            image.data[idx + 1] = g;
+            image.data[idx + 2] = b;
+            image.data[idx + 3] = 255;
+        }
+    }
+
+    // Paint organisms as bright dots
+    for (pos, genome) in &organisms {
+        let px = (pos.0.x / world_w * size as f32) as usize;
+        let py = size - 1 - (pos.0.y / world_h * size as f32) as usize;
+
+        if px < size && py < size {
+            let idx = (py * size + px) * 4;
+            let is_plant = genome.photosynthesis_rate > 0.2 && genome.has_photo_surface();
+            let is_predator = genome.claw_power() > 0.5;
+
+            if is_plant {
+                image.data[idx] = 100;
+                image.data[idx + 1] = 255;
+                image.data[idx + 2] = 100;
+            } else if is_predator {
+                image.data[idx] = 255;
+                image.data[idx + 1] = 60;
+                image.data[idx + 2] = 60;
+            } else {
+                image.data[idx] = 255;
+                image.data[idx + 1] = 255;
+                image.data[idx + 2] = 255;
+            }
+        }
+    }
+
+    // Paint camera viewport rectangle
+    if let Ok((cam_transform, projection)) = camera.get_single() {
+        let cam_x = cam_transform.translation.x;
+        let cam_y = cam_transform.translation.y;
+        let half_w = 960.0 * projection.scale; // half window width in world coords
+        let half_h = 540.0 * projection.scale;
+
+        let left = ((cam_x - half_w) / world_w * size as f32) as i32;
+        let right = ((cam_x + half_w) / world_w * size as f32) as i32;
+        let top = size as i32 - 1 - ((cam_y + half_h) / world_h * size as f32) as i32;
+        let bottom = size as i32 - 1 - ((cam_y - half_h) / world_h * size as f32) as i32;
+
+        // Draw rectangle outline in yellow
+        for x in left.max(0)..=right.min(size as i32 - 1) {
+            for &y in &[top, bottom] {
+                if y >= 0 && (y as usize) < size {
+                    let idx = (y as usize * size + x as usize) * 4;
+                    image.data[idx] = 255;
+                    image.data[idx + 1] = 255;
+                    image.data[idx + 2] = 0;
+                }
+            }
+        }
+        for y in top.max(0)..=bottom.min(size as i32 - 1) {
+            for &x in &[left, right] {
+                if x >= 0 && (x as usize) < size {
+                    let idx = (y as usize * size + x as usize) * 4;
+                    image.data[idx] = 255;
+                    image.data[idx + 1] = 255;
+                    image.data[idx + 2] = 0;
+                }
+            }
+        }
     }
 }
