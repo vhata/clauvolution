@@ -454,11 +454,11 @@ fn sync_organism_transforms(
         (&Position, &Energy, &BodySize, &ActionFlash, &mut Transform, &mut Visibility),
         (With<Organism>, With<OrganismSprite>),
     >,
-    camera: Query<(&Transform, &OrthographicProjection), With<MainCamera>>,
+    camera: Query<(&Transform, &OrthographicProjection), (With<MainCamera>, Without<Organism>, Without<SelectionRing>)>,
     config: Res<SimConfig>,
     mut species_colors: ResMut<SpeciesColors>,
     selected: Res<SelectedOrganism>,
-    mut selection_rings: Query<&mut Transform, (With<SelectionRing>, Without<Organism>)>,
+    mut selection_rings: Query<&mut Transform, (With<SelectionRing>, Without<Organism>, Without<MainCamera>)>,
 ) {
     let (zoom_scale, cam_left, cam_right, cam_bottom, cam_top) = if let Ok((cam_t, proj)) = camera.get_single() {
         let half_w = 960.0 * proj.scale;
