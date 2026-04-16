@@ -137,6 +137,10 @@ See [TODO.md](TODO.md) for the prioritised backlog.
 - GPU compute for neural net batching
 - WASM+WebGPU browser build
 
+## Built with
+
+This project was built collaboratively by [Jonathan Hitchcock](https://github.com/vhata) and [Claude Code](https://claude.ai/claude-code) (Anthropic's Claude Opus 4.6).
+
 ## License
 
 MIT
