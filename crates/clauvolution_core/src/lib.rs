@@ -53,24 +53,36 @@ impl Session {
         let mut rng = rand::thread_rng();
 
         let adjectives1 = [
-            "ancient", "bright", "cosmic", "dark", "eternal", "frozen",
-            "golden", "hidden", "infinite", "jade", "keen", "luminous",
-            "molten", "nebular", "obsidian", "pale", "quiet", "radiant",
-            "silent", "twisted", "vast", "wandering", "young", "zealous",
+            "ancient", "astral", "barren", "bright", "cerulean", "cosmic",
+            "dark", "distant", "eternal", "ethereal", "feral", "frozen",
+            "gilded", "glacial", "golden", "hidden", "infinite", "iridescent",
+            "jade", "keen", "kindred", "luminous", "lunar", "midnight",
+            "molten", "nascent", "nebular", "obsidian", "pale", "primal",
+            "quiet", "radiant", "scarlet", "silent", "spectral", "stellar",
+            "tethered", "twisted", "vast", "veiled", "violet", "wandering",
+            "young", "zealous",
         ];
 
         let adjectives2 = [
-            "burning", "crystalline", "drifting", "echoing", "fading",
-            "glowing", "hollow", "iron", "jagged", "kindled", "living",
-            "massive", "nameless", "orbital", "pulsing", "restless",
-            "shattered", "tidal", "unbound", "volatile", "woven",
+            "arcing", "blazing", "burning", "collapsing", "crystalline",
+            "dormant", "drifting", "echoing", "eroding", "fading", "fractal",
+            "glowing", "grinding", "hollow", "humming", "ignited", "iron",
+            "jagged", "jeweled", "kindled", "latticed", "living", "massive",
+            "migrating", "nameless", "orbital", "ossified", "petrified",
+            "pulsing", "quaking", "restless", "roiling", "shattered",
+            "spiraling", "tidal", "tumbling", "unbound", "undying",
+            "volatile", "withering", "woven",
         ];
 
         let nouns = [
-            "nebula", "aurora", "comet", "void", "pulsar", "quasar",
-            "nova", "eclipse", "rift", "storm", "ember", "tide",
-            "forge", "spire", "abyss", "bloom", "shard", "vortex",
-            "haven", "crown", "drift", "flare", "genesis", "horizon",
+            "abyss", "apex", "aurora", "bloom", "caldera", "canyon",
+            "cinder", "comet", "corona", "crater", "crown", "delta",
+            "drift", "dusk", "eclipse", "ember", "flare", "flux",
+            "forge", "genesis", "geyser", "glacier", "haven", "helix",
+            "horizon", "lagoon", "mantle", "nebula", "nova", "pinnacle",
+            "plume", "pulsar", "quasar", "remnant", "rift", "shard",
+            "solstice", "spire", "storm", "summit", "tide", "void",
+            "vortex", "zenith",
         ];
 
         let a1 = adjectives1[rng.gen_range(0..adjectives1.len())];
