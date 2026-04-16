@@ -186,6 +186,10 @@ pub struct Velocity(pub Vec2);
 #[derive(Component, Clone)]
 pub struct BrainMemory(pub [f32; 3]);
 
+/// Chemical signal emitted by an organism — sensed by nearby organisms
+#[derive(Component, Clone, Default)]
+pub struct Signal(pub f32);
+
 /// Tracks the last notable action for visual feedback
 #[derive(Component, Clone, Default)]
 pub struct ActionFlash {

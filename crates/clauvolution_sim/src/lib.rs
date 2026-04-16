@@ -183,7 +183,7 @@ fn sensing_and_brain_system(
         With<Organism>,
     >,
     food_query: Query<(Entity, &Position), (With<Food>, Without<Organism>)>,
-    all_org_data: Query<(&Position, &BodySize, &SpeciesId, &Genome), (With<Organism>, Without<Food>)>,
+    all_org_data: Query<(&Position, &BodySize, &SpeciesId, &Genome, &Signal), (With<Organism>, Without<Food>)>,
 ) {
     let food_positions: Vec<(Entity, Vec2)> = food_query.iter().map(|(e, p)| (e, p.0)).collect();
 
@@ -217,12 +217,13 @@ fn sensing_and_brain_system(
         let mut nearest_org_size_ratio = 1.0f32;
         let mut nearest_org_same_species = 0.0f32;
         let mut nearest_org_photo_hint = 0.5f32;
+        let mut nearest_org_signal = 0.0f32;
 
         for &nearby_entity in &nearby_entities {
             if nearby_entity == entity {
                 continue;
             }
-            if let Ok((other_pos, other_size, other_species, other_genome)) = all_org_data.get(nearby_entity) {
+            if let Ok((other_pos, other_size, other_species, other_genome, other_signal)) = all_org_data.get(nearby_entity) {
                 let diff = other_pos.0 - pos.0;
                 let dist = diff.length();
                 if dist < nearest_org_dist && dist < sense_range {
@@ -231,6 +232,7 @@ fn sensing_and_brain_system(
                     nearest_org_size_ratio = other_size.0 / body_size.0;
                     nearest_org_same_species = if other_species.0 == species_id.0 { 1.0 } else { 0.0 };
                     nearest_org_photo_hint = other_genome.photosynthesis_rate.min(1.0);
+                    nearest_org_signal = other_signal.0;
                 }
             }
         }
@@ -253,7 +255,8 @@ fn sensing_and_brain_system(
         inputs[15] = memory.0[1];
         inputs[16] = memory.0[2];
         inputs[17] = nearest_org_photo_hint;
-        inputs[18] = 1.0;
+        inputs[18] = nearest_org_signal;
+        inputs[19] = 1.0;
 
         let brain_out = brain.evaluate(&inputs);
         output.move_x = brain_out[0];
@@ -270,7 +273,7 @@ fn action_system(
     config: Res<SimConfig>,
     tile_map: Res<TileMap>,
     mut organisms: Query<
-        (&mut Position, &mut Energy, &mut BrainMemory, &mut ActionFlash, &BrainOutput, &Genome, &BodySize),
+        (&mut Position, &mut Energy, &mut BrainMemory, &mut ActionFlash, &mut Signal, &BrainOutput, &Genome, &BodySize),
         (With<Organism>, Without<Food>),
     >,
     food_query: Query<(Entity, &Position, &FoodEnergy), (With<Food>, Without<Organism>)>,
@@ -283,12 +286,13 @@ fn action_system(
 
     let mut eaten_food: Vec<Entity> = Vec::new();
 
-    for (mut pos, mut energy, mut memory, mut flash, output, genome, body_size) in &mut organisms {
+    for (mut pos, mut energy, mut memory, mut flash, mut signal, output, genome, body_size) in &mut organisms {
         // Tick down flash timer
         flash.timer = (flash.timer - 0.033).max(0.0);
         if flash.timer <= 0.0 { flash.action = ActionType::None; }
         // Update memory
         memory.0 = output.memory_out;
+        signal.0 = output.signal.clamp(-1.0, 1.0);
 
         let move_dir = Vec2::new(output.move_x, output.move_y);
         // Armor slows you down — heavy organisms are slower
@@ -605,6 +609,7 @@ fn reproduction_system(
             BrainOutput::default(),
             BrainMemory([0.0; NUM_MEMORY]),
             ActionFlash::default(),
+            Signal::default(),
             brain,
             child_genome,
         ));
@@ -828,6 +833,7 @@ pub fn spawn_initial_population(
             BrainOutput::default(),
             BrainMemory([0.0; NUM_MEMORY]),
             ActionFlash::default(),
+            Signal::default(),
             brain,
             genome,
         ));
