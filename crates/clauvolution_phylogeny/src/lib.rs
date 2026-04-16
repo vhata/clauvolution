@@ -15,20 +15,10 @@ pub struct SpeciesTraits {
 }
 
 /// Generate a species name from its traits
-pub fn generate_species_name(traits: &SpeciesTraits, species_id: u64) -> String {
-    let i = species_id as usize;
-    macro_rules! pick { ($arr:expr) => { $arr[i % $arr.len()] } }
+fn body_descriptor(traits: &SpeciesTraits, id: usize) -> &'static str {
+    macro_rules! pick { ($arr:expr) => { $arr[id % $arr.len()] } }
 
-    let habitat = if traits.aquatic > 0.5 {
-        if traits.has_fins { pick!(["Reef", "Deep", "Tidal", "Pelagic", "Abyssal"]) }
-        else { pick!(["Shore", "Marsh", "Coastal", "Brackish", "Littoral"]) }
-    } else if traits.aquatic > 0.2 {
-        pick!(["Riparian", "Swamp", "Estuary", "Delta", "Wetland"])
-    } else {
-        pick!(["Plains", "Ridge", "Upland", "Steppe", "Highland"])
-    };
-
-    let body = if traits.has_armor_plates && traits.armor > 0.5 {
+    if traits.has_armor_plates && traits.armor > 0.5 {
         pick!(["Plated", "Armored", "Shelled", "Ironclad", "Crusted"])
     } else if traits.has_claws {
         pick!(["Clawed", "Hooked", "Barbed", "Serrated", "Fanged"])
@@ -42,9 +32,26 @@ pub fn generate_species_name(traits: &SpeciesTraits, species_id: u64) -> String 
         pick!(["Swift", "Fleet", "Darting", "Quick", "Racing"])
     } else {
         pick!(["Common", "Spotted", "Banded", "Pale", "Dusky"])
-    };
+    }
+}
 
-    let noun = match traits.strategy {
+fn habitat_word(traits: &SpeciesTraits, id: usize) -> &'static str {
+    macro_rules! pick { ($arr:expr) => { $arr[id % $arr.len()] } }
+
+    if traits.aquatic > 0.5 {
+        if traits.has_fins { pick!(["Reef", "Deep", "Tidal", "Pelagic", "Abyssal"]) }
+        else { pick!(["Shore", "Marsh", "Coastal", "Brackish", "Littoral"]) }
+    } else if traits.aquatic > 0.2 {
+        pick!(["Riparian", "Swamp", "Estuary", "Delta", "Wetland"])
+    } else {
+        pick!(["Plains", "Ridge", "Upland", "Steppe", "Highland"])
+    }
+}
+
+fn strategy_noun(traits: &SpeciesTraits, id: usize) -> &'static str {
+    macro_rules! pick { ($arr:expr) => { $arr[id % $arr.len()] } }
+
+    match traits.strategy {
         SpeciesStrategy::Photosynthesizer => {
             if traits.aquatic > 0.5 { pick!(["Kelp", "Algae", "Seagrass", "Coral", "Lichen"]) }
             else { pick!(["Fern", "Moss", "Vine", "Shrub", "Bloom"]) }
@@ -57,9 +64,34 @@ pub fn generate_species_name(traits: &SpeciesTraits, species_id: u64) -> String 
             if traits.aquatic > 0.5 { pick!(["Drifter", "Grazer", "Filter", "Crawler", "Scavenger"]) }
             else { pick!(["Forager", "Browser", "Gleaner", "Rooter", "Wanderer"]) }
         }
-    };
+    }
+}
 
-    format!("{} {} {}", habitat, body, noun)
+/// Generate a full species name from traits (for root species with no parent)
+pub fn generate_species_name(traits: &SpeciesTraits, species_id: u64) -> String {
+    let i = species_id as usize;
+    format!("{} {} {}",
+        habitat_word(traits, i),
+        body_descriptor(traits, i),
+        strategy_noun(traits, i),
+    )
+}
+
+/// Generate a child species name — inherits habitat and noun from parent,
+/// only changes the body descriptor to reflect what's new
+pub fn generate_child_name(traits: &SpeciesTraits, species_id: u64, parent_name: &str) -> String {
+    let i = species_id as usize;
+    let new_body = body_descriptor(traits, i);
+
+    // Split parent name into parts
+    let parts: Vec<&str> = parent_name.splitn(3, ' ').collect();
+    if parts.len() == 3 {
+        // Keep habitat (genus) and noun (family), replace body descriptor
+        format!("{} {} {}", parts[0], new_body, parts[2])
+    } else {
+        // Fallback if parent name doesn't have 3 parts
+        generate_species_name(traits, species_id)
+    }
 }
 
 pub struct PhylogenyPlugin;
@@ -183,7 +215,16 @@ impl PhyloTree {
         }
 
         let name = if let Some(t) = traits {
-            generate_species_name(t, species_id)
+            // If there's a parent with a name, inherit habitat and noun
+            if let Some(pid) = parent_id {
+                if let Some(parent_node) = self.nodes.get(&pid) {
+                    generate_child_name(t, species_id, &parent_node.name)
+                } else {
+                    generate_species_name(t, species_id)
+                }
+            } else {
+                generate_species_name(t, species_id)
+            }
         } else {
             format!("Species {}", species_id)
         };
