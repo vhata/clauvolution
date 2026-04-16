@@ -1145,7 +1145,9 @@ fn lod_change_system(
             .remove::<MeshMaterial2d<ColorMaterial>>();
 
         for &child in children.iter() {
-            commands.entity(child).try_despawn();
+            if let Some(mut cmd) = commands.get_entity(child) {
+                cmd.try_despawn();
+            }
         }
     }
 }
