@@ -634,6 +634,7 @@ fn update_stats_text(
     organisms: Query<&Genome, With<Organism>>,
     food: Query<&Food>,
     speed: Res<SimSpeed>,
+    season: Res<Season>,
     mut text_query: Query<&mut Text, With<StatsText>>,
 ) {
     let Ok(mut text) = text_query.get_single_mut() else {
@@ -666,20 +667,29 @@ fn update_stats_text(
         format!("{}x", speed.multiplier as u32)
     };
 
+    let season_name = match season.name() {
+        SeasonName::Spring => "Spring",
+        SeasonName::Summer => "Summer",
+        SeasonName::Autumn => "Autumn",
+        SeasonName::Winter => "Winter",
+    };
+    let light_pct = (season.light_multiplier() * 100.0) as u32;
+
     **text = format!(
         "Speed: {}  [Space=pause, [/]=speed]\n\
+         {} (light {}%)  |  Gen: {}\n\
          Organisms: {}  |  Species: {}\n\
          Plants: {}  Predators: {}  Foragers: {}\n\
-         Food: {}  |  Generation: {}\n\
-         Births: {}  |  Deaths: {}\n\
+         Food: {}  |  Births: {}  Deaths: {}\n\
          \n\
          X=asteroid  I=ice  V=volcano\n\
          G=graph  C=chronicle  H=help\n\
          Click organism to inspect",
-        speed_str, org_count, stats.species_count,
+        speed_str,
+        season_name, light_pct, stats.max_generation,
+        org_count, stats.species_count,
         photosynthesizers, predators, foragers,
-        food_count, stats.max_generation,
-        stats.total_births, stats.total_deaths,
+        food_count, stats.total_births, stats.total_deaths,
     );
 }
 

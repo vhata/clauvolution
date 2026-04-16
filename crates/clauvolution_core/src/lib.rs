@@ -11,6 +11,7 @@ impl Plugin for CorePlugin {
             .insert_resource(SimSpeed::default())
             .insert_resource(SpeciesColors::default())
             .insert_resource(SelectedOrganism::default())
+            .insert_resource(Season::default())
             .insert_resource(PopulationHistory::default());
     }
 }
@@ -66,6 +67,74 @@ pub struct SimStats {
 
 #[derive(Resource)]
 pub struct TickCounter(pub u64);
+
+/// Seasonal cycle — affects light, temperature, food regen
+#[derive(Resource)]
+pub struct Season {
+    pub cycle_ticks: u64,     // ticks per full year
+    pub current_tick: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum SeasonName {
+    Spring,
+    Summer,
+    Autumn,
+    Winter,
+}
+
+impl Default for Season {
+    fn default() -> Self {
+        Self {
+            cycle_ticks: 1800, // 60 seconds at 30 ticks/sec
+            current_tick: 0,
+        }
+    }
+}
+
+impl Season {
+    pub fn advance(&mut self) {
+        self.current_tick += 1;
+        if self.current_tick >= self.cycle_ticks {
+            self.current_tick = 0;
+        }
+    }
+
+    /// 0.0 = start of year, 1.0 = end of year
+    pub fn phase(&self) -> f32 {
+        self.current_tick as f32 / self.cycle_ticks as f32
+    }
+
+    pub fn name(&self) -> SeasonName {
+        let phase = self.phase();
+        if phase < 0.25 { SeasonName::Spring }
+        else if phase < 0.5 { SeasonName::Summer }
+        else if phase < 0.75 { SeasonName::Autumn }
+        else { SeasonName::Winter }
+    }
+
+    /// Light multiplier: high in summer, low in winter
+    pub fn light_multiplier(&self) -> f32 {
+        let phase = self.phase();
+        // Sinusoidal: peaks at summer (0.375), troughs at winter (0.875)
+        let seasonal = (phase * std::f32::consts::TAU - std::f32::consts::FRAC_PI_2).sin();
+        0.7 + seasonal * 0.3 // ranges 0.4 to 1.0
+    }
+
+    /// Food regen multiplier: high in spring/summer, low in winter
+    pub fn food_regen_multiplier(&self) -> f32 {
+        let phase = self.phase();
+        let seasonal = (phase * std::f32::consts::TAU - std::f32::consts::FRAC_PI_2).sin();
+        0.6 + seasonal * 0.4 // ranges 0.2 to 1.0
+    }
+
+    /// Temperature modifier added to tile temperature
+    pub fn temperature_modifier(&self) -> f32 {
+        let phase = self.phase();
+        let seasonal = (phase * std::f32::consts::TAU - std::f32::consts::FRAC_PI_2).sin();
+        seasonal * 0.3 // -0.3 in winter, +0.3 in summer
+    }
+}
 
 /// A snapshot of population metrics at a point in time
 #[derive(Clone, Default)]

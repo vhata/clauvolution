@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use clauvolution_core::{Food, FoodEnergy, Position, SimConfig};
+use clauvolution_core::{Food, FoodEnergy, Position, Season, SimConfig};
 use rand::Rng;
 use std::collections::HashMap;
 
@@ -321,12 +321,14 @@ pub fn food_regeneration_system(
     config: Res<SimConfig>,
     food_query: Query<&Food>,
     tile_map: Res<TileMap>,
+    season: Res<Season>,
 ) {
     let current_food = food_query.iter().len() as f32;
     let max_food = config.world_width as f32 * config.world_height as f32 * config.initial_food_density;
 
     let deficit_ratio = ((max_food - current_food) / max_food).max(0.0);
-    let to_spawn = (deficit_ratio * config.food_regen_rate * max_food).ceil() as u32;
+    let seasonal_regen = config.food_regen_rate * season.food_regen_multiplier();
+    let to_spawn = (deficit_ratio * seasonal_regen * max_food).ceil() as u32;
 
     let mut rng = rand::thread_rng();
     for _ in 0..to_spawn {

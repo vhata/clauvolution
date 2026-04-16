@@ -73,8 +73,20 @@ impl Default for BrainOutput {
     }
 }
 
-fn tick_counter_system(mut tick: ResMut<TickCounter>) {
+fn tick_counter_system(mut tick: ResMut<TickCounter>, mut season: ResMut<Season>, mut chronicle: ResMut<WorldChronicle>) {
     tick.0 += 1;
+    let old_name = season.name();
+    season.advance();
+    let new_name = season.name();
+    if old_name != new_name {
+        let name = match new_name {
+            SeasonName::Spring => "Spring arrives — light and food increasing",
+            SeasonName::Summer => "Summer — peak light and food production",
+            SeasonName::Autumn => "Autumn — light fading, food declining",
+            SeasonName::Winter => "Winter begins — scarce food, low light",
+        };
+        chronicle.log(tick.0, name.to_string());
+    }
 }
 
 fn sim_speed_system(
@@ -418,12 +430,14 @@ fn photosynthesis_system(
     tile_map: Res<TileMap>,
     mut organisms: Query<(&Position, &mut Energy, &Genome), With<Organism>>,
     config: Res<SimConfig>,
+    season: Res<Season>,
 ) {
+    let light_mult = season.light_multiplier();
     for (pos, mut energy, genome) in &mut organisms {
         if genome.photosynthesis_rate > 0.01 && genome.has_photo_surface() {
             let tile = tile_map.tile_at_pos(pos.0);
             let photo_area = genome.total_photo_surface_area();
-            let gained = genome.photosynthesis_rate * photo_area * tile.light_level * 2.0;
+            let gained = genome.photosynthesis_rate * photo_area * tile.light_level * light_mult * 2.0;
             energy.0 = (energy.0 + gained).min(config.max_organism_energy);
         }
     }
