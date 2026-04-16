@@ -245,13 +245,13 @@ impl PhyloTree {
         sorted_lineages.sort_by(|a, b| {
             let pop_a: u32 = a.1.iter().map(|n| n.current_population).sum();
             let pop_b: u32 = b.1.iter().map(|n| n.current_population).sum();
-            pop_b.cmp(&pop_a)
+            pop_b.cmp(&pop_a).then(a.0.cmp(&b.0))
         });
 
         let mut roots_shown = 0;
         for (_root_id, mut members) in sorted_lineages {
             if roots_shown >= max_display { break; }
-            members.sort_by(|a, b| b.current_population.cmp(&a.current_population));
+            members.sort_by(|a, b| b.current_population.cmp(&a.current_population).then(a.species_id.cmp(&b.species_id)));
 
             // Show the biggest member as the root line
             let first = members[0];
@@ -273,7 +273,7 @@ impl PhyloTree {
         let mut recently_extinct: Vec<&PhyloNode> = self.nodes.values()
             .filter(|n| n.extinct_tick.is_some())
             .collect();
-        recently_extinct.sort_by(|a, b| b.extinct_tick.cmp(&a.extinct_tick));
+        recently_extinct.sort_by(|a, b| b.extinct_tick.cmp(&a.extinct_tick).then(a.species_id.cmp(&b.species_id)));
 
         if !recently_extinct.is_empty() {
             lines.push(String::new());
@@ -318,14 +318,19 @@ impl PhyloTree {
             format!("{}s", age_secs)
         };
 
+        // Fixed-width indent: 4 chars for depth 0, "└ " prefix for children
         let indent = if depth == 0 {
-            "".to_string()
+            "  ".to_string()
         } else {
-            format!("{}\u{2514} ", "  ".repeat((depth - 1).min(4)))
+            format!("{}\u{2514} ", "  ".repeat((depth - 1).min(3)))
         };
+        // Pad indent to consistent width (4 chars)
+        let indent = format!("{:<4}", indent);
 
         let bar_len = ((node.current_population as f32 / 50.0).ceil() as usize).clamp(1, 15);
         let bar: String = "\u{2588}".repeat(bar_len);
+        // Pad bar to fixed width so age column aligns
+        let bar = format!("{:<15}", bar);
 
         let declining = if node.current_population < node.peak_population / 2 { " declining" } else { "" };
 
