@@ -123,9 +123,9 @@ pub struct SimConfig {
 impl Default for SimConfig {
     fn default() -> Self {
         Self {
-            world_width: 256,
-            world_height: 256,
-            initial_population: 200,
+            world_width: 512,
+            world_height: 512,
+            initial_population: 400,
             initial_food_density: 0.1,
             food_regen_rate: 0.01,
             mutation_rate: 0.3,

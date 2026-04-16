@@ -348,7 +348,7 @@ fn spawn_terrain_sprites(
         return;
     };
 
-    let chunk_size = 4u32;
+    let chunk_size = 8u32;
     let tile_mesh = meshes.add(Rectangle::new(chunk_size as f32, chunk_size as f32));
 
     for cy in (0..tile_map.height).step_by(chunk_size as usize) {

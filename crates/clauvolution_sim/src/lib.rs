@@ -564,7 +564,7 @@ fn reproduction_system(
 
     let mut new_organisms: Vec<(Vec2, Genome, u64, u32)> = Vec::new();
     let current_pop = organisms.iter().len();
-    let max_pop = 1200usize;
+    let max_pop = 2000usize;
     let mut already_mated: Vec<Entity> = Vec::new();
 
     for (entity, pos, mut energy, mut flash, genome, output, body_size, species, generation) in &mut organisms {
