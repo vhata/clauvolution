@@ -16,13 +16,12 @@ impl Plugin for RenderPlugin {
         app.init_resource::<CameraDragState>()
             .init_resource::<SharedMeshes>()
             .init_resource::<LodState>()
-            .init_resource::<HelpVisible>()
             .init_resource::<ChronicleVisible>()
             .init_resource::<MinimapMode>()
             .add_systems(Startup, (setup_camera, setup_shared_meshes, setup_minimap))
             .add_systems(
                 Update,
-                (speed_control_system, click_select_system, toggle_graph_system, toggle_help_system, toggle_chronicle_system, toggle_minimap_mode_system, lod_change_system, manual_screenshot_system, minimap_click_system),
+                (speed_control_system, click_select_system, toggle_graph_system, toggle_chronicle_system, toggle_minimap_mode_system, lod_change_system, manual_screenshot_system, minimap_click_system),
             )
             .add_systems(
                 PostUpdate,
@@ -36,7 +35,6 @@ impl Plugin for RenderPlugin {
                     update_inspect_panel,
                     update_graph,
                     update_phylo_tree,
-                    update_help_overlay,
                     update_chronicle,
                     update_minimap,
                 )
@@ -79,9 +77,6 @@ impl Default for LodState {
 }
 
 #[derive(Resource, Default)]
-pub struct HelpVisible(pub bool);
-
-#[derive(Resource, Default)]
 pub struct ChronicleVisible(pub bool);
 
 #[derive(Component)]
@@ -89,9 +84,6 @@ pub struct ChronicleText;
 
 #[derive(Resource)]
 pub struct UiFont(pub Handle<Font>);
-
-#[derive(Component)]
-pub struct HelpOverlay;
 
 #[derive(Component)]
 pub struct MinimapNode;
@@ -257,25 +249,6 @@ fn setup_camera(mut commands: Commands, config: Res<SimConfig>, asset_server: Re
         ChronicleText,
     ));
 
-    // Help overlay (centered, hidden by default)
-    commands.spawn((
-        Text::new(""),
-        TextFont {
-            font: font.clone(),
-            font_size: 15.0,
-            ..default()
-        },
-        TextColor(Color::srgba(1.0, 1.0, 1.0, 0.95)),
-        Node {
-            position_type: PositionType::Absolute,
-            left: Val::Percent(15.0),
-            top: Val::Percent(10.0),
-            padding: UiRect::all(Val::Px(10.0)),
-            ..default()
-        },
-        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.85)),
-        HelpOverlay,
-    ));
 }
 
 /// Keyboard speed controls: Space = pause, [ = slower, ] = faster
@@ -1055,97 +1028,6 @@ fn update_phylo_tree(
     };
 
     **text = phylo.render_text(tick.0);
-}
-
-fn toggle_help_system(
-    keys: Res<ButtonInput<KeyCode>>,
-    mut help_visible: ResMut<HelpVisible>,
-) {
-    if keys.just_pressed(KeyCode::KeyH) {
-        help_visible.0 = !help_visible.0;
-    }
-}
-
-fn update_help_overlay(
-    help_visible: Res<HelpVisible>,
-    mut text_query: Query<&mut Text, With<HelpOverlay>>,
-) {
-    let Ok(mut text) = text_query.get_single_mut() else {
-        return;
-    };
-
-    if !help_visible.0 {
-        **text = String::new();
-        return;
-    }
-
-    **text = "\
-  CLAUVOLUTION — HELP (H to close)
-
-  WHAT YOU'RE SEEING
-  Every dot is a living organism with its own evolved brain.
-  They sense the world, decide what to do, and pass their
-  genes to offspring. No behaviour is programmed — everything
-  emerges from evolution.
-
-  ORGANISM COLOURS
-  Bright circles with outlines = active organisms (foragers, predators)
-  Faded circles without outlines = photosynthesizers (plants)
-  Colour varies by species — related organisms share colours
-  Red tint = predator (has claws)
-  Green tint = photosynthesizer
-
-  BODY PARTS (shown when you click an organism)
-  Torso .......... main body — everyone has one
-  Limb ........... legs — helps move on land
-  Fin ............ helps swim in water
-  Eye ............ extends sensing range
-  Mouth .......... improves food eating efficiency
-  PhotoSurface ... like a leaf — absorbs light for energy
-  Claw ........... weapon — used to attack other organisms
-  ArmorPlate ..... defence — reduces damage from attacks
-
-  INSPECT PANEL (click any organism)
-  Energy ......... fuel — organism dies when it hits zero
-  Health ......... damage taken, regenerates over time
-  Size ........... bigger = more visible, more costly
-  Speed .......... movement speed (armor slows you down)
-  Sense range .... how far it can detect food and others
-  Aquatic ........ adaptation to water (0-100%)
-  Photo .......... photosynthesis rate (0-100%)
-  Attack ......... claw strength
-  Armor .......... damage resistance
-  Signal ......... chemical signal (-1 to 1) — sensed by nearby organisms
-  Group .......... same-species organisms nearby (reduces metabolism ~5%)
-  Gen ............ generation (how many ancestors since start)
-  Age ............ ticks alive
-
-  STRATEGY TYPES
-  Forager ........ eats food on the ground
-  Predator ....... hunts and eats other organisms
-  Plant .......... photosynthesizes energy from sunlight
-
-  CONTROLS
-  Space .......... pause / unpause
-  [ / ] .......... slow down / speed up
-  Scroll ......... zoom in / out
-  Click .......... inspect organism
-  Right-drag ..... pan camera
-  WASD / Arrows .. pan camera
-  G .............. toggle population graphs
-  M .............. toggle minimap heatmap (density by strategy)
-  H .............. toggle this help
-
-  MASS EXTINCTION EVENTS
-  X .............. asteroid impact (kills 70%)
-  I .............. ice age (halves temperature)
-  V .............. volcano (kills area, boosts nutrients)
-
-  BLOOM EVENTS
-  B .............. solar bloom (double light for 30s)
-  N .............. nutrient rain (massive food burst)
-  J .............. Cambrian spark (triple mutation for 30s)
-".to_string();
 }
 
 fn toggle_chronicle_system(

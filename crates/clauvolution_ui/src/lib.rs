@@ -30,6 +30,63 @@ pub struct UiState {
     pub egui_wants_keyboard: bool,
 }
 
+fn help_tab(ui: &mut egui::Ui) {
+    ui.heading("Clauvolution");
+    ui.label("Every dot is a living organism with its own evolved brain. They sense the world, decide what to do, and pass their genes to offspring. No behaviour is programmed — everything emerges from evolution.");
+    ui.separator();
+
+    egui::CollapsingHeader::new("Organism colours").default_open(true).show(ui, |ui| {
+        ui.label("• Bright circles with outlines — active organisms (foragers, predators)");
+        ui.label("• Faded circles without outlines — photosynthesizers (plants)");
+        ui.label("• Colour varies by species — related organisms share colours");
+        ui.label("• Red tint — predator (has claws)");
+        ui.label("• Green tint — photosynthesizer");
+    });
+
+    egui::CollapsingHeader::new("Body parts").show(ui, |ui| {
+        ui.label("Torso — main body, everyone has one");
+        ui.label("Limb — helps move on land");
+        ui.label("Fin — helps swim in water");
+        ui.label("Eye — extends sensing range");
+        ui.label("Mouth — improves food eating efficiency");
+        ui.label("PhotoSurface — absorbs light for energy");
+        ui.label("Claw — weapon, used to attack");
+        ui.label("ArmorPlate — defence, reduces damage");
+    });
+
+    egui::CollapsingHeader::new("Controls").default_open(true).show(ui, |ui| {
+        egui::Grid::new("controls_grid").striped(true).show(ui, |ui| {
+            for (key, desc) in [
+                ("Space", "pause / unpause"),
+                ("[  ]", "slow down / speed up"),
+                ("Scroll", "zoom in / out"),
+                ("Click", "inspect organism"),
+                ("Right-drag", "pan camera"),
+                ("WASD", "pan camera"),
+                ("M", "toggle minimap heatmap"),
+                ("F5", "save world"),
+                ("S", "take screenshot"),
+            ] {
+                ui.monospace(key);
+                ui.label(desc);
+                ui.end_row();
+            }
+        });
+    });
+
+    egui::CollapsingHeader::new("Mass extinction events").show(ui, |ui| {
+        ui.label("X — asteroid impact (kills 70%)");
+        ui.label("I — ice age (halves temperature)");
+        ui.label("V — volcano (kills area, boosts nutrients)");
+    });
+
+    egui::CollapsingHeader::new("Bloom events").show(ui, |ui| {
+        ui.label("B — solar bloom (double light for 30s)");
+        ui.label("N — nutrient rain (massive food burst)");
+        ui.label("J — Cambrian spark (triple mutation for 30s)");
+    });
+}
+
 /// Top bar: season, population, species, speed/pause — always visible
 fn header_bar_system(
     mut contexts: EguiContexts,
@@ -125,8 +182,7 @@ fn right_panel_system(
                         ui.label("(migrating — old panel still active)");
                     }
                     RightTab::Help => {
-                        ui.heading("Help");
-                        ui.label("(migrating — old help overlay still active)");
+                        help_tab(ui);
                     }
                 }
             });
