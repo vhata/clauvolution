@@ -504,11 +504,36 @@ fn photosynthesis_system(
     bloom: Res<BloomEffects>,
 ) {
     let light_mult = season.light_multiplier() * bloom.light_multiplier();
+
+    // First pass: count plants per tile for density competition.
+    // Plants on the same tile shade each other — prevents green-world monoculture.
+    let mut plants_per_tile: HashMap<(u32, u32), u32> = HashMap::new();
+    for (pos, _, genome) in organisms.iter() {
+        if genome.photosynthesis_rate > 0.2 && genome.has_photo_surface() {
+            let tx = (pos.0.x as u32).min(tile_map.width - 1);
+            let ty = (pos.0.y as u32).min(tile_map.height - 1);
+            *plants_per_tile.entry((tx, ty)).or_insert(0) += 1;
+        }
+    }
+
+    // Second pass: apply photosynthesis with density-dependent competition.
+    // density_factor = 1 / (1 + other_plants * 0.2)
+    //   1 plant alone: 1.0 (full yield)
+    //   5 plants:      0.56
+    //   10 plants:     0.36
+    //   20 plants:     0.21
     for (pos, mut energy, genome) in &mut organisms {
         if genome.photosynthesis_rate > 0.01 && genome.has_photo_surface() {
             let tile = tile_map.tile_at_pos(pos.0);
             let photo_area = genome.total_photo_surface_area();
-            let gained = genome.photosynthesis_rate * photo_area * tile.light_level * light_mult * 2.0;
+
+            let tx = (pos.0.x as u32).min(tile_map.width - 1);
+            let ty = (pos.0.y as u32).min(tile_map.height - 1);
+            let tile_plants = plants_per_tile.get(&(tx, ty)).copied().unwrap_or(1);
+            let others = tile_plants.saturating_sub(1);
+            let density_factor = 1.0 / (1.0 + others as f32 * 0.2);
+
+            let gained = genome.photosynthesis_rate * photo_area * tile.light_level * light_mult * density_factor * 2.0;
             energy.0 = (energy.0 + gained).min(config.max_organism_energy);
         }
     }
