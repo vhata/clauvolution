@@ -8,6 +8,7 @@ use clauvolution_genome::InnovationCounter;
 use clauvolution_render::{MainCamera, RenderPlugin};
 use clauvolution_phylogeny::{PhylogenyPlugin, PhyloTree, WorldChronicle};
 use clauvolution_sim::SimPlugin;
+use clauvolution_ui::UiPlugin;
 use clauvolution_world::{self, TileMap, WorldPlugin};
 use rand::SeedableRng;
 
@@ -33,6 +34,7 @@ fn main() {
     .add_plugins(SimPlugin)
     .add_plugins(PhylogenyPlugin)
     .add_plugins(RenderPlugin)
+    .add_plugins(UiPlugin)
     .insert_resource(InnovationCounter(100))
     .insert_resource(LoadPath(load_path))
     .add_systems(Startup, (startup_system, set_window_title));
