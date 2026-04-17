@@ -44,15 +44,17 @@ cargo run --release
 | **Left click** | Select organism (inspect panel) |
 | **Space** | Pause / unpause |
 | **[** / **]** | Slow down / speed up (0.125x to 16x) |
-| **G** | Toggle population graphs |
 | **M** | Toggle minimap heatmap (density by strategy) |
-| **C** | Toggle world chronicle |
-| **H** | Toggle help overlay |
 | **X** | Asteroid impact (kills 70%) |
 | **I** | Ice age (halves temperature) |
 | **V** | Volcanic eruption (local kill zone + nutrient boost) |
+| **B** | Solar bloom (double light for 30s) |
+| **N** | Nutrient rain (massive food burst) |
+| **J** | Cambrian spark (triple mutation for 30s) |
 | **S** | Take screenshot (saved to session directory) |
 | **F5** | Save world state |
+
+Graphs, chronicle, phylogenetic tree, events, and help all live in tabs of the right-side panel — click the tab names to switch between views.
 
 ### Save/load
 
@@ -153,12 +155,15 @@ See [TODO.md](TODO.md) for the prioritised backlog.
 - Minimap with click-to-navigate and population heatmap toggle (M key)
 - Social sensing (group size + average group signal brain inputs, group metabolic discount)
 - Performance: frustum culling, food hidden at far zoom, virtual time cap prevents death spiral at high speeds
-- UI panel backgrounds for readability
+- Death markers (red for predation, amber for starvation)
+- Parent species tracking (inspect shows lineage)
+- Bloom events (solar bloom B, nutrient rain N, Cambrian spark J)
+- Plant density competition (photosynthesizers shade each other — caps monoculture)
+- bevy_egui UI overhaul: header bar + tabbed right panel (Inspect / Phylo / Graphs / Chronicle / Events / Help) with egui_plot line charts, collapsible phylo tree, event buttons
 
 **Next:**
-- Proper UI panels (bevy_egui) — scrollable, resizable panels
 - Symbiosis (mutualism, parasitism)
-- GPU compute for neural net batching
+- Performance scaling (Rayon, GPU instancing, GPU compute)
 - WASM+WebGPU browser build
 
 ## Built with

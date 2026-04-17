@@ -14,10 +14,10 @@ Cargo workspace with 9 crates:
 - `clauvolution_body` — Decodes genome into renderable BodyPlan with positioned parts.
 - `clauvolution_world` — TileMap (6 terrain types), spatial hashing, food spawning/regen. Terrain generated from seed using value noise.
 - `clauvolution_sim` — All simulation systems: sensing, actions, predation, photosynthesis, niche construction, metabolism, death, reproduction, species classification, save/load.
-- `clauvolution_render` — All rendering: terrain chunks, organism sprites (circle or detailed body parts based on zoom LOD), camera, UI text panels (stats, inspect, graphs, phylo tree, chronicle, help), minimap.
+- `clauvolution_render` — World rendering: terrain chunks, organism sprites (circle or detailed body parts based on zoom LOD), food sprites, death markers, camera, minimap.
 - `clauvolution_phylogeny` — PhyloTree (species ancestry tracking), WorldChronicle (event log), species naming.
 - `clauvolution_app` — Binary entry point, startup systems, screenshot mode.
-- `clauvolution_ui` — Planned but unused.
+- `clauvolution_ui` — All UI panels. bevy_egui header bar + tabbed right panel (Inspect / Phylo / Graphs / Chronicle / Events / Help). Uses egui_plot for line charts.
 
 ## Key Design Decisions
 
@@ -41,7 +41,6 @@ Cargo workspace with 9 crates:
 
 ## Known Issues / Rough Edges
 
-- **Phylo tree display**: Text-based, can't scroll. Species group by shared lineage root (10 generations back) but with high turnover many appear as roots. `bevy_egui` integration would fix this properly.
 - **LOD at close zoom**: Body part meshes are created per-organism (not shared). Could be optimized with shared mesh handles per segment type.
 - **Terrain not saved in save files**: Terrain regenerated from seed on load. Niche construction changes (vegetation density, moisture, nutrients modified by organisms) are lost on save/load.
 - **Species naming collisions**: Similar traits + similar species ID modulo → same name. Not a bug, just a limitation of the word list approach.
@@ -53,10 +52,9 @@ See TODO.md "What's Done" section. Highlights: NEAT brains with memory and socia
 
 ## What's Next (from TODO.md)
 
-1. Proper UI panels (bevy_egui) — scrollable panels
-2. Symbiosis
-3. GPU compute
-4. WASM browser build
+1. Symbiosis
+2. Performance scaling (Rayon, GPU instancing, GPU compute)
+3. WASM browser build
 
 ## Build & Run
 
@@ -68,4 +66,4 @@ cargo run --release -- --load sessions/<name>    # load saved session
 
 ## Controls
 
-Space=pause, [/]=speed, WASD=pan, scroll=zoom, click=inspect, S=screenshot, F5=save, G=graphs, M=heatmap, C=chronicle, H=help, X=asteroid, I=ice age, V=volcano
+Space=pause, [/]=speed, WASD=pan, scroll=zoom, click=inspect, S=screenshot, F5=save, M=heatmap, X=asteroid, I=ice age, V=volcano, B=solar bloom, N=nutrient rain, J=Cambrian spark. Graphs/chronicle/phylo/help are in egui tabs in the right panel.
