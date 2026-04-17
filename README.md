@@ -15,6 +15,7 @@ Watch organisms evolve in real time. Each creature has its own neural network br
 - **Seasonal cycles** — 60-second year with spring, summer, autumn, winter. Light and food production rise and fall sinusoidally. Summer is abundant; winter is harsh. Organisms must adapt to changing conditions.
 - **Chemical signalling** — organisms emit a signal (-1 to 1) that nearby organisms can sense. Evolution decides what it means — could become alarm calls, mating signals, territorial markers, or nothing.
 - **Social sensing** — organisms sense how many same-species neighbours are nearby and their average signal. A small metabolic discount (~5%) for grouping creates selection pressure for social behaviour — flocking, herding, or pack hunting can emerge naturally.
+- **Disease** — infections spread between organisms in proximity. Higher density = more transmission. Evolved resistance trait lets lineages adapt. Creates a density-dependent mortality pressure that naturally opposes monocultures and runs a parallel arms race to claws vs armour.
 - **Geographic isolation** — deep oceans and mountains are nearly impassable barriers. Populations on different landmasses evolve independently, driving real allopatric speciation.
 - **Fitness tracking** — average lifespan graphed over time. If organisms are getting better at surviving, this line trends upward — visible proof of evolution.
 - **No hard categories** — there are no predefined "types." Whether something photosynthesizes, hunts, or grows armor is entirely evolved.
@@ -162,6 +163,7 @@ See [TODO.md](TODO.md) for the prioritised backlog.
 - Plant density competition (photosynthesizers shade each other — caps monoculture)
 - bevy_egui UI overhaul: header bar + tabbed right panel (Inspect / Phylo / Graphs / Chronicle / Events / Help) with egui_plot line charts, collapsible phylo tree, event buttons
 - Organism trails (T to toggle) — fading lines showing recent movement, frustum culled
+- Disease — proximity-transmissible infection with evolvable resistance gene; pulsing purple halo indicator
 
 **Next:**
 - Symbiosis (mutualism, parasitism)

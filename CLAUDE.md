@@ -21,6 +21,7 @@ Cargo workspace with 10 crates:
 
 ## Key Design Decisions
 
+- **Disease**: `Infection` is a component (present = sick, absent = healthy). Spreads within 12-unit radius. `disease_resistance` is a new evolvable genome trait. Background rate is tiny (0.03% every 30 ticks) to keep pathogens present without overwhelming.
 - **Energy pyramid**: Predators get 10% of prey's stored energy (thermodynamics). Prevents predator meta.
 - **Quadratic costs**: Body size, armor, claws, speed all cost quadratically in metabolism. Prevents "stack everything" meta.
 - **Species classification**: NEAT compatibility distance with threshold 2.0, hysteresis 1.3x to stay in current species. Runs every 5 seconds.

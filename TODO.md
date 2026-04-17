@@ -55,6 +55,7 @@ An evolution simulator where you watch life emerge, adapt, compete, and speciate
 - [x] Plant density competition — photosynthesizers shade each other, caps monoculture dominance
 - [x] bevy_egui UI overhaul — header bar + tabbed right panel (Inspect / Phylo / Graphs / Chronicle / Events / Help). All old text overlays replaced; egui_plot for real line charts; collapsible phylo tree; buttons for events; WorldEventRequest event channel for keyboard-or-button triggering
 - [x] Organism trails — faint gizmos linestrip behind each organism, T toggle, frustum culled, zero cost when off
+- [x] Disease — proximity-transmissible infection, evolvable resistance gene, pulsing purple halo indicator, addresses plant-dominance attractor
 
 ---
 
@@ -130,17 +131,11 @@ More kinds of evolution to watch unfold. Each item adds a qualitatively new pres
 
 **Top pick:** Disease. Solves plant-dominance AND creates a whole new arms race to observe.
 
-### Disease / pathogens
-Abstract infection that spreads between organisms in proximity. Kills or weakens hosts. Evolution of resistance vs virulence. Natural population regulator that can target any strategy (not just predation).
-
-**Why it matters:** Plant dominance is a stable attractor because plants have no real predator apart from foragers. Disease adds a density-dependent mortality pressure that hits plants harder when they monoculture (high density = high transmission). Also pairs beautifully with social sensing: group bonuses vs disease risk becomes a real tradeoff.
-
-**Shape of implementation:**
-- `Disease` resource or per-organism `Infection` component
-- Transmission: chance per tick scales with nearby infected count
-- Virulence: small energy drain + small chance of death per tick
-- Resistance: new genome trait, evolvable
-- Periodically spawn new strains (pathogens evolve)
+### Disease evolution (follow-ups)
+V1 shipped. Potential next upgrades if the basic disease dynamics work well:
+- Multiple strains with their own severity/duration/virulence stats, mutating over time (pathogen coevolution)
+- Infection inheritance (vertical transmission) so mother→offspring infection is possible
+- Species-specific resistance (vs. current generic resistance) so diseases target lineages
 
 ### Symbiosis (original plan item)
 Two organisms spending extended time in close proximity develop an "energy link". A genome trait determines whether they drain (parasite), donate (altruist), or both (mutualist). Evolution decides whether symbiotic pairs outcompete solo organisms.
@@ -373,5 +368,5 @@ For even more organic-looking creatures:
 - [x] **Bloom events** — positive disturbance counterparts (solar / nutrient / mutation burst)
 - [x] **Density competition** — plants shade each other, capping monocultures
 - [ ] **Symbiosis** — mutualism, parasitism, commensalism
-- [ ] **Disease** — density-dependent mortality, host/pathogen coevolution
+- [x] **Disease** — proximity-transmissible infection with evolvable resistance; density-dependent mortality
 - [ ] **Climate shift** — multi-generational drift distinct from seasons
