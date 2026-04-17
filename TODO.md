@@ -97,14 +97,8 @@ Small-to-medium features that aren't on the critical path but would be fun. Pick
 ### Organism trails
 Faint fading lines showing where organisms have been recently. Makes migration patterns, territorial behaviour, and foraging routes visible.
 
-### Death markers
-Brief flash/particle where organisms die. Makes predation hotspots and starvation zones pop at a glance without needing the heatmap.
-
 ### Minimap legend
 Small colour key on the heatmap so new viewers don't have to guess what green/red/white means.
-
-### Organism family tracking
-Track parent/child relationships so you can click an organism and see its lineage. "This forager's great-grandmother was a plant."
 
 ### Symbiosis starter
 Organisms near each other for extended periods develop energy transfer. Parasites drain, mutualists share. Just the foundation — evolution decides the rest.
