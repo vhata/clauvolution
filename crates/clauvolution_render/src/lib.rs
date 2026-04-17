@@ -20,7 +20,7 @@ impl Plugin for RenderPlugin {
             .add_systems(Startup, (setup_camera, setup_shared_meshes, setup_minimap))
             .add_systems(
                 Update,
-                (speed_control_system, click_select_system, toggle_graph_system, toggle_minimap_mode_system, lod_change_system, manual_screenshot_system, minimap_click_system),
+                (speed_control_system, click_select_system, toggle_minimap_mode_system, lod_change_system, manual_screenshot_system, minimap_click_system),
             )
             .add_systems(
                 PostUpdate,
@@ -31,7 +31,6 @@ impl Plugin for RenderPlugin {
                     update_death_markers,
                     camera_control_system,
                     update_stats_text,
-                    update_graph,
                     update_phylo_tree,
                     update_minimap,
                 )
@@ -56,7 +55,6 @@ pub struct SelectionRing;
 pub struct FoodSprite;
 
 #[derive(Component)]
-pub struct GraphText;
 
 /// Tracks whether we're in detailed or simple rendering mode
 #[derive(Resource)]
@@ -156,26 +154,6 @@ fn setup_camera(mut commands: Commands, config: Res<SimConfig>, asset_server: Re
         },
         panel_bg,
         StatsText,
-    ));
-
-    // Population graph (bottom-left)
-    commands.spawn((
-        Text::new(""),
-        TextFont {
-            font: font.clone(),
-            font_size: 11.0,
-            ..default()
-        },
-        TextColor(Color::srgba(0.8, 0.9, 1.0, 0.9)),
-        Node {
-            position_type: PositionType::Absolute,
-            left: Val::Px(10.0),
-            bottom: Val::Px(10.0),
-            padding: UiRect::all(Val::Px(6.0)),
-            ..default()
-        },
-        panel_bg,
-        GraphText,
     ));
 
     // Phylogenetic tree (right side, tall panel)
@@ -754,117 +732,6 @@ fn update_stats_text(
         photosynthesizers, predators, foragers,
         food_count, stats.total_births, stats.total_deaths,
     );
-}
-
-/// Show details about selected organism
-/// Toggle population graph visibility
-fn toggle_graph_system(
-    keys: Res<ButtonInput<KeyCode>>,
-    mut history: ResMut<PopulationHistory>,
-) {
-    if keys.just_pressed(KeyCode::KeyG) {
-        history.visible = !history.visible;
-    }
-}
-
-/// Render population graph as text-based sparklines
-fn update_graph(
-    history: Res<PopulationHistory>,
-    mut text_query: Query<&mut Text, With<GraphText>>,
-) {
-    let Ok(mut text) = text_query.get_single_mut() else {
-        return;
-    };
-
-    if !history.visible || history.snapshots.len() < 2 {
-        **text = String::new();
-        return;
-    }
-
-    let width = 60usize; // characters wide
-    let _height = 8usize;
-    let blocks = ['\u{2581}', '\u{2582}', '\u{2583}', '\u{2584}', '\u{2585}', '\u{2586}', '\u{2587}', '\u{2588}'];
-
-    let snaps = &history.snapshots;
-    let display_count = snaps.len().min(width);
-    let start = snaps.len() - display_count;
-    let display = &snaps[start..];
-
-    let (org_line, org_range) = sparkline_ranged(display, |s| s.organisms as f32, &blocks);
-    let (food_line, food_range) = sparkline_ranged(display, |s| s.food as f32, &blocks);
-    let (species_line, sp_range) = sparkline_ranged(display, |s| s.species as f32, &blocks);
-    let (plants_line, _) = sparkline_ranged(display, |s| s.plants as f32, &blocks);
-    let (predators_line, _) = sparkline_ranged(display, |s| s.predators as f32, &blocks);
-    let (foragers_line, _) = sparkline_ranged(display, |s| s.foragers as f32, &blocks);
-    let (births_line, _) = sparkline_zero(display, |s| s.births_per_sec as f32, &blocks);
-    let (deaths_line, _) = sparkline_zero(display, |s| s.deaths_per_sec as f32, &blocks);
-    let (lifespan_line, _) = sparkline_ranged(display, |s| s.avg_lifespan, &blocks);
-
-    let latest = snaps.last().unwrap();
-
-    **text = format!(
-        "--- Population ({display_count}s, G=toggle) ---\n\
-         Organisms {now:>4} ({lo}-{hi}): {line}\n\
-         Food      {now_f:>4} ({flo}-{fhi}): {fline}\n\
-         Species   {now_s:>4} ({slo}-{shi}): {sline}\n\
-         Plants    {now_p:>4}: {plants_line}\n\
-         Predators {now_x:>4}: {predators_line}\n\
-         Foragers  {now_g:>4}: {foragers_line}\n\
-         Lifespan  {now_l:>4}: {lifespan_line}\n\
-         Births/s  {now_b:>4}: {births_line}\n\
-         Deaths/s  {now_d:>4}: {deaths_line}",
-        now = latest.organisms,
-        lo = org_range.0, hi = org_range.1, line = org_line,
-        now_f = latest.food,
-        flo = food_range.0, fhi = food_range.1, fline = food_line,
-        now_s = latest.species,
-        slo = sp_range.0, shi = sp_range.1, sline = species_line,
-        now_p = latest.plants,
-        now_x = latest.predators,
-        now_g = latest.foragers,
-        now_b = latest.births_per_sec,
-        now_l = latest.avg_lifespan as u32,
-        now_d = latest.deaths_per_sec,
-    );
-}
-
-/// Min-max normalized sparkline — shows relative variation within the data range.
-/// Good for levels (population, food) where you want to see wobble.
-fn sparkline_ranged(data: &[PopSnapshot], extract: impl Fn(&PopSnapshot) -> f32, blocks: &[char; 8]) -> (String, (u32, u32)) {
-    if data.is_empty() {
-        return (String::new(), (0, 0));
-    }
-
-    let values: Vec<f32> = data.iter().map(&extract).collect();
-    let min = values.iter().cloned().fold(f32::MAX, f32::min);
-    let max = values.iter().cloned().fold(f32::MIN, f32::max);
-    let range = (max - min).max(1.0);
-
-    let line: String = values.iter().map(|&v| {
-        let normalized = ((v - min) / range).clamp(0.0, 1.0);
-        let idx = (normalized * 7.0) as usize;
-        blocks[idx.min(7)]
-    }).collect();
-
-    (line, (min as u32, max as u32))
-}
-
-/// Zero-anchored sparkline — good for rates (births/s, deaths/s) that spike from zero.
-fn sparkline_zero(data: &[PopSnapshot], extract: impl Fn(&PopSnapshot) -> f32, blocks: &[char; 8]) -> (String, (u32, u32)) {
-    if data.is_empty() {
-        return (String::new(), (0, 0));
-    }
-
-    let values: Vec<f32> = data.iter().map(&extract).collect();
-    let max = values.iter().cloned().fold(1.0f32, f32::max);
-
-    let line: String = values.iter().map(|&v| {
-        let normalized = (v / max).clamp(0.0, 1.0);
-        let idx = (normalized * 7.0) as usize;
-        blocks[idx.min(7)]
-    }).collect();
-
-    (line, (0, max as u32))
 }
 
 /// Render the phylogenetic tree as text

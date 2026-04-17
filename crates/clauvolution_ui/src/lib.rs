@@ -4,6 +4,7 @@ use clauvolution_core::*;
 use clauvolution_genome::Genome;
 use clauvolution_phylogeny::{PhyloTree, WorldChronicle};
 use clauvolution_world::TileMap;
+use egui_plot::{Line, Plot, PlotPoints, Legend};
 
 pub struct UiPlugin;
 
@@ -161,6 +162,7 @@ fn right_panel_system(
     tile_map: Option<Res<TileMap>>,
     config: Res<SimConfig>,
     phylo: Res<PhyloTree>,
+    history: Res<PopulationHistory>,
 ) {
     let ctx = contexts.ctx_mut();
 
@@ -191,10 +193,7 @@ fn right_panel_system(
                     });
                 }
                 RightTab::Graphs => {
-                    egui::ScrollArea::vertical().show(ui, |ui| {
-                        ui.heading("Population graphs");
-                        ui.label("(migrating — old panel still active)");
-                    });
+                    graphs_tab(ui, &history);
                 }
                 RightTab::Chronicle => {
                     chronicle_tab(ui, &chronicle, &mut ui_state.chronicle_hide_seasons);
@@ -344,6 +343,133 @@ fn inspect_tab(
                 genome.connections.iter().filter(|c| c.enabled).count(),
                 genome.connections.len()));
         });
+    });
+}
+
+fn graphs_tab(ui: &mut egui::Ui, history: &PopulationHistory) {
+    if history.snapshots.len() < 2 {
+        ui.heading("Graphs");
+        ui.label("Collecting data…");
+        return;
+    }
+
+    let snaps = &history.snapshots;
+    let latest = snaps.last().unwrap();
+
+    ui.horizontal(|ui| {
+        ui.heading("Graphs");
+        ui.add_space(8.0);
+        ui.small(format!("({} samples, 1 per second)", snaps.len()));
+    });
+    ui.separator();
+
+    // Current values readout
+    egui::Grid::new("graphs_current").num_columns(4).striped(true).show(ui, |ui| {
+        ui.label("Organisms");
+        ui.monospace(format!("{:>4}", latest.organisms));
+        ui.label("Food");
+        ui.monospace(format!("{:>5}", latest.food));
+        ui.end_row();
+
+        ui.label("Species");
+        ui.monospace(format!("{:>4}", latest.species));
+        ui.label("Lifespan");
+        ui.monospace(format!("{:>5}", latest.avg_lifespan as u32));
+        ui.end_row();
+
+        ui.label("Plants");
+        ui.monospace(format!("{:>4}", latest.plants));
+        ui.label("Foragers");
+        ui.monospace(format!("{:>5}", latest.foragers));
+        ui.end_row();
+
+        ui.label("Predators");
+        ui.monospace(format!("{:>4}", latest.predators));
+        ui.label("");
+        ui.label("");
+        ui.end_row();
+    });
+
+    ui.separator();
+
+    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        // Population by strategy
+        ui.label("Population by strategy");
+        let plants: PlotPoints = snaps.iter().enumerate()
+            .map(|(i, s)| [i as f64, s.plants as f64]).collect();
+        let foragers: PlotPoints = snaps.iter().enumerate()
+            .map(|(i, s)| [i as f64, s.foragers as f64]).collect();
+        let predators: PlotPoints = snaps.iter().enumerate()
+            .map(|(i, s)| [i as f64, s.predators as f64]).collect();
+
+        Plot::new("pop_strategy")
+            .height(130.0)
+            .legend(Legend::default().position(egui_plot::Corner::LeftTop))
+            .show(ui, |plot_ui| {
+                plot_ui.line(Line::new(plants)
+                    .color(egui::Color32::from_rgb(90, 200, 90)).name("Plants"));
+                plot_ui.line(Line::new(foragers)
+                    .color(egui::Color32::from_rgb(230, 230, 230)).name("Foragers"));
+                plot_ui.line(Line::new(predators)
+                    .color(egui::Color32::from_rgb(230, 100, 100)).name("Predators"));
+            });
+
+        ui.add_space(4.0);
+
+        // Total population vs species count
+        ui.label("Total population vs species count");
+        let organisms: PlotPoints = snaps.iter().enumerate()
+            .map(|(i, s)| [i as f64, s.organisms as f64]).collect();
+        let species: PlotPoints = snaps.iter().enumerate()
+            .map(|(i, s)| [i as f64, s.species as f64]).collect();
+
+        Plot::new("pop_vs_species")
+            .height(130.0)
+            .legend(Legend::default().position(egui_plot::Corner::LeftTop))
+            .show(ui, |plot_ui| {
+                plot_ui.line(Line::new(organisms)
+                    .color(egui::Color32::from_rgb(100, 160, 255)).name("Organisms"));
+                plot_ui.line(Line::new(species)
+                    .color(egui::Color32::from_rgb(255, 200, 100)).name("Species"));
+            });
+
+        ui.add_space(4.0);
+
+        // Births/deaths rate
+        ui.label("Births and deaths per second");
+        let births: PlotPoints = snaps.iter().enumerate()
+            .map(|(i, s)| [i as f64, s.births_per_sec as f64]).collect();
+        let deaths: PlotPoints = snaps.iter().enumerate()
+            .map(|(i, s)| [i as f64, s.deaths_per_sec as f64]).collect();
+
+        Plot::new("births_deaths")
+            .height(110.0)
+            .legend(Legend::default().position(egui_plot::Corner::LeftTop))
+            .show(ui, |plot_ui| {
+                plot_ui.line(Line::new(births)
+                    .color(egui::Color32::from_rgb(120, 220, 140)).name("Births/s"));
+                plot_ui.line(Line::new(deaths)
+                    .color(egui::Color32::from_rgb(220, 120, 120)).name("Deaths/s"));
+            });
+
+        ui.add_space(4.0);
+
+        // Food supply and average lifespan
+        ui.label("Food supply and average lifespan");
+        let food: PlotPoints = snaps.iter().enumerate()
+            .map(|(i, s)| [i as f64, s.food as f64]).collect();
+        let lifespan: PlotPoints = snaps.iter().enumerate()
+            .map(|(i, s)| [i as f64, s.avg_lifespan as f64]).collect();
+
+        Plot::new("food_lifespan")
+            .height(110.0)
+            .legend(Legend::default().position(egui_plot::Corner::LeftTop))
+            .show(ui, |plot_ui| {
+                plot_ui.line(Line::new(food)
+                    .color(egui::Color32::from_rgb(180, 230, 90)).name("Food"));
+                plot_ui.line(Line::new(lifespan)
+                    .color(egui::Color32::from_rgb(220, 180, 255)).name("Lifespan"));
+            });
     });
 }
 
