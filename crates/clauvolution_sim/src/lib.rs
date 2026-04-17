@@ -13,7 +13,7 @@ pub struct SimPlugin;
 
 impl Plugin for SimPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (sim_speed_system, mass_extinction_input_system, save_system))
+        app.add_systems(Update, (sim_speed_system, keyboard_to_events_system, mass_extinction_input_system, save_system).chain())
             .add_systems(
                 FixedUpdate,
                 (
@@ -111,9 +111,23 @@ fn sim_speed_system(
     }
 }
 
-/// Player-triggered mass extinction and bloom events
-fn mass_extinction_input_system(
+/// Translate keyboard hotkeys into WorldEventRequest events
+fn keyboard_to_events_system(
     keys: Res<ButtonInput<KeyCode>>,
+    mut events: EventWriter<WorldEventRequest>,
+) {
+    if keys.just_pressed(KeyCode::KeyX) { events.send(WorldEventRequest::Asteroid); }
+    if keys.just_pressed(KeyCode::KeyI) { events.send(WorldEventRequest::IceAge); }
+    if keys.just_pressed(KeyCode::KeyV) { events.send(WorldEventRequest::Volcano); }
+    if keys.just_pressed(KeyCode::KeyB) { events.send(WorldEventRequest::SolarBloom); }
+    if keys.just_pressed(KeyCode::KeyN) { events.send(WorldEventRequest::NutrientRain); }
+    if keys.just_pressed(KeyCode::KeyJ) { events.send(WorldEventRequest::CambrianSpark); }
+    if keys.just_pressed(KeyCode::F5)    { events.send(WorldEventRequest::Save); }
+}
+
+/// Process WorldEventRequest events — fired by keyboard, UI buttons, etc.
+fn mass_extinction_input_system(
+    mut requests: EventReader<WorldEventRequest>,
     mut commands: Commands,
     mut cooldown: ResMut<ExtinctionCooldown>,
     time: Res<Time>,
@@ -126,15 +140,22 @@ fn mass_extinction_input_system(
     mut bloom: ResMut<BloomEffects>,
 ) {
     cooldown.0.tick(time.delta());
+
+    // Find the first ext/bloom event this frame (skip Save — handled elsewhere).
+    // If cooldown is active, ignore ext/bloom events.
+    let req = requests.read().find(|r| !matches!(r, WorldEventRequest::Save)).copied();
+
     if !cooldown.0.finished() {
         return;
     }
 
+    let Some(req) = req else { return };
+
     let mut triggered = false;
     let mut rng = rand::thread_rng();
 
-    // X = asteroid (kill 70% randomly)
-    if keys.just_pressed(KeyCode::KeyX) {
+    // Asteroid (kill 70% randomly)
+    if matches!(req, WorldEventRequest::Asteroid) {
         info!("MASS EXTINCTION: Asteroid impact!");
         let mut killed = 0u32;
         for (entity, _, _) in &organisms {
@@ -148,8 +169,8 @@ fn mass_extinction_input_system(
         triggered = true;
     }
 
-    // I = ice age (reduce temperature globally)
-    if keys.just_pressed(KeyCode::KeyI) {
+    // Ice age (reduce temperature globally)
+    if matches!(req, WorldEventRequest::IceAge) {
         if let Some(ref mut tm) = tile_map {
             info!("MASS EXTINCTION: Ice age!");
             for tile in &mut tm.tiles {
@@ -161,8 +182,8 @@ fn mass_extinction_input_system(
         }
     }
 
-    // V = volcanic eruption (random kill zone + nutrient boost)
-    if keys.just_pressed(KeyCode::KeyV) {
+    // Volcanic eruption (random kill zone + nutrient boost)
+    if matches!(req, WorldEventRequest::Volcano) {
         info!("MASS EXTINCTION: Volcanic eruption!");
         let center_x = rng.gen_range(0.0..256.0f32);
         let center_y = rng.gen_range(0.0..256.0f32);
@@ -194,8 +215,8 @@ fn mass_extinction_input_system(
         triggered = true;
     }
 
-    // B = solar bloom (double light for 30 seconds)
-    if keys.just_pressed(KeyCode::KeyB) {
+    // Solar bloom (double light for 30 seconds)
+    if matches!(req, WorldEventRequest::SolarBloom) {
         info!("BLOOM: Solar bloom!");
         bloom.solar_bloom = 2.0;
         bloom.solar_ticks = 900; // 30 seconds at 30hz
@@ -203,8 +224,8 @@ fn mass_extinction_input_system(
         triggered = true;
     }
 
-    // N = nutrient rain (massive food burst)
-    if keys.just_pressed(KeyCode::KeyN) {
+    // Nutrient rain (massive food burst)
+    if matches!(req, WorldEventRequest::NutrientRain) {
         info!("BLOOM: Nutrient rain!");
         let mut rng = rand::thread_rng();
         let food_count = (config.world_width as f32 * config.world_height as f32 * 0.05) as u32;
@@ -221,8 +242,8 @@ fn mass_extinction_input_system(
         triggered = true;
     }
 
-    // J = Cambrian spark (triple mutation rate for 30 seconds)
-    if keys.just_pressed(KeyCode::KeyJ) {
+    // Cambrian spark (triple mutation rate for 30 seconds)
+    if matches!(req, WorldEventRequest::CambrianSpark) {
         info!("BLOOM: Cambrian spark!");
         bloom.mutation_boost = 3.0;
         bloom.mutation_ticks = 900; // 30 seconds at 30hz
@@ -1000,7 +1021,7 @@ pub fn spawn_initial_population(
 
 /// F5 saves the world to the session directory
 fn save_system(
-    keys: Res<ButtonInput<KeyCode>>,
+    mut events: EventReader<WorldEventRequest>,
     session: Res<Session>,
     tick: Res<TickCounter>,
     season: Res<Season>,
@@ -1012,7 +1033,8 @@ fn save_system(
     phylo: Res<PhyloTree>,
     chronicle: Res<WorldChronicle>,
 ) {
-    if !keys.just_pressed(KeyCode::F5) {
+    let save_requested = events.read().any(|r| matches!(r, WorldEventRequest::Save));
+    if !save_requested {
         return;
     }
 

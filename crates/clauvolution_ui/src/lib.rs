@@ -152,6 +152,8 @@ fn right_panel_system(
     mut contexts: EguiContexts,
     mut ui_state: ResMut<UiState>,
     chronicle: Res<WorldChronicle>,
+    mut event_writer: EventWriter<WorldEventRequest>,
+    bloom: Res<BloomEffects>,
 ) {
     let ctx = contexts.ctx_mut();
 
@@ -194,10 +196,7 @@ fn right_panel_system(
                     chronicle_tab(ui, &chronicle, &mut ui_state.chronicle_hide_seasons);
                 }
                 RightTab::Events => {
-                    egui::ScrollArea::vertical().show(ui, |ui| {
-                        ui.heading("Events");
-                        ui.label("(migrating — old panel still active)");
-                    });
+                    events_tab(ui, &mut event_writer, &bloom);
                 }
                 RightTab::Help => {
                     egui::ScrollArea::vertical().show(ui, |ui| {
@@ -206,6 +205,68 @@ fn right_panel_system(
                 }
             }
         });
+}
+
+fn events_tab(
+    ui: &mut egui::Ui,
+    events: &mut EventWriter<WorldEventRequest>,
+    bloom: &BloomEffects,
+) {
+    egui::ScrollArea::vertical().show(ui, |ui| {
+        ui.heading("Mass extinction");
+        ui.label("Immediate, destructive. 2s global cooldown between events.");
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("☄  Asteroid  (X)").on_hover_text("Kill 70% of organisms randomly").clicked() {
+                events.send(WorldEventRequest::Asteroid);
+            }
+            if ui.button("❄  Ice age  (I)").on_hover_text("Halve temperature, reduce moisture").clicked() {
+                events.send(WorldEventRequest::IceAge);
+            }
+            if ui.button("🌋 Volcano  (V)").on_hover_text("Kill zone + nutrient boost").clicked() {
+                events.send(WorldEventRequest::Volcano);
+            }
+        });
+
+        ui.add_space(12.0);
+        ui.separator();
+        ui.heading("Bloom events");
+        ui.label("Positive stimuli. Boom now, crash later.");
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("☀  Solar bloom  (B)").on_hover_text("Double light for 30 seconds").clicked() {
+                events.send(WorldEventRequest::SolarBloom);
+            }
+            if ui.button("🌧 Nutrient rain  (N)").on_hover_text("Massive food burst across the world").clicked() {
+                events.send(WorldEventRequest::NutrientRain);
+            }
+            if ui.button("✦ Cambrian spark  (J)").on_hover_text("Triple mutation rate for 30 seconds").clicked() {
+                events.send(WorldEventRequest::CambrianSpark);
+            }
+        });
+
+        // Active effects readout
+        ui.add_space(12.0);
+        ui.separator();
+        ui.heading("Active effects");
+        if bloom.solar_ticks == 0 && bloom.mutation_ticks == 0 {
+            ui.label("(none)");
+        } else {
+            if bloom.solar_ticks > 0 {
+                let secs = bloom.solar_ticks / 30;
+                ui.label(format!("Solar bloom: {}s remaining (light × {:.1})", secs, bloom.solar_bloom));
+            }
+            if bloom.mutation_ticks > 0 {
+                let secs = bloom.mutation_ticks / 30;
+                ui.label(format!("Cambrian spark: {}s remaining (mutation × {:.1})", secs, bloom.mutation_boost));
+            }
+        }
+
+        ui.add_space(12.0);
+        ui.separator();
+        ui.heading("Persistence");
+        if ui.button("💾 Save world  (F5)").on_hover_text("Save to sessions/<name>/save.json").clicked() {
+            events.send(WorldEventRequest::Save);
+        }
+    });
 }
 
 fn chronicle_tab(ui: &mut egui::Ui, chronicle: &WorldChronicle, hide_seasons: &mut bool) {

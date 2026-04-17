@@ -9,7 +9,8 @@ impl Plugin for CorePlugin {
     fn build(&self, app: &mut App) {
         let session = Session::new();
         info!("Session: {} ({})", session.name, session.dir.display());
-        app.insert_resource(session)
+        app.add_event::<WorldEventRequest>()
+            .insert_resource(session)
             .insert_resource(SimConfig::default())
             .insert_resource(SimStats::default())
             .insert_resource(TickCounter(0))
@@ -292,6 +293,19 @@ impl PopulationHistory {
             self.snapshots.remove(0);
         }
     }
+}
+
+/// World event requests — fired by UI buttons or keyboard shortcuts,
+/// consumed by the mass_extinction_input_system
+#[derive(Event, Clone, Copy, Debug)]
+pub enum WorldEventRequest {
+    Asteroid,
+    IceAge,
+    Volcano,
+    SolarBloom,
+    NutrientRain,
+    CambrianSpark,
+    Save,
 }
 
 /// Active temporary bloom effects — decay over time
