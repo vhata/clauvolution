@@ -29,7 +29,6 @@ impl Plugin for RenderPlugin {
                     sync_food_transforms,
                     update_death_markers,
                     camera_control_system,
-                    update_stats_text,
                     update_minimap,
                 )
                     .chain(),
@@ -39,9 +38,6 @@ impl Plugin for RenderPlugin {
 
 #[derive(Component)]
 pub struct MainCamera;
-
-#[derive(Component)]
-pub struct StatsText;
 
 #[derive(Component)]
 pub struct OrganismSprite;
@@ -129,28 +125,6 @@ fn setup_camera(mut commands: Commands, config: Res<SimConfig>, asset_server: Re
             ..OrthographicProjection::default_2d()
         },
         MainCamera,
-    ));
-
-    let panel_bg = BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7));
-
-    // Stats overlay (top-left)
-    commands.spawn((
-        Text::new(""),
-        TextFont {
-            font: font.clone(),
-            font_size: 16.0,
-            ..default()
-        },
-        TextColor(Color::WHITE),
-        Node {
-            position_type: PositionType::Absolute,
-            left: Val::Px(10.0),
-            top: Val::Px(10.0),
-            padding: UiRect::all(Val::Px(6.0)),
-            ..default()
-        },
-        panel_bg,
-        StatsText,
     ));
 
 }
@@ -644,71 +618,6 @@ fn camera_control_system(
             drag_state.last_pos = cursor_pos;
         }
     }
-}
-
-fn update_stats_text(
-    stats: Res<SimStats>,
-    organisms: Query<&Genome, With<Organism>>,
-    food: Query<&Food>,
-    speed: Res<SimSpeed>,
-    season: Res<Season>,
-    mut text_query: Query<&mut Text, With<StatsText>>,
-) {
-    let Ok(mut text) = text_query.get_single_mut() else {
-        return;
-    };
-
-    let org_count = organisms.iter().len();
-    let food_count = food.iter().len();
-
-    let mut photosynthesizers = 0u32;
-    let mut predators = 0u32;
-    let mut foragers = 0u32;
-    for genome in &organisms {
-        if genome.photosynthesis_rate > 0.2 && genome.has_photo_surface() {
-            photosynthesizers += 1;
-        } else if genome.claw_power() > 0.5 {
-            predators += 1;
-        } else {
-            foragers += 1;
-        }
-    }
-
-    let speed_str = if speed.paused {
-        "PAUSED".to_string()
-    } else if speed.multiplier == 1.0 {
-        "1x".to_string()
-    } else if speed.multiplier < 1.0 {
-        format!("{:.2}x", speed.multiplier)
-    } else {
-        format!("{}x", speed.multiplier as u32)
-    };
-
-    let season_name = match season.name() {
-        SeasonName::Spring => "Spring",
-        SeasonName::Summer => "Summer",
-        SeasonName::Autumn => "Autumn",
-        SeasonName::Winter => "Winter",
-    };
-    let light_pct = (season.light_multiplier() * 100.0) as u32;
-
-    **text = format!(
-        "Speed: {}  [Space=pause, [/]=speed]\n\
-         {} (light {}%)  |  Gen: {}\n\
-         Organisms: {}  |  Species: {}\n\
-         Plants: {}  Predators: {}  Foragers: {}\n\
-         Food: {}  |  Births: {}  Deaths: {}\n\
-         \n\
-         X=asteroid  I=ice  V=volcano\n\
-         B=solar bloom  N=nutrient rain  J=cambrian\n\
-         G=graph  C=chronicle  M=heatmap  H=help\n\
-         Click organism to inspect",
-        speed_str,
-        season_name, light_pct, stats.max_generation,
-        org_count, stats.species_count,
-        photosynthesizers, predators, foragers,
-        food_count, stats.total_births, stats.total_deaths,
-    );
 }
 
 fn toggle_minimap_mode_system(
