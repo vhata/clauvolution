@@ -54,6 +54,7 @@ An evolution simulator where you watch life emerge, adapt, compete, and speciate
 - [x] Bloom events — solar bloom (B), nutrient rain (N), Cambrian spark (J)
 - [x] Plant density competition — photosynthesizers shade each other, caps monoculture dominance
 - [x] bevy_egui UI overhaul — header bar + tabbed right panel (Inspect / Phylo / Graphs / Chronicle / Events / Help). All old text overlays replaced; egui_plot for real line charts; collapsible phylo tree; buttons for events; WorldEventRequest event channel for keyboard-or-button triggering
+- [x] Organism trails — faint gizmos linestrip behind each organism, T toggle, frustum culled, zero cost when off
 
 ## What's Next (prioritised)
 
@@ -86,9 +87,6 @@ Accessibility — run in a browser without installing anything.
 ## Cool Ideas to Try
 
 Small-to-medium features that aren't on the critical path but would be fun. Pick one when you're in the mood.
-
-### Organism trails
-Faint fading lines showing where organisms have been recently. Makes migration patterns, territorial behaviour, and foraging routes visible.
 
 ### Minimap legend
 Small colour key on the heatmap so new viewers don't have to guess what green/red/white means.

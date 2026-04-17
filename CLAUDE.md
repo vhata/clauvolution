@@ -67,4 +67,4 @@ cargo run --release -- --load sessions/<name>    # load saved session
 
 ## Controls
 
-Space=pause, [/]=speed, WASD=pan, scroll=zoom, click=inspect, S=screenshot, F5=save, M=heatmap, X=asteroid, I=ice age, V=volcano, B=solar bloom, N=nutrient rain, J=Cambrian spark. Graphs/chronicle/phylo/help are in egui tabs in the right panel.
+Space=pause, [/]=speed, WASD=pan, scroll=zoom, click=inspect, S=screenshot, F5=save, M=heatmap, T=trails, X=asteroid, I=ice age, V=volcano, B=solar bloom, N=nutrient rain, J=Cambrian spark. Graphs/chronicle/phylo/help are in egui tabs in the right panel.

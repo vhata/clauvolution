@@ -45,6 +45,7 @@ cargo run --release
 | **Space** | Pause / unpause |
 | **[** / **]** | Slow down / speed up (0.125x to 16x) |
 | **M** | Toggle minimap heatmap (density by strategy) |
+| **T** | Toggle organism trails (off by default) |
 | **X** | Asteroid impact (kills 70%) |
 | **I** | Ice age (halves temperature) |
 | **V** | Volcanic eruption (local kill zone + nutrient boost) |
@@ -160,6 +161,7 @@ See [TODO.md](TODO.md) for the prioritised backlog.
 - Bloom events (solar bloom B, nutrient rain N, Cambrian spark J)
 - Plant density competition (photosynthesizers shade each other — caps monoculture)
 - bevy_egui UI overhaul: header bar + tabbed right panel (Inspect / Phylo / Graphs / Chronicle / Events / Help) with egui_plot line charts, collapsible phylo tree, event buttons
+- Organism trails (T to toggle) — fading lines showing recent movement, frustum culled
 
 **Next:**
 - Symbiosis (mutualism, parasitism)
