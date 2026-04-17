@@ -57,7 +57,102 @@ An evolution simulator where you watch life emerge, adapt, compete, and speciate
 ## What's Next (prioritised)
 
 ### 1. Proper UI panels (bevy_egui)
-Current text panels are fixed-size and can't scroll. Need real UI: scrollable phylogenetic tree, resizable panels, tabs for different views.
+
+**Motivation:** Current text panels are fixed-size, can't scroll, clip at edges, and overlap at certain window sizes. No way to click a species to focus on it, filter the chronicle, or expand/collapse tree nodes. The inspect panel has to manually dodge the minimap. All of this goes away with a real UI layer.
+
+**Library choice:** `bevy_egui` — standard integration of the `egui` immediate-mode library with Bevy. Verify version compatibility with Bevy 0.15 before starting (historically `bevy_egui` lags Bevy releases; may need a specific pinned version).
+
+#### Layout strategy
+
+Start with **fixed side panels** (`egui::SidePanel`), not dockable or floating. Reasons: preserves the current mental model, predictable layout, less setup. Dockable (`egui_dock` crate) can come later if users want rearrangement.
+
+Proposed layout:
+```
+┌──────────────────────────────┬─────────────┐
+│                              │  Minimap    │ ← stays as Bevy UI ImageNode
+│                              │  (160x160)  │
+│         World view           │─────────────│
+│         (Bevy 2D)            │  Right tab  │
+│                              │  panel:     │
+│                              │  • Inspect  │
+│                              │  • Phylo    │
+│                              │  • Events   │
+├──────────────────────────────┴─────────────┤
+│  Bottom panel (collapsible):               │
+│  • Stats  • Graphs  • Chronicle            │
+└────────────────────────────────────────────┘
+```
+
+Keyboard shortcuts (B, N, J, X, I, V, etc.) still work, but the right panel also gets buttons for discoverability.
+
+#### Migration phases
+
+Incremental — one panel at a time. Old text UI stays working until each panel is replaced, then we delete the old system.
+
+**Phase 1: Setup (~30 min)**
+- Add `bevy_egui = "0.31"` (or whatever matches Bevy 0.15) to workspace deps
+- Add `EguiPlugin` to the app
+- Confirm egui renders over the Bevy world with no conflicts
+- Add a keyboard-input gate: hotkeys should NOT fire when egui has keyboard focus (`EguiContexts::ctx_mut().wants_keyboard_input()`)
+
+**Phase 2: Stats panel (easy warmup)**
+- Simplest panel, pure text readout
+- Egui `SidePanel::top` or a corner window
+- Proves the integration works end-to-end
+- Delete old `StatsText` entity and `update_stats_text` system
+
+**Phase 3: Help overlay**
+- Static text in a modal window, toggled by H
+- Use `egui::Window::new("Help").open(&mut help_visible)`
+- Egui handles the close button automatically
+- Delete old help overlay
+
+**Phase 4: Chronicle**
+- Scrollable list of events — this is where egui shines
+- `egui::ScrollArea::vertical()` + iterate entries
+- Add filter checkboxes: hide season changes, hide extinctions, etc.
+- Delete old `ChronicleText`
+
+**Phase 5: Population graphs**
+- Switch from ASCII sparklines to `egui_plot` — proper line charts
+- Multiple series overlaid: organisms, plants, predators, foragers, food
+- Zoom/pan built in
+- Legend with toggleable series
+- Delete old `GraphText` and sparkline code
+
+**Phase 6: Phylogenetic tree**
+- Recursive tree widget using `egui::CollapsingHeader` per species
+- Click a species → set `SelectedSpecies` resource, highlight on minimap, focus camera on a random member
+- Show expanded stats per species (peak pop, age, child count, traits)
+- Delete old `PhyloText`
+
+**Phase 7: Inspect panel**
+- Tab in the right panel
+- Same stats as now but with proper layout (grid/table, not format-string alignment)
+- Click parent species name → jump to it in phylo tree
+- Eventually: embed the creature portrait here
+
+**Phase 8: Events panel (new)**
+- Buttons for all extinction/bloom events
+- Cooldown timer shown visibly
+- Save/Load buttons (currently F5 only)
+- Takes pressure off users having to remember keybindings
+
+#### Risks and open questions
+
+- **Keyboard focus**: Every hotkey needs to check `!ctx.wants_keyboard_input()`. Easy to forget one.
+- **Performance**: Egui is immediate-mode — the whole UI rebuilds every frame. For our UI (~6 panels, no huge tables), this is fine. If the phylo tree grows to thousands of nodes, need to cap display or virtualize.
+- **Minimap integration**: Easiest to leave as a Bevy UI node overlay — egui panels dock around it. If we want to move it inside an egui panel, we'd convert the minimap Image to a `TextureId` and render via `egui::Image`. Not a blocker.
+- **Save/Load**: Currently F5 only. Adding buttons is nice but watch for accidental clicks — confirm dialog for save overwrite?
+- **Bevy 0.15 version lock**: If bevy_egui doesn't have a 0.15-compatible release, we'd either wait, fork, or bump Bevy (which has its own risks).
+- **Settings panel (stretch)**: Live sliders for mutation rate, metabolism cost, etc. would be amazing for tuning but risk destabilising the sim mid-run. Gate behind a "dev mode" checkbox.
+
+#### Not in scope for this phase
+
+- Dockable/floating panel rearrangement (future — use `egui_dock` if wanted)
+- Mobile/touch UI
+- Theming beyond egui's defaults
+- The creature portrait itself (that's a separate item that *integrates with* the egui inspect panel)
 
 ### 2. Symbiosis
 Mutualism, parasitism, commensalism. Two organisms evolving to depend on each other. Research-level — may need new mechanics.
