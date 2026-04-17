@@ -56,16 +56,152 @@ An evolution simulator where you watch life emerge, adapt, compete, and speciate
 - [x] bevy_egui UI overhaul — header bar + tabbed right panel (Inspect / Phylo / Graphs / Chronicle / Events / Help). All old text overlays replaced; egui_plot for real line charts; collapsible phylo tree; buttons for events; WorldEventRequest event channel for keyboard-or-button triggering
 - [x] Organism trails — faint gizmos linestrip behind each organism, T toggle, frustum culled, zero cost when off
 
-## What's Next (prioritised)
+---
 
-### 1. Symbiosis
-Mutualism, parasitism, commensalism. Two organisms evolving to depend on each other. Research-level — may need new mechanics.
+# What's Next
 
-### 2. Performance Scaling
+Organised by theme, not strict priority. Items in each theme are roughly ordered by value, but pick whatever grabs you.
+
+---
+
+## Theme: Comprehension — make the invisible visible
+
+The sim shows WHAT happens (species rising and falling) but hides WHY. These items surface the underlying causes so you can build real intuition.
+
+### Brain activation heatmap
+When an organism is selected, show its neural network in real time — which inputs are currently firing, which connections are active, which outputs are being driven. Probably lives in the Inspect tab alongside the creature portrait.
+
+**Why it matters:** Right now you know a creature is "complex" (23 neurons, 14 connections) but not what it's *doing*. You'd be able to watch a predator's "attack" output light up as prey comes into range, or see a forager's memory slots cycle as it navigates. Makes evolution legible.
+
+**Shape of implementation:**
+- Expose the brain's last-tick input and output values (already computed, just not exposed)
+- Add a neural-network renderer in the Inspect tab (reuses the Creature Portrait design for the brain DAG part)
+- Colour nodes by activation level, connections by signal flow
+- Input node labels: "energy", "food dir x", "group size", etc.
+
+### Species range heatmap
+Click a species in the Phylo tab and the minimap (or a world overlay) highlights only where that species lives.
+
+**Why it matters:** Right now you can see "13 species alive" but not how they're geographically distributed. Are they interleaved? Partitioned by biome? Competing on one landmass while another has nobody? Answers niche-partitioning questions you currently can't ask.
+
+**Shape of implementation:**
+- SelectedSpecies resource (already exists conceptually via SelectedOrganism → species_id)
+- Minimap gets a third mode: Range (shows only this species at high contrast, everything else faded)
+- Or a main-world overlay: semi-transparent coloured tiles where the species lives
+
+### Genome diff view
+Pick two organisms (or two species representatives), see a side-by-side diff of their traits, body plans, and brain topology with the differences highlighted.
+
+**Why it matters:** "How different are these two?" is currently answered by a single number (compatibility distance). This unpacks it. You can see precisely what evolved — bigger claws? New eye? Different photosynthesis rate?
+
+**Shape of implementation:**
+- Comparison tab or modal in the egui right panel
+- Click "compare with..." on an organism, then click a second
+- Grid layout: trait | org A | org B | diff
+- Body plan shown side-by-side with shared segments greyed out
+- Brain topology shown with shared neurons/connections greyed, unique ones coloured
+
+### Extinction post-mortem
+When a species dies out, capture a snapshot of its last 30 seconds — population trend, causes of death (starvation vs predation vs old age), competitors, environment. Clickable chronicle entry.
+
+**Why it matters:** Currently the chronicle says "Highland Crusted Wanderer went extinct" and that's it. You can't answer "did a predator wipe them out? did they starve? did a cousin species outcompete them?" This would tell you.
+
+**Shape of implementation:**
+- When species classification detects extinction, grab last N population snapshots, last N deaths and their causes, last tile occupation heatmap
+- Store per-species post-mortem in PhyloTree node (small — just a few stats)
+- Chronicle entries become clickable; open a modal with the post-mortem
+
+---
+
+## Theme: Time mastery — watch evolution at its actual pace
+
+Real evolution takes many generations. The 16× speed cap helps, but you still need to sit there watching. These let you skip to interesting moments or scrub backwards.
+
+### Evolve-until mode
+Run at unlimited speed until a triggering event (new species, mass extinction, milestone generation, population threshold), then pause and show a summary of what changed.
+
+**Why it matters:** Lets you answer questions like "how long until stable speciation?" or "which traits win this time?" without babysitting the sim. Also great for experiments.
+
+**Shape of implementation:**
+- Events tab adds "Run until..." with dropdown: next speciation, next extinction, generation N, population below X, time elapsed
+- Sim runs uncapped (ignoring 100ms virtual cap) while this is active
+- When trigger fires, pause and open a "what changed" modal
+
+### Replay / timeline scrubbing
+Record a run as periodic snapshots. Scrub backward through time with a slider. Population graphs become scrubbable too — click a point in history to see the world at that moment.
+
+**Why it matters:** "I noticed a spike in species count around tick 4000 — what happened?" is currently impossible to answer. This makes history explorable.
+
+**Shape of implementation:**
+- Periodic (every N seconds) snapshots of organism state + tilemap + phylo state
+- Snapshots are lightweight (no brain eval, just state) and ring-buffered
+- Timeline scrubber in the header or as a new mode
+- Scrubbing pauses live sim; resume returns to live
+
+### Interesting-moment auto-screenshot
+Automatically capture screenshots when notable things happen: new species, mass extinctions, convergent evolution detected, population peaks/crashes, arms-race milestones (first claws, first armor, etc.).
+
+**Why it matters:** Highlights reel of your session without having to watch every tick. Makes sessions shareable.
+
+**Shape of implementation:**
+- Already have the detection logic in place (chronicle triggers)
+- Add a screenshot request when those events fire
+- Saved to sessions/<name>/highlights/ with descriptive filenames
+
+---
+
+## Theme: New dynamics — richer ecosystem
+
+### Disease / pathogens
+Abstract infection that spreads between organisms in proximity. Kills or weakens hosts. Evolution of resistance vs virulence. Natural population regulator that can target any strategy (not just predation).
+
+**Why it matters:** Plant dominance is a stable attractor because plants have no real predator apart from foragers. Disease adds a density-dependent mortality pressure that hits plants harder when they monoculture (high density = high transmission). Also pairs beautifully with social sensing: group bonuses vs disease risk becomes a real tradeoff.
+
+**Shape of implementation:**
+- `Disease` resource or per-organism `Infection` component
+- Transmission: chance per tick scales with nearby infected count
+- Virulence: small energy drain + small chance of death per tick
+- Resistance: new genome trait, evolvable
+- Periodically spawn new strains (pathogens evolve)
+
+### Symbiosis (original plan item)
+Two organisms spending extended time in close proximity develop an "energy link". A genome trait determines whether they drain (parasite), donate (altruist), or both (mutualist). Evolution decides whether symbiotic pairs outcompete solo organisms.
+
+**Why it matters:** Real symbiosis is one of evolution's biggest innovations (mitochondria, chloroplasts, coral, lichens). Enables qualitatively new strategies.
+
+**Shape of implementation:**
+- Proximity tracker per organism (nearest-stable-neighbour over N ticks)
+- New genome trait: `symbiosis_rate` (-1.0 drain to +1.0 donate)
+- When link forms, energy transfer happens per tick based on both parties' rates
+- Selection sorts out viable strategies
+
+### Long-term climate shift
+Very slow sinusoidal temperature drift over many seasons (e.g. a 30-minute cycle vs the 60-second year). Creates multi-generational selection pressure, distinct from seasons which snap back.
+
+**Why it matters:** Adds real geological-timescale change. Species adapted to warm climate get squeezed when cold comes; species with broader thermal tolerance win. Multi-generation pressure, not within-lifetime.
+
+**Shape of implementation:**
+- Slow cosine drift on global temperature multiplier
+- Optional: random climate events ("volcanic winter" lasting many seasons)
+- Gets interesting in combination with seed-based terrain (deserts expand/contract, forests migrate)
+
+### Larger body-plan mutations
+Currently body parts are variations on torso+attachments. Rare mutation events could reshuffle the entire plan — swap torso type, rearrange attachment slots, introduce novel asymmetries. Big jumps, low frequency (maybe 0.1% chance per reproduction).
+
+**Why it matters:** Current evolution is gradual tweaks to a fixed archetype. Big macro-mutations occasionally give genuinely new forms (Cambrian-explosion style), which recombine with existing variations.
+
+**Shape of implementation:**
+- In the mutation function, rare rolls for structural changes
+- New BodyPlan variants: radial symmetry, stacked torsos, asymmetric plans
+- Pair with the Cambrian-spark event to trigger a burst of these
+
+---
+
+## Theme: Performance scaling
 
 Three complementary approaches, roughly in order of bang-for-buck:
 
-#### Rayon parallelization for brain evaluation
+### Rayon parallelization for brain evaluation
 The `sensing_and_brain_system` iterates organisms sequentially, but brain evaluation is pure computation with no side effects — textbook `par_iter`. Could halve simulation cost on multi-core machines. Bevy already parallelizes independent *systems*, but this would parallelize *within* the most expensive system.
 
 ```rust
@@ -73,14 +209,32 @@ The `sensing_and_brain_system` iterates organisms sequentially, but brain evalua
 inputs.par_iter().map(|i| brain.evaluate(i)).collect()
 ```
 
-#### GPU instanced rendering
+### GPU instanced rendering
 Currently each organism gets its own `ColorMaterial`. True instanced rendering would pack per-instance data (position, scale, colour) into a single buffer and draw all organisms in one draw call. The bitmask shader trick can handle body parts: each instance carries a feature bitmask, the shader scales absent parts to zero — no entity churn for LOD changes.
 
-#### GPU compute for neural net batching
+### GPU compute for neural net batching
 The big one. Pad all NEAT networks to a uniform max size, flatten into GPU buffers, evaluate all 2000+ brains in a single compute shader dispatch. Requires wgpu compute pipeline. Only worth it at 10k+ organisms — the other two approaches should come first.
 
-### 3. WASM+WebGPU browser build
-Accessibility — run in a browser without installing anything.
+---
+
+## Theme: Accessibility
+
+### WASM+WebGPU browser build
+Accessibility — run in a browser without installing anything. Needs perf work first (2000 organisms in WASM will be painful without the above).
+
+---
+
+## Theme: Meta / experimentation
+
+### Config sweep mode
+Launch N simulations with different parameters, summarise outcomes at the end. Real science vs vibes: does mutation_rate=0.3 produce more species than 0.1? Does a bigger world support more diversity?
+
+**Shape:** Headless batch mode, N parallel instances, collect end-of-run stats, output a CSV or comparison view.
+
+### Organism export / import
+Save an interesting creature to a file. Load it into another sim as seed population. Share your best creations.
+
+**Shape:** JSON export of a single organism's genome. `--seed-with creature.json` CLI flag that spawns N copies at simulation start.
 
 ---
 
@@ -92,13 +246,21 @@ Small-to-medium features that aren't on the critical path but would be fun. Pick
 Small colour key on the heatmap so new viewers don't have to guess what green/red/white means.
 
 ### Symbiosis starter
-Organisms near each other for extended periods develop energy transfer. Parasites drain, mutualists share. Just the foundation — evolution decides the rest.
+Lighter version of full symbiosis — just energy transfer between nearby stable pairs, no genome trait yet. See whether the dynamic works at all before investing in evolvability.
+
+### Trails for selected organism only
+Turn trails from "all 2000 organisms = visual noise" into "this organism's last 2 seconds = useful inspection tool". Maybe also its species (last member of each living individual trails shown).
+
+### Clickable chronicle entries
+Click a chronicle entry → if it's about a species, switch to Phylo tab and highlight that species. If it's about a location, focus camera there.
 
 ---
 
 ## Creature Portrait — Detailed Inspect Visualization
 
 A dedicated rendering area in the inspect panel that shows a large, detailed, visually pleasing portrait of the selected organism — its body and its brain. The map sprites stay simple (circles/blobs); this is only rendered when you click to inspect.
+
+Now pairs naturally with **Brain activation heatmap** — the portrait shows the creature, the brain DAG shows its thinking, both animated live.
 
 ### Body Visualization: Modular Sprite Stacking
 
@@ -136,6 +298,7 @@ Render the actual neural network as a node graph below or beside the body portra
 - **Connections as lines**: thickness proportional to weight, colour = positive (blue) vs negative (red)
 - **Disabled connections**: shown as faint dotted lines
 - **Labels**: input nodes labelled with what they sense (food dir, energy, group size, etc.), output nodes with what they do (move, eat, attack, etc.)
+- **Live activation**: nodes brighten when firing, connections pulse when transmitting (this is the Brain Activation Heatmap item merging with the portrait)
 - Shows brain complexity at a glance — a simple forager has few connections, a sophisticated predator has a dense web
 
 ### Procedural Generation Options (Future)
@@ -157,7 +320,7 @@ For even more organic-looking creatures:
 - Render as a separate Bevy camera/layer or an egui canvas (pairs well with the bevy_egui UI overhaul)
 - Only rendered for the single selected organism — no performance concern
 - Portrait updates live as the organism moves, eats, takes damage, etc.
-- Could eventually support "compare two organisms" side-by-side
+- Could eventually support "compare two organisms" side-by-side — which dovetails into Genome Diff View
 
 ---
 
@@ -178,8 +341,11 @@ For even more organic-looking creatures:
 - [x] **Emergent behaviour** — movement, feeding, attack, reproduction strategies emerge
 - [x] **Recurrent memory** — 3 memory slots for learning-like behaviour
 - [x] **Chemical signalling** — organisms emit and sense signals, evolution decides meaning
-- [ ] **Cognitive speciation** — separated populations diverge cognitively
-- [ ] **Sentience spectrum** — communication, deception, play
+- [x] **Social sensing** — group size + signal sensing enables flocking, herding, pack dynamics
+
+*Aspirational (no clear implementation shape):*
+- **Cognitive speciation** — separated populations diverge cognitively
+- **Sentience spectrum** — communication, deception, play
 
 ## Emergent Dynamics
 
@@ -189,5 +355,9 @@ For even more organic-looking creatures:
 - [x] **Convergent evolution** — detection of independent lineages evolving similar solutions
 - [x] **Seasonal pressure** — changing environment forces ongoing adaptation
 - [x] **Geographic isolation** — ocean/mountain barriers drive allopatric speciation
-- [x] **Social behaviour** — group sensing and metabolic discount in place, signalling wired up. Pack hunting, herding, flocking can emerge.
+- [x] **Social behaviour** — group sensing and metabolic discount in place, signalling wired up
+- [x] **Bloom events** — positive disturbance counterparts (solar / nutrient / mutation burst)
+- [x] **Density competition** — plants shade each other, capping monocultures
 - [ ] **Symbiosis** — mutualism, parasitism, commensalism
+- [ ] **Disease** — density-dependent mortality, host/pathogen coevolution
+- [ ] **Climate shift** — multi-generational drift distinct from seasons
