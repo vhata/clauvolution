@@ -146,6 +146,14 @@ impl Default for SimConfig {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DeathCause {
+    Starvation = 0,
+    Predation = 1,
+    OldAge = 2,
+    Disease = 3,
+}
+
 #[derive(Resource, Default)]
 pub struct SimStats {
     pub total_organisms: u32,
@@ -154,6 +162,8 @@ pub struct SimStats {
     pub total_deaths: u64,
     pub max_generation: u32,
     pub species_count: u32,
+    /// Deaths categorised by cause, indexed by DeathCause as usize
+    pub deaths_by_cause: [u64; 4],
 }
 
 #[derive(Resource)]
@@ -240,6 +250,20 @@ pub struct PopSnapshot {
     pub predators: u32,
     pub foragers: u32,
     pub avg_lifespan: f32,
+    // Disease / health metrics
+    pub infected: u32,
+    pub avg_disease_resistance: f32,
+    // Per-cause deaths for this one-second interval
+    pub deaths_starvation: u32,
+    pub deaths_predation: u32,
+    pub deaths_old_age: u32,
+    pub deaths_disease: u32,
+    // Average evolved traits (for tuning)
+    pub avg_body_size: f32,
+    pub avg_speed: f32,
+    pub avg_armor: f32,
+    pub avg_attack: f32,
+    pub avg_photo: f32,
 }
 
 /// Tracks organism lifespans for fitness measurement
@@ -257,6 +281,7 @@ pub struct PopulationHistory {
     pub visible: bool,
     prev_births: u64,
     prev_deaths: u64,
+    prev_deaths_by_cause: [u64; 4],
 }
 
 impl Default for PopulationHistory {
@@ -267,34 +292,71 @@ impl Default for PopulationHistory {
             visible: true,
             prev_births: 0,
             prev_deaths: 0,
+            prev_deaths_by_cause: [0; 4],
         }
     }
 }
 
 impl PopulationHistory {
-    pub fn record(&mut self, stats: &SimStats, organism_count: u32, food_count: u32, plants: u32, predators: u32, foragers: u32, avg_lifespan: f32) {
+    #[allow(clippy::too_many_arguments)]
+    pub fn record(&mut self, stats: &SimStats, snapshot: PopSnapshotInput) {
         let births_per_sec = (stats.total_births - self.prev_births) as u32;
         let deaths_per_sec = (stats.total_deaths - self.prev_deaths) as u32;
         self.prev_births = stats.total_births;
         self.prev_deaths = stats.total_deaths;
 
+        let ds = (stats.deaths_by_cause[0] - self.prev_deaths_by_cause[0]) as u32;
+        let dp = (stats.deaths_by_cause[1] - self.prev_deaths_by_cause[1]) as u32;
+        let da = (stats.deaths_by_cause[2] - self.prev_deaths_by_cause[2]) as u32;
+        let dd = (stats.deaths_by_cause[3] - self.prev_deaths_by_cause[3]) as u32;
+        self.prev_deaths_by_cause = stats.deaths_by_cause;
+
         self.snapshots.push(PopSnapshot {
-            organisms: organism_count,
-            food: food_count,
+            organisms: snapshot.organisms,
+            food: snapshot.food,
             species: stats.species_count,
             births_per_sec,
             deaths_per_sec,
             max_generation: stats.max_generation,
-            plants,
-            predators,
-            foragers,
-            avg_lifespan,
+            plants: snapshot.plants,
+            predators: snapshot.predators,
+            foragers: snapshot.foragers,
+            avg_lifespan: snapshot.avg_lifespan,
+            infected: snapshot.infected,
+            avg_disease_resistance: snapshot.avg_disease_resistance,
+            deaths_starvation: ds,
+            deaths_predation: dp,
+            deaths_old_age: da,
+            deaths_disease: dd,
+            avg_body_size: snapshot.avg_body_size,
+            avg_speed: snapshot.avg_speed,
+            avg_armor: snapshot.avg_armor,
+            avg_attack: snapshot.avg_attack,
+            avg_photo: snapshot.avg_photo,
         });
 
         if self.snapshots.len() > self.max_entries {
             self.snapshots.remove(0);
         }
     }
+}
+
+/// Helper struct for passing many values into PopulationHistory::record
+#[derive(Default)]
+pub struct PopSnapshotInput {
+    pub organisms: u32,
+    pub food: u32,
+    pub plants: u32,
+    pub predators: u32,
+    pub foragers: u32,
+    pub avg_lifespan: f32,
+    pub infected: u32,
+    pub avg_disease_resistance: f32,
+    pub avg_body_size: f32,
+    pub avg_speed: f32,
+    pub avg_armor: f32,
+    pub avg_attack: f32,
+    pub avg_photo: f32,
 }
 
 /// Tracks whether egui is currently capturing mouse/keyboard input

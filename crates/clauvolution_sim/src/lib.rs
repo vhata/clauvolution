@@ -724,12 +724,24 @@ fn metabolism_system(
 
 fn death_system(
     mut commands: Commands,
-    organisms: Query<(Entity, &Energy, &Health, &Position, &Age), With<Organism>>,
+    organisms: Query<(Entity, &Energy, &Health, &Position, &Age, Option<&Infection>), With<Organism>>,
     mut stats: ResMut<SimStats>,
     mut fitness: ResMut<FitnessTracker>,
 ) {
-    for (entity, energy, health, pos, age) in &organisms {
+    for (entity, energy, health, pos, age, infection) in &organisms {
         if energy.0 <= 0.0 {
+            // Determine cause of death — priority: predation > old age > disease > starvation
+            let cause = if health.0 <= 0.0 {
+                DeathCause::Predation
+            } else if age.0 > 3000 {
+                DeathCause::OldAge
+            } else if infection.is_some() {
+                DeathCause::Disease
+            } else {
+                DeathCause::Starvation
+            };
+            stats.deaths_by_cause[cause as usize] += 1;
+
             // Spawn death marker before despawning
             commands.spawn((
                 DeathMarker {
@@ -1040,7 +1052,7 @@ fn record_population_history(
     time: Res<Time>,
     mut timer: ResMut<PopHistoryTimer>,
     stats: Res<SimStats>,
-    organisms: Query<&Genome, With<Organism>>,
+    organisms: Query<(&Genome, Option<&Infection>), With<Organism>>,
     food: Query<&Food>,
     mut history: ResMut<PopulationHistory>,
     fitness: Res<FitnessTracker>,
@@ -1053,7 +1065,18 @@ fn record_population_history(
     let mut plants = 0u32;
     let mut predators = 0u32;
     let mut foragers = 0u32;
-    for genome in &organisms {
+    let mut infected = 0u32;
+
+    // Trait running sums for averaging
+    let mut sum_resist = 0.0f32;
+    let mut sum_body = 0.0f32;
+    let mut sum_speed = 0.0f32;
+    let mut sum_armor = 0.0f32;
+    let mut sum_attack = 0.0f32;
+    let mut sum_photo = 0.0f32;
+    let mut n = 0u32;
+
+    for (genome, inf) in &organisms {
         if genome.photosynthesis_rate > 0.2 && genome.has_photo_surface() {
             plants += 1;
         } else if genome.claw_power() > 0.5 {
@@ -1061,11 +1084,37 @@ fn record_population_history(
         } else {
             foragers += 1;
         }
+        if inf.is_some() {
+            infected += 1;
+        }
+        sum_resist += genome.disease_resistance;
+        sum_body += genome.body_size;
+        sum_speed += genome.speed_factor;
+        sum_armor += genome.armor_value();
+        sum_attack += genome.claw_power();
+        sum_photo += genome.photosynthesis_rate;
+        n += 1;
     }
 
+    let div = n.max(1) as f32;
     let org_count = plants + predators + foragers;
     let food_count = food.iter().len() as u32;
-    history.record(&stats, org_count, food_count, plants, predators, foragers, fitness.avg_lifespan);
+
+    history.record(&stats, PopSnapshotInput {
+        organisms: org_count,
+        food: food_count,
+        plants,
+        predators,
+        foragers,
+        avg_lifespan: fitness.avg_lifespan,
+        infected,
+        avg_disease_resistance: sum_resist / div,
+        avg_body_size: sum_body / div,
+        avg_speed: sum_speed / div,
+        avg_armor: sum_armor / div,
+        avg_attack: sum_attack / div,
+        avg_photo: sum_photo / div,
+    });
 }
 
 /// Sample each organism's position into its trail ring buffer.

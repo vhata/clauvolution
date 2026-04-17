@@ -511,7 +511,14 @@ fn graphs_tab(ui: &mut egui::Ui, history: &PopulationHistory) {
     });
     ui.separator();
 
-    // Current values readout
+    // Current snapshot: key ratios and rates at a glance — this is the tuning dashboard
+    let infected_pct = if latest.organisms > 0 {
+        latest.infected as f32 / latest.organisms as f32 * 100.0
+    } else { 0.0 };
+    let total_deaths_sample = latest.deaths_starvation + latest.deaths_predation
+        + latest.deaths_old_age + latest.deaths_disease;
+    let ratio = |n: u32| if total_deaths_sample > 0 { n as f32 / total_deaths_sample as f32 * 100.0 } else { 0.0 };
+
     egui::Grid::new("graphs_current").num_columns(4).striped(true).show(ui, |ui| {
         ui.label("Organisms");
         ui.monospace(format!("{:>4}", latest.organisms));
@@ -533,9 +540,58 @@ fn graphs_tab(ui: &mut egui::Ui, history: &PopulationHistory) {
 
         ui.label("Predators");
         ui.monospace(format!("{:>4}", latest.predators));
-        ui.label("");
-        ui.label("");
+        ui.label("Infected");
+        ui.monospace(format!("{:>3} ({:>2.0}%)", latest.infected, infected_pct));
         ui.end_row();
+    });
+
+    ui.add_space(6.0);
+    egui::CollapsingHeader::new("Death cause breakdown (this second)").default_open(true).show(ui, |ui| {
+        egui::Grid::new("death_causes").num_columns(3).striped(true).show(ui, |ui| {
+            ui.monospace("Starvation");
+            ui.monospace(format!("{:>3}", latest.deaths_starvation));
+            ui.monospace(format!("{:>4.0}%", ratio(latest.deaths_starvation)));
+            ui.end_row();
+
+            ui.monospace("Predation");
+            ui.monospace(format!("{:>3}", latest.deaths_predation));
+            ui.monospace(format!("{:>4.0}%", ratio(latest.deaths_predation)));
+            ui.end_row();
+
+            ui.monospace("Old age");
+            ui.monospace(format!("{:>3}", latest.deaths_old_age));
+            ui.monospace(format!("{:>4.0}%", ratio(latest.deaths_old_age)));
+            ui.end_row();
+
+            ui.monospace("Disease");
+            ui.monospace(format!("{:>3}", latest.deaths_disease));
+            ui.monospace(format!("{:>4.0}%", ratio(latest.deaths_disease)));
+            ui.end_row();
+        });
+    });
+
+    ui.add_space(6.0);
+    egui::CollapsingHeader::new("Average traits").show(ui, |ui| {
+        egui::Grid::new("avg_traits").num_columns(2).striped(true).show(ui, |ui| {
+            ui.label("Disease resistance");
+            ui.monospace(format!("{:>4.0}%", latest.avg_disease_resistance * 100.0));
+            ui.end_row();
+            ui.label("Body size");
+            ui.monospace(format!("{:>5.2}", latest.avg_body_size));
+            ui.end_row();
+            ui.label("Speed factor");
+            ui.monospace(format!("{:>5.2}", latest.avg_speed));
+            ui.end_row();
+            ui.label("Attack (claw)");
+            ui.monospace(format!("{:>5.2}", latest.avg_attack));
+            ui.end_row();
+            ui.label("Armor");
+            ui.monospace(format!("{:>5.2}", latest.avg_armor));
+            ui.end_row();
+            ui.label("Photosynthesis");
+            ui.monospace(format!("{:>4.0}%", latest.avg_photo * 100.0));
+            ui.end_row();
+        });
     });
 
     ui.separator();
@@ -564,6 +620,52 @@ fn graphs_tab(ui: &mut egui::Ui, history: &PopulationHistory) {
 
         ui.add_space(4.0);
 
+        // Deaths by cause — the main tuning chart
+        ui.label("Deaths per second by cause");
+        let d_starv: PlotPoints = snaps.iter().enumerate()
+            .map(|(i, s)| [i as f64, s.deaths_starvation as f64]).collect();
+        let d_pred: PlotPoints = snaps.iter().enumerate()
+            .map(|(i, s)| [i as f64, s.deaths_predation as f64]).collect();
+        let d_old: PlotPoints = snaps.iter().enumerate()
+            .map(|(i, s)| [i as f64, s.deaths_old_age as f64]).collect();
+        let d_dis: PlotPoints = snaps.iter().enumerate()
+            .map(|(i, s)| [i as f64, s.deaths_disease as f64]).collect();
+
+        Plot::new("deaths_by_cause")
+            .height(130.0)
+            .legend(Legend::default().position(egui_plot::Corner::LeftTop))
+            .show(ui, |plot_ui| {
+                plot_ui.line(Line::new(d_starv)
+                    .color(egui::Color32::from_rgb(230, 180, 90)).name("Starvation"));
+                plot_ui.line(Line::new(d_pred)
+                    .color(egui::Color32::from_rgb(230, 100, 100)).name("Predation"));
+                plot_ui.line(Line::new(d_old)
+                    .color(egui::Color32::from_rgb(180, 180, 180)).name("Old age"));
+                plot_ui.line(Line::new(d_dis)
+                    .color(egui::Color32::from_rgb(180, 80, 220)).name("Disease"));
+            });
+
+        ui.add_space(4.0);
+
+        // Infection & resistance — disease tuning view
+        ui.label("Infection rate & evolved resistance");
+        let inf: PlotPoints = snaps.iter().enumerate()
+            .map(|(i, s)| [i as f64, s.infected as f64]).collect();
+        let resist: PlotPoints = snaps.iter().enumerate()
+            .map(|(i, s)| [i as f64, (s.avg_disease_resistance * 100.0) as f64]).collect();
+
+        Plot::new("disease_trend")
+            .height(120.0)
+            .legend(Legend::default().position(egui_plot::Corner::LeftTop))
+            .show(ui, |plot_ui| {
+                plot_ui.line(Line::new(inf)
+                    .color(egui::Color32::from_rgb(180, 80, 220)).name("Infected (count)"));
+                plot_ui.line(Line::new(resist)
+                    .color(egui::Color32::from_rgb(120, 200, 220)).name("Avg resistance × 100"));
+            });
+
+        ui.add_space(4.0);
+
         // Total population vs species count
         ui.label("Total population vs species count");
         let organisms: PlotPoints = snaps.iter().enumerate()
@@ -572,7 +674,7 @@ fn graphs_tab(ui: &mut egui::Ui, history: &PopulationHistory) {
             .map(|(i, s)| [i as f64, s.species as f64]).collect();
 
         Plot::new("pop_vs_species")
-            .height(130.0)
+            .height(120.0)
             .legend(Legend::default().position(egui_plot::Corner::LeftTop))
             .show(ui, |plot_ui| {
                 plot_ui.line(Line::new(organisms)
@@ -583,21 +685,29 @@ fn graphs_tab(ui: &mut egui::Ui, history: &PopulationHistory) {
 
         ui.add_space(4.0);
 
-        // Births/deaths rate
-        ui.label("Births and deaths per second");
-        let births: PlotPoints = snaps.iter().enumerate()
-            .map(|(i, s)| [i as f64, s.births_per_sec as f64]).collect();
-        let deaths: PlotPoints = snaps.iter().enumerate()
-            .map(|(i, s)| [i as f64, s.deaths_per_sec as f64]).collect();
+        // Trait evolution — key genetic trends over time
+        ui.label("Key trait evolution (scaled to fit)");
+        let t_attack: PlotPoints = snaps.iter().enumerate()
+            .map(|(i, s)| [i as f64, (s.avg_attack * 100.0) as f64]).collect();
+        let t_armor: PlotPoints = snaps.iter().enumerate()
+            .map(|(i, s)| [i as f64, (s.avg_armor * 100.0) as f64]).collect();
+        let t_photo: PlotPoints = snaps.iter().enumerate()
+            .map(|(i, s)| [i as f64, (s.avg_photo * 100.0) as f64]).collect();
+        let t_body: PlotPoints = snaps.iter().enumerate()
+            .map(|(i, s)| [i as f64, (s.avg_body_size * 100.0) as f64]).collect();
 
-        Plot::new("births_deaths")
-            .height(110.0)
+        Plot::new("trait_trends")
+            .height(130.0)
             .legend(Legend::default().position(egui_plot::Corner::LeftTop))
             .show(ui, |plot_ui| {
-                plot_ui.line(Line::new(births)
-                    .color(egui::Color32::from_rgb(120, 220, 140)).name("Births/s"));
-                plot_ui.line(Line::new(deaths)
-                    .color(egui::Color32::from_rgb(220, 120, 120)).name("Deaths/s"));
+                plot_ui.line(Line::new(t_attack)
+                    .color(egui::Color32::from_rgb(230, 100, 100)).name("Attack ×100"));
+                plot_ui.line(Line::new(t_armor)
+                    .color(egui::Color32::from_rgb(180, 180, 180)).name("Armor ×100"));
+                plot_ui.line(Line::new(t_photo)
+                    .color(egui::Color32::from_rgb(90, 200, 90)).name("Photo ×100"));
+                plot_ui.line(Line::new(t_body)
+                    .color(egui::Color32::from_rgb(200, 170, 230)).name("Body size ×100"));
             });
 
         ui.add_space(4.0);
