@@ -60,13 +60,24 @@ An evolution simulator where you watch life emerge, adapt, compete, and speciate
 
 # What's Next
 
-Organised by theme, not strict priority. Items in each theme are roughly ordered by value, but pick whatever grabs you.
+## Guiding motivation
+
+Clauvolution is a personal project. The goal isn't to answer a research question, ship a product, or present publicly. It's **pure curiosity and joy in watching evolution unfold** — the slow "look at that weird creature" delight of discovery.
+
+That reshapes priorities:
+- Features that **enrich what you can see and understand while watching** are the core. (Comprehension, new dynamics, visual polish.)
+- Features that **skip past the watching** (evolve-until, replay) are less urgent — the unfolding *is* the point.
+- Features for **sharing, exporting, external research** (WASM, config sweeps, organism export) are deprioritised — there's no audience but you.
+
+Themes below are ordered by how much they serve the joy-of-watching motivation.
 
 ---
 
-## Theme: Comprehension — make the invisible visible
+## Theme 1: Comprehension — make the invisible visible
 
-The sim shows WHAT happens (species rising and falling) but hides WHY. These items surface the underlying causes so you can build real intuition.
+The sim shows WHAT happens (species rising and falling) but hides WHY. These items surface the underlying causes so every moment of watching is richer.
+
+**Top pick:** Brain activation heatmap. You already watch creatures move and compete; this lets you watch them *think*.
 
 ### Brain activation heatmap
 When an organism is selected, show its neural network in real time — which inputs are currently firing, which connections are active, which outputs are being driven. Probably lives in the Inspect tab alongside the creature portrait.
@@ -113,44 +124,11 @@ When a species dies out, capture a snapshot of its last 30 seconds — populatio
 
 ---
 
-## Theme: Time mastery — watch evolution at its actual pace
+## Theme 2: New dynamics — richer ecosystem
 
-Real evolution takes many generations. The 16× speed cap helps, but you still need to sit there watching. These let you skip to interesting moments or scrub backwards.
+More kinds of evolution to watch unfold. Each item adds a qualitatively new pressure or possibility — meaning more variety when you watch.
 
-### Evolve-until mode
-Run at unlimited speed until a triggering event (new species, mass extinction, milestone generation, population threshold), then pause and show a summary of what changed.
-
-**Why it matters:** Lets you answer questions like "how long until stable speciation?" or "which traits win this time?" without babysitting the sim. Also great for experiments.
-
-**Shape of implementation:**
-- Events tab adds "Run until..." with dropdown: next speciation, next extinction, generation N, population below X, time elapsed
-- Sim runs uncapped (ignoring 100ms virtual cap) while this is active
-- When trigger fires, pause and open a "what changed" modal
-
-### Replay / timeline scrubbing
-Record a run as periodic snapshots. Scrub backward through time with a slider. Population graphs become scrubbable too — click a point in history to see the world at that moment.
-
-**Why it matters:** "I noticed a spike in species count around tick 4000 — what happened?" is currently impossible to answer. This makes history explorable.
-
-**Shape of implementation:**
-- Periodic (every N seconds) snapshots of organism state + tilemap + phylo state
-- Snapshots are lightweight (no brain eval, just state) and ring-buffered
-- Timeline scrubber in the header or as a new mode
-- Scrubbing pauses live sim; resume returns to live
-
-### Interesting-moment auto-screenshot
-Automatically capture screenshots when notable things happen: new species, mass extinctions, convergent evolution detected, population peaks/crashes, arms-race milestones (first claws, first armor, etc.).
-
-**Why it matters:** Highlights reel of your session without having to watch every tick. Makes sessions shareable.
-
-**Shape of implementation:**
-- Already have the detection logic in place (chronicle triggers)
-- Add a screenshot request when those events fire
-- Saved to sessions/<name>/highlights/ with descriptive filenames
-
----
-
-## Theme: New dynamics — richer ecosystem
+**Top pick:** Disease. Solves plant-dominance AND creates a whole new arms race to observe.
 
 ### Disease / pathogens
 Abstract infection that spreads between organisms in proximity. Kills or weakens hosts. Evolution of resistance vs virulence. Natural population regulator that can target any strategy (not just predation).
@@ -197,6 +175,40 @@ Currently body parts are variations on torso+attachments. Rare mutation events c
 
 ---
 
+## Theme 3: Time mastery — scrub, don't skip
+
+Real evolution takes many generations. When watching *is* the point, skipping ahead conflicts with the motivation — but scrubbing backward to re-savour something you noticed is valuable. Cherry-pick carefully here.
+
+### Replay / timeline scrubbing
+Record a run as periodic snapshots. Scrub backward through time with a slider. Population graphs become scrubbable — click a point in history to see the world at that moment.
+
+**Why it matters (given joy-of-watching):** "I noticed a spike in species count around tick 4000 — what happened?" This lets you rewind and re-experience the moment properly.
+
+**Shape of implementation:**
+- Periodic (every N seconds) snapshots of organism state + tilemap + phylo state
+- Snapshots are lightweight (no brain eval, just state) and ring-buffered
+- Timeline scrubber in the header or as a new mode
+- Scrubbing pauses live sim; resume returns to live
+
+### Interesting-moment auto-screenshot
+Automatically capture screenshots when notable things happen: new species, mass extinctions, convergent evolution detected, population peaks/crashes, arms-race milestones.
+
+**Why it matters:** Session highlights reel. Open sessions/<name>/highlights/ and flick through evolutionary history like a photo album.
+
+**Shape of implementation:**
+- Already have the detection logic in place (chronicle triggers)
+- Add a screenshot request when those events fire
+- Saved to sessions/<name>/highlights/ with descriptive filenames
+
+### Evolve-until mode *(deprioritised)*
+Run at unlimited speed until a triggering event (new species, extinction, etc.), then pause. Classic "skip to the punchline" feature — useful in a research framing but works against the joy-of-watching motivation. Leaving it documented but not chasing.
+
+---
+
+# Backlog
+
+Items that don't directly serve the joy-of-watching motivation. Here for completeness — pick up if we ever want to scale, share, or do science.
+
 ## Theme: Performance scaling
 
 Three complementary approaches, roughly in order of bang-for-buck:
@@ -217,22 +229,24 @@ The big one. Pad all NEAT networks to a uniform max size, flatten into GPU buffe
 
 ---
 
-## Theme: Accessibility
+## Theme: Accessibility — for sharing *(deprioritised)*
 
 ### WASM+WebGPU browser build
-Accessibility — run in a browser without installing anything. Needs perf work first (2000 organisms in WASM will be painful without the above).
+Run in a browser without installing anything. Only matters if you ever want to share the sim. Needs perf work first.
 
 ---
 
-## Theme: Meta / experimentation
+## Theme: Meta / experimentation *(deprioritised)*
+
+No research question to answer, so these are lower priority. Here for reference.
 
 ### Config sweep mode
-Launch N simulations with different parameters, summarise outcomes at the end. Real science vs vibes: does mutation_rate=0.3 produce more species than 0.1? Does a bigger world support more diversity?
+Launch N simulations with different parameters, summarise outcomes at the end. Answers questions like "does mutation_rate=0.3 produce more species than 0.1?"
 
 **Shape:** Headless batch mode, N parallel instances, collect end-of-run stats, output a CSV or comparison view.
 
 ### Organism export / import
-Save an interesting creature to a file. Load it into another sim as seed population. Share your best creations.
+Save an interesting creature to a file. Load it into another sim as seed population.
 
 **Shape:** JSON export of a single organism's genome. `--seed-with creature.json` CLI flag that spawns N copies at simulation start.
 
