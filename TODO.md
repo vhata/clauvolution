@@ -64,75 +64,88 @@ An evolution simulator where you watch life emerge, adapt, compete, and speciate
 
 #### Layout strategy
 
-Start with **fixed side panels** (`egui::SidePanel`), not dockable or floating. Reasons: preserves the current mental model, predictable layout, less setup. Dockable (`egui_dock` crate) can come later if users want rearrangement.
+**Single tabbed right-side panel**, not multiple panels competing for space. The world view is the show; panels support it. You tab between info views rather than trying to see everything at once.
 
-Proposed layout:
 ```
-┌──────────────────────────────┬─────────────┐
-│                              │  Minimap    │ ← stays as Bevy UI ImageNode
-│                              │  (160x160)  │
-│         World view           │─────────────│
-│         (Bevy 2D)            │  Right tab  │
-│                              │  panel:     │
-│                              │  • Inspect  │
-│                              │  • Phylo    │
-│                              │  • Events   │
-├──────────────────────────────┴─────────────┤
-│  Bottom panel (collapsible):               │
-│  • Stats  • Graphs  • Chronicle            │
-└────────────────────────────────────────────┘
+┌──────────────────────────────────┬─────────────┐
+│  Compact header bar              │  Minimap    │ ← Bevy UI ImageNode
+│  (season · pop · species · speed)│  (160x160)  │
+├──────────────────────────────────┼─────────────┤
+│                                  │  Right tab  │
+│                                  │  panel:     │
+│                                  │  • Inspect  │
+│         World view               │  • Phylo    │
+│         (Bevy 2D)                │  • Graphs   │
+│                                  │  • Chronicle│
+│                                  │  • Events   │
+│                                  │  • Help     │
+│                                  │             │
+└──────────────────────────────────┴─────────────┘
 ```
 
-Keyboard shortcuts (B, N, J, X, I, V, etc.) still work, but the right panel also gets buttons for discoverability.
+- **Always-visible header bar**: season, total population, species count, speed/paused state, max generation. The glance-dashboard.
+- **Single right tab panel (~350-400px wide)**: one tab active at a time. Tabs persist state (selected organism, scroll position) so switching is non-destructive.
+- **Minimap stays top-right** as a Bevy UI node overlay, independent of the tab panel.
+- **Ambient chronicle ticker** (optional stretch): last 2-3 events fade in at the bottom of the world view. Lets you keep awareness of the chronicle without occupying a tab.
+
+Why single-panel tabs over multi-panel layout:
+1. World view is the primary content — maximise its space
+2. Related info is usually consulted separately (graphs for trends, chronicle for events, phylo for species). Rarely needed simultaneously.
+3. Simpler to build and tune across window sizes
+4. Matches modern app mental model (VS Code sidebar, devtools panels)
+5. If we ever need to see two tabs at once, add an "eject to window" button later
+
+**Shape concerns:** `egui_plot` scales to any aspect ratio — no width requirement. Multiple small stacked plots (organisms, births/deaths, lifespan) work in a narrow tall panel. Phylo tree, chronicle, inspect all naturally want vertical space.
+
+Keyboard shortcuts (B, N, J, X, I, V, Space, etc.) still work, but the Events tab also gets buttons for discoverability.
 
 #### Migration phases
 
-Incremental — one panel at a time. Old text UI stays working until each panel is replaced, then we delete the old system.
+Incremental — one tab at a time. Old text UI stays working alongside the new panel until each equivalent tab is replaced, then delete the old system piece-by-piece.
 
 **Phase 1: Setup (~30 min)**
-- Add `bevy_egui = "0.31"` (or whatever matches Bevy 0.15) to workspace deps
+- Add `bevy_egui` matching the Bevy 0.15 version to workspace deps (verify compatibility first!)
 - Add `EguiPlugin` to the app
 - Confirm egui renders over the Bevy world with no conflicts
-- Add a keyboard-input gate: hotkeys should NOT fire when egui has keyboard focus (`EguiContexts::ctx_mut().wants_keyboard_input()`)
+- Add a keyboard-input gate: hotkeys should NOT fire when egui has keyboard focus (check `EguiContexts::ctx_mut().wants_keyboard_input()`)
 
-**Phase 2: Stats panel (easy warmup)**
-- Simplest panel, pure text readout
-- Egui `SidePanel::top` or a corner window
-- Proves the integration works end-to-end
+**Phase 2: Header bar + shell (easy warmup)**
+- Top `TopBottomPanel::top` for the compact header (season, pop, species, speed)
+- Right `SidePanel::right` with a placeholder tab switcher
+- Proves the integration works end-to-end and establishes the layout skeleton
 - Delete old `StatsText` entity and `update_stats_text` system
 
-**Phase 3: Help overlay**
-- Static text in a modal window, toggled by H
-- Use `egui::Window::new("Help").open(&mut help_visible)`
-- Egui handles the close button automatically
-- Delete old help overlay
+**Phase 3: Help tab**
+- Static text, first real tab content
+- Simplest thing to migrate — just paste the help text into an egui block
+- Delete old help overlay and toggle system
 
-**Phase 4: Chronicle**
-- Scrollable list of events — this is where egui shines
+**Phase 4: Chronicle tab**
 - `egui::ScrollArea::vertical()` + iterate entries
-- Add filter checkboxes: hide season changes, hide extinctions, etc.
+- Add filter checkboxes: hide season changes, hide extinctions, filter by species
 - Delete old `ChronicleText`
+- Stretch: ambient chronicle ticker at the bottom of the world view
 
-**Phase 5: Population graphs**
+**Phase 5: Graphs tab**
 - Switch from ASCII sparklines to `egui_plot` — proper line charts
-- Multiple series overlaid: organisms, plants, predators, foragers, food
-- Zoom/pan built in
+- Multiple small stacked plots in the narrow tab: organisms/food, births/deaths, lifespan, per-strategy counts
+- Zoom/pan built in per-plot
 - Legend with toggleable series
 - Delete old `GraphText` and sparkline code
 
-**Phase 6: Phylogenetic tree**
+**Phase 6: Phylo tab**
 - Recursive tree widget using `egui::CollapsingHeader` per species
-- Click a species → set `SelectedSpecies` resource, highlight on minimap, focus camera on a random member
+- Click a species → set `SelectedSpecies` resource, focus camera on a random living member, highlight on minimap
 - Show expanded stats per species (peak pop, age, child count, traits)
 - Delete old `PhyloText`
 
-**Phase 7: Inspect panel**
-- Tab in the right panel
-- Same stats as now but with proper layout (grid/table, not format-string alignment)
-- Click parent species name → jump to it in phylo tree
+**Phase 7: Inspect tab**
+- Same stats as now but with proper layout (grid, not format-string alignment)
+- Click parent species name → switch to Phylo tab, auto-expand that species
+- Auto-switch to this tab when an organism is clicked
 - Eventually: embed the creature portrait here
 
-**Phase 8: Events panel (new)**
+**Phase 8: Events tab (new)**
 - Buttons for all extinction/bloom events
 - Cooldown timer shown visibly
 - Save/Load buttons (currently F5 only)
