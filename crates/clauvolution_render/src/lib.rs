@@ -6,7 +6,6 @@ use bevy::window::PrimaryWindow;
 use clauvolution_body::BodyPlan;
 use clauvolution_core::*;
 use clauvolution_genome::{Genome, SegmentType};
-use clauvolution_phylogeny::PhyloTree;
 use clauvolution_world::TileMap;
 
 pub struct RenderPlugin;
@@ -31,7 +30,6 @@ impl Plugin for RenderPlugin {
                     update_death_markers,
                     camera_control_system,
                     update_stats_text,
-                    update_phylo_tree,
                     update_minimap,
                 )
                     .chain(),
@@ -90,7 +88,6 @@ pub struct MinimapData {
 }
 
 #[derive(Component)]
-pub struct PhyloText;
 
 /// Shared mesh handles to avoid creating thousands of identical meshes
 #[derive(Resource, Default)]
@@ -154,26 +151,6 @@ fn setup_camera(mut commands: Commands, config: Res<SimConfig>, asset_server: Re
         },
         panel_bg,
         StatsText,
-    ));
-
-    // Phylogenetic tree (right side, tall panel)
-    commands.spawn((
-        Text::new(""),
-        TextFont {
-            font: font.clone(),
-            font_size: 10.0,
-            ..default()
-        },
-        TextColor(Color::srgba(1.0, 0.95, 0.8, 0.9)),
-        Node {
-            position_type: PositionType::Absolute,
-            right: Val::Px(10.0),
-            bottom: Val::Px(10.0),
-            padding: UiRect::all(Val::Px(6.0)),
-            ..default()
-        },
-        panel_bg,
-        PhyloText,
     ));
 
 }
@@ -732,19 +709,6 @@ fn update_stats_text(
         photosynthesizers, predators, foragers,
         food_count, stats.total_births, stats.total_deaths,
     );
-}
-
-/// Render the phylogenetic tree as text
-fn update_phylo_tree(
-    phylo: Res<PhyloTree>,
-    tick: Res<TickCounter>,
-    mut text_query: Query<&mut Text, With<PhyloText>>,
-) {
-    let Ok(mut text) = text_query.get_single_mut() else {
-        return;
-    };
-
-    **text = phylo.render_text(tick.0);
 }
 
 fn toggle_minimap_mode_system(

@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPlugin};
 use clauvolution_core::*;
 use clauvolution_genome::Genome;
-use clauvolution_phylogeny::{PhyloTree, WorldChronicle};
+use clauvolution_phylogeny::{PhyloTree, PhyloNode, SpeciesStrategy, WorldChronicle};
 use clauvolution_world::TileMap;
 use egui_plot::{Line, Plot, PlotPoints, Legend};
 
@@ -163,6 +163,7 @@ fn right_panel_system(
     config: Res<SimConfig>,
     phylo: Res<PhyloTree>,
     history: Res<PopulationHistory>,
+    tick: Res<TickCounter>,
 ) {
     let ctx = contexts.ctx_mut();
 
@@ -187,10 +188,7 @@ fn right_panel_system(
                     inspect_tab(ui, &selected, &organisms, tile_map.as_deref(), &config, &phylo);
                 }
                 RightTab::Phylo => {
-                    egui::ScrollArea::vertical().show(ui, |ui| {
-                        ui.heading("Phylogenetic tree");
-                        ui.label("(migrating — old panel still active)");
-                    });
+                    phylo_tab(ui, &phylo, tick.0);
                 }
                 RightTab::Graphs => {
                     graphs_tab(ui, &history);
@@ -208,6 +206,129 @@ fn right_panel_system(
                 }
             }
         });
+}
+
+fn phylo_tab(ui: &mut egui::Ui, phylo: &PhyloTree, current_tick: u64) {
+    if phylo.nodes.is_empty() {
+        ui.heading("Phylogenetic tree");
+        ui.label("No species yet.");
+        return;
+    }
+
+    let living: Vec<&PhyloNode> = phylo.nodes.values()
+        .filter(|n| n.extinct_tick.is_none() && n.current_population > 0)
+        .collect();
+
+    let total_living = living.len();
+    let total_ever = phylo.nodes.len();
+    let total_extinct = total_ever - total_living;
+
+    ui.horizontal(|ui| {
+        ui.heading("Phylogeny");
+        ui.small(format!("{} alive · {} extinct · {} total", total_living, total_extinct, total_ever));
+    });
+    ui.separator();
+
+    // Group living species by lineage root (walk parent chain up to 10 steps)
+    use std::collections::HashMap;
+    let mut lineages: HashMap<u64, Vec<&PhyloNode>> = HashMap::new();
+    for node in &living {
+        let mut root = node.species_id;
+        let mut current = node.species_id;
+        for _ in 0..10 {
+            if let Some(n) = phylo.nodes.get(&current) {
+                if let Some(pid) = n.parent_id {
+                    root = pid;
+                    current = pid;
+                } else { break; }
+            } else { break; }
+        }
+        lineages.entry(root).or_default().push(node);
+    }
+
+    // Sort lineages by total population (largest first)
+    let mut sorted_lineages: Vec<(u64, Vec<&PhyloNode>)> = lineages.into_iter().collect();
+    sorted_lineages.sort_by(|a, b| {
+        let pop_a: u32 = a.1.iter().map(|n| n.current_population).sum();
+        let pop_b: u32 = b.1.iter().map(|n| n.current_population).sum();
+        pop_b.cmp(&pop_a).then(a.0.cmp(&b.0))
+    });
+
+    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        for (_root_id, mut members) in sorted_lineages {
+            members.sort_by(|a, b| b.current_population.cmp(&a.current_population).then(a.species_id.cmp(&b.species_id)));
+
+            let first = members[0];
+            let lineage_total: u32 = members.iter().map(|n| n.current_population).sum();
+
+            let header_text = if members.len() == 1 {
+                format!("{} — pop {}", first.name, first.current_population)
+            } else {
+                format!("{} — {} species, {} total", first.name, members.len(), lineage_total)
+            };
+
+            let id = egui::Id::new(("lineage", first.species_id));
+            egui::CollapsingHeader::new(header_text)
+                .id_salt(id)
+                .default_open(true)
+                .show(ui, |ui| {
+                    for node in &members {
+                        species_row(ui, node, current_tick);
+                    }
+                });
+        }
+
+        // Recently extinct
+        let mut recently_extinct: Vec<&PhyloNode> = phylo.nodes.values()
+            .filter(|n| n.extinct_tick.is_some())
+            .collect();
+        recently_extinct.sort_by(|a, b| b.extinct_tick.cmp(&a.extinct_tick).then(a.species_id.cmp(&b.species_id)));
+
+        if !recently_extinct.is_empty() {
+            ui.add_space(8.0);
+            ui.separator();
+            egui::CollapsingHeader::new(format!("Recently extinct ({})", recently_extinct.len().min(10))).show(ui, |ui| {
+                for node in recently_extinct.iter().take(10) {
+                    let age_secs = current_tick.saturating_sub(node.extinct_tick.unwrap_or(0)) / 30;
+                    let lived = node.extinct_tick.unwrap_or(0).saturating_sub(node.born_tick) / 30;
+                    ui.horizontal(|ui| {
+                        ui.small(format!("✝ {}", node.name));
+                        ui.small(format!("peak {} · lived {}s · died {}s ago", node.peak_population, lived, age_secs));
+                    });
+                }
+            });
+        }
+    });
+}
+
+fn species_row(ui: &mut egui::Ui, node: &PhyloNode, current_tick: u64) {
+    let age_secs = current_tick.saturating_sub(node.born_tick) / 30;
+    let age_str = if age_secs >= 60 {
+        format!("{}m{:02}s", age_secs / 60, age_secs % 60)
+    } else {
+        format!("{}s", age_secs)
+    };
+
+    let strategy_badge = match node.strategy {
+        SpeciesStrategy::Photosynthesizer => ("🌱", egui::Color32::from_rgb(120, 200, 100)),
+        SpeciesStrategy::Predator => ("🦷", egui::Color32::from_rgb(220, 100, 100)),
+        SpeciesStrategy::Forager => ("🍂", egui::Color32::from_rgb(220, 200, 120)),
+    };
+
+    let declining = node.current_population < node.peak_population / 2;
+
+    ui.horizontal(|ui| {
+        ui.colored_label(strategy_badge.1, strategy_badge.0);
+        ui.label(&node.name);
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if declining {
+                ui.small(egui::RichText::new("↓").color(egui::Color32::LIGHT_RED));
+            }
+            ui.small(format!("{}", age_str));
+            ui.separator();
+            ui.small(format!("pop {}", node.current_population));
+        });
+    });
 }
 
 fn inspect_tab(
