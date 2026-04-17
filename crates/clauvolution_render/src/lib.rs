@@ -19,7 +19,7 @@ impl Plugin for RenderPlugin {
             .add_systems(Startup, (setup_camera, setup_shared_meshes, setup_minimap))
             .add_systems(
                 Update,
-                (speed_control_system, click_select_system, toggle_minimap_mode_system, lod_change_system, manual_screenshot_system, minimap_click_system),
+                (speed_control_system, click_select_system, toggle_minimap_mode_system, toggle_trails_system, lod_change_system, manual_screenshot_system, minimap_click_system),
             )
             .add_systems(
                 PostUpdate,
@@ -28,6 +28,7 @@ impl Plugin for RenderPlugin {
                     sync_organism_transforms,
                     sync_food_transforms,
                     update_death_markers,
+                    draw_trails_system,
                     camera_control_system,
                     update_minimap,
                 )
@@ -636,6 +637,68 @@ fn toggle_minimap_mode_system(
             MinimapMode::Normal => MinimapMode::Heatmap,
             MinimapMode::Heatmap => MinimapMode::Normal,
         };
+    }
+}
+
+fn toggle_trails_system(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut trails: ResMut<TrailsVisible>,
+    mut organisms: Query<&mut TrailHistory, With<Organism>>,
+    ui_input: Res<UiInputState>,
+) {
+    if ui_input.wants_keyboard {
+        return;
+    }
+    if keys.just_pressed(KeyCode::KeyT) {
+        trails.0 = !trails.0;
+        // When turning off, clear all existing trail buffers so turning on
+        // again starts fresh instead of showing stale teleport-lines
+        if !trails.0 {
+            for mut trail in &mut organisms {
+                trail.positions.clear();
+            }
+        }
+    }
+}
+
+/// Draw trail linestrips behind each visible organism using Bevy gizmos.
+/// Gizmos batch into a single draw call so even 2000 trails are cheap.
+/// Only draws trails for organisms in the camera viewport (frustum cull).
+fn draw_trails_system(
+    mut gizmos: Gizmos,
+    trails: Res<TrailsVisible>,
+    organisms: Query<(&Position, &TrailHistory, &SpeciesId), With<Organism>>,
+    camera: Query<(&Transform, &OrthographicProjection), (With<MainCamera>, Without<Organism>, Without<SelectionRing>)>,
+    mut species_colors: ResMut<SpeciesColors>,
+) {
+    if !trails.0 {
+        return;
+    }
+
+    let Ok((cam_t, proj)) = camera.get_single() else { return };
+    let half_w = 960.0 * proj.scale;
+    let half_h = 540.0 * proj.scale;
+    let margin = 40.0 * proj.scale;
+    let cam_left = cam_t.translation.x - half_w - margin;
+    let cam_right = cam_t.translation.x + half_w + margin;
+    let cam_bottom = cam_t.translation.y - half_h - margin;
+    let cam_top = cam_t.translation.y + half_h + margin;
+
+    for (pos, trail, species) in &organisms {
+        if trail.positions.len() < 2 {
+            continue;
+        }
+        // Frustum cull — if the organism is off-screen, skip drawing its trail
+        if pos.0.x < cam_left || pos.0.x > cam_right
+            || pos.0.y < cam_bottom || pos.0.y > cam_top {
+            continue;
+        }
+
+        let base = species_colors.get_or_create(species.0);
+        let rgba = base.to_srgba();
+        let color = Color::srgba(rgba.red, rgba.green, rgba.blue, 0.35);
+
+        gizmos.linestrip_2d(trail.positions.iter().copied(), color);
     }
 }
 

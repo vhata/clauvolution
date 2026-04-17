@@ -28,6 +28,7 @@ impl Plugin for SimPlugin {
                     reproduction_system,
                     species_classification_system,
                     record_population_history,
+                    record_trail_history,
                 )
                     .chain(),
             )
@@ -771,7 +772,7 @@ fn reproduction_system(
             Signal::default(),
             GroupSize::default(),
             ParentInfo { parent_species_id: Some(parent_species) },
-        )).insert((brain, child_genome));
+        )).insert((brain, child_genome, TrailHistory::default()));
 
         stats.total_births += 1;
         if child_gen > stats.max_generation {
@@ -978,6 +979,25 @@ fn record_population_history(
     history.record(&stats, org_count, food_count, plants, predators, foragers, fitness.avg_lifespan);
 }
 
+/// Sample each organism's position into its trail ring buffer.
+/// Runs every 3 ticks — 20 samples × 3 ticks ≈ 2 seconds of trail at 30hz.
+fn record_trail_history(
+    tick: Res<TickCounter>,
+    trails_visible: Res<TrailsVisible>,
+    mut organisms: Query<(&Position, &mut TrailHistory), With<Organism>>,
+) {
+    // Skip if trails are off — save the writes and keep deques empty
+    if !trails_visible.0 {
+        return;
+    }
+    if tick.0 % 3 != 0 {
+        return;
+    }
+    for (pos, mut trail) in &mut organisms {
+        trail.push(pos.0);
+    }
+}
+
 pub fn spawn_initial_population(
     commands: &mut Commands,
     config: &SimConfig,
@@ -1015,7 +1035,7 @@ pub fn spawn_initial_population(
             Signal::default(),
             GroupSize::default(),
             ParentInfo::default(),
-        )).insert((brain, genome));
+        )).insert((brain, genome, TrailHistory::default()));
     }
 }
 

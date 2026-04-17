@@ -21,7 +21,8 @@ impl Plugin for CorePlugin {
             .insert_resource(FitnessTracker::default())
             .insert_resource(PopulationHistory::default())
             .insert_resource(BloomEffects::default())
-            .insert_resource(UiInputState::default());
+            .insert_resource(UiInputState::default())
+            .insert_resource(TrailsVisible::default());
     }
 }
 
@@ -449,6 +450,34 @@ pub struct DeathMarker {
 #[derive(Component, Default)]
 pub struct ParentInfo {
     pub parent_species_id: Option<u64>,
+}
+
+/// Ring buffer of recent positions, used for drawing trails behind organisms.
+/// Sampled every N ticks by the sim, consumed by the render trail system.
+#[derive(Component, Default)]
+pub struct TrailHistory {
+    pub positions: std::collections::VecDeque<Vec2>,
+}
+
+impl TrailHistory {
+    pub const MAX_LEN: usize = 20;
+
+    pub fn push(&mut self, pos: Vec2) {
+        if self.positions.len() >= Self::MAX_LEN {
+            self.positions.pop_front();
+        }
+        self.positions.push_back(pos);
+    }
+}
+
+/// Whether organism trails are rendered
+#[derive(Resource)]
+pub struct TrailsVisible(pub bool);
+
+impl Default for TrailsVisible {
+    fn default() -> Self {
+        Self(false) // off by default — opt in with T
+    }
 }
 
 #[derive(Component)]
