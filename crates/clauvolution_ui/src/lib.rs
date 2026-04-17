@@ -109,6 +109,7 @@ fn header_bar_system(
     season: Res<Season>,
     speed: Res<SimSpeed>,
     mut ui_state: ResMut<UiState>,
+    mut input_state: ResMut<UiInputState>,
 ) {
     let ctx = contexts.ctx_mut();
 
@@ -146,8 +147,10 @@ fn header_bar_system(
             });
         });
 
-    // Track whether egui is consuming keyboard so hotkeys can gate themselves
+    // Track whether egui is consuming input so world-view systems can gate themselves
     ui_state.egui_wants_keyboard = ctx.wants_keyboard_input();
+    input_state.wants_keyboard = ctx.wants_keyboard_input();
+    input_state.pointer_over_ui = ctx.is_pointer_over_area() || ctx.wants_pointer_input();
 }
 
 /// Right side panel with tabs — one content area switched via tab bar

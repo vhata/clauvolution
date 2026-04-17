@@ -20,7 +20,8 @@ impl Plugin for CorePlugin {
             .insert_resource(Season::default())
             .insert_resource(FitnessTracker::default())
             .insert_resource(PopulationHistory::default())
-            .insert_resource(BloomEffects::default());
+            .insert_resource(BloomEffects::default())
+            .insert_resource(UiInputState::default());
     }
 }
 
@@ -293,6 +294,14 @@ impl PopulationHistory {
             self.snapshots.remove(0);
         }
     }
+}
+
+/// Tracks whether egui is currently capturing mouse/keyboard input
+/// so world-view systems can gate their handlers
+#[derive(Resource, Default)]
+pub struct UiInputState {
+    pub wants_keyboard: bool,
+    pub pointer_over_ui: bool,
 }
 
 /// World event requests — fired by UI buttons or keyboard shortcuts,

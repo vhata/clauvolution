@@ -157,9 +157,10 @@ fn click_select_system(
     existing_rings: Query<Entity, With<SelectionRing>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
+    ui_input: Res<UiInputState>,
 ) {
-    // Don't select when dragging
-    if keys.pressed(KeyCode::ShiftLeft) {
+    // Don't select when dragging or when pointer is over an egui panel
+    if keys.pressed(KeyCode::ShiftLeft) || ui_input.pointer_over_ui {
         return;
     }
 
@@ -557,6 +558,7 @@ fn camera_control_system(
     mut camera: Query<(&mut Transform, &mut OrthographicProjection), With<MainCamera>>,
     mut drag_state: ResMut<CameraDragState>,
     time: Res<Time>,
+    ui_input: Res<UiInputState>,
 ) {
     let Ok((mut transform, mut projection)) = camera.get_single_mut() else {
         return;
@@ -586,9 +588,14 @@ fn camera_control_system(
         projection.scale *= 1.0 + zoom_speed;
     }
 
-    for event in scroll_events.read() {
-        let zoom_factor = 1.0 + (-event.y * 0.02).clamp(-0.15, 0.15);
-        projection.scale *= zoom_factor;
+    // Only zoom with scroll when pointer is over the world, not when over egui panels
+    if ui_input.pointer_over_ui {
+        scroll_events.clear();
+    } else {
+        for event in scroll_events.read() {
+            let zoom_factor = 1.0 + (-event.y * 0.02).clamp(-0.15, 0.15);
+            projection.scale *= zoom_factor;
+        }
     }
 
     projection.scale = projection.scale.clamp(0.02, 15.0);
