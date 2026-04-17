@@ -111,9 +111,9 @@ Rust + [Bevy](https://bevyengine.org/) ECS engine. Cargo workspace with one crat
 | `clauvolution_body` | Phenotype decoding: genome to renderable body plan |
 | `clauvolution_world` | Tile-based terrain, biomes, spatial hashing, food spawning |
 | `clauvolution_sim` | Simulation tick: sensing, actions, predation, metabolism, reproduction, speciation |
-| `clauvolution_render` | Rendering, camera, LOD, organism inspection, minimap, help overlay |
+| `clauvolution_render` | World rendering: terrain, organism sprites, food, death markers, camera, LOD, minimap |
 | `clauvolution_phylogeny` | Phylogenetic tree, species ancestry tracking, species naming, world chronicle |
-| `clauvolution_ui` | Data visualisation panels *(planned)* |
+| `clauvolution_ui` | bevy_egui panels: header bar, tabbed right panel (Inspect / Phylo / Graphs / Chronicle / Events / Help) |
 
 ## Roadmap
 
@@ -138,9 +138,9 @@ See [TODO.md](TODO.md) for the prioritised backlog.
 - Seasonal cycles (60-second year, affects light and food)
 - Geographic barriers (oceans/mountains isolate populations)
 - Fitness tracking (average lifespan sparkline)
-- Population sparkline graphs (per-strategy breakdown)
+- Population line graphs via egui_plot (per-strategy breakdown, rates, food, lifespan)
 - Click-to-inspect organisms with full stat panel
-- Help overlay (H key) explaining everything
+- Help tab explaining everything
 - Action flash (organisms pulse when eating/attacking/reproducing)
 - Initial diversity seeding (30% photosynthesizers)
 - Dynamic LOD — body parts re-render when zoom level changes

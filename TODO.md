@@ -5,7 +5,7 @@ An evolution simulator where you watch life emerge, adapt, compete, and speciate
 ## What's Done
 
 - [x] Rust + Bevy ECS workspace
-- [x] Per-organism NEAT neural networks with 20 inputs, 9 outputs, recurrent memory
+- [x] Per-organism NEAT neural networks with 22 inputs, 9 outputs, recurrent memory
 - [x] Organisms sense food, neighbors, terrain, species, health, signals — brains decide everything
 - [x] Procedural terrain — oceans, deserts, grasslands, forests, rock
 - [x] Biome-aware food spawning + terrain-dependent movement costs
@@ -23,16 +23,16 @@ An evolution simulator where you watch life emerge, adapt, compete, and speciate
 - [x] Phylogenetic tree with ancestry tracking and lineage grouping
 - [x] World chronicle — automatic event log (speciation, extinction, convergence, seasons)
 - [x] Convergent evolution detection (summarised, not per-pair spam)
-- [x] Population sparkline graphs with per-strategy breakdown + fitness tracking
+- [x] Population line graphs (egui_plot) with per-strategy breakdown + fitness tracking
 - [x] Strategy breakdown (Plants / Predators / Foragers counts)
 - [x] Click-to-inspect with full stat panel
-- [x] Help overlay (H key) explaining everything for newcomers
+- [x] Help tab explaining everything for newcomers
 - [x] Action flash — organisms pulse when eating/attacking/reproducing
 - [x] Initial diversity seeding — 30% photosynthesizers at start
 - [x] Chemical signalling between organisms (brain input + output)
 - [x] Seasonal cycles — 60-second year, affects light and food production
 - [x] Geographic barriers — oceans/mountains isolate populations for speciation
-- [x] Fitness tracking — average lifespan sparkline
+- [x] Fitness tracking — average lifespan plotted over time
 - [x] Dynamic LOD — body parts re-render when zoom changes
 - [x] Species stability — higher threshold, slower reclassification, hysteresis
 - [x] Save/load — F5 saves to session directory, --load restores

@@ -6,7 +6,7 @@ An evolution simulator built in Rust + Bevy 0.15. Organisms with NEAT neural net
 
 ## Architecture
 
-Cargo workspace with 9 crates:
+Cargo workspace with 10 crates:
 
 - `clauvolution_core` — Shared types, config, resources (SimConfig, Session, Season, PopulationHistory, FitnessTracker, etc.)
 - `clauvolution_genome` — Genome with NEAT neurons/connections, body segments (8 types), mutation, crossover. 22 brain inputs, 9 outputs.
@@ -35,9 +35,10 @@ Cargo workspace with 9 crates:
 ## Common Patterns
 
 - All despawns use `try_despawn()` / `try_despawn_recursive()` to avoid B0003 errors from multi-system despawn races.
-- Sparkline graphs use Unicode block characters (▁▂▃▄▅▆▇█) with min-max normalization for levels, zero-anchored for rates.
+- Population graphs use `egui_plot` line charts (4 stacked plots, each independently zoomable).
 - Chronicle entries written to both in-memory Vec and disk log file simultaneously.
 - Population cap is 2000. Initial pop is 400 (30% seeded as photosynthesizers).
+- World events (extinctions, blooms, save) funnel through `WorldEventRequest` — keyboard hotkeys and UI buttons both emit the same event.
 
 ## Known Issues / Rough Edges
 
@@ -48,7 +49,7 @@ Cargo workspace with 9 crates:
 
 ## What's Implemented
 
-See TODO.md "What's Done" section. Highlights: NEAT brains with memory and social sensing (22 inputs), predation with energy pyramid, sexual reproduction, seasons, geographic barriers, phylogenetic tree, world chronicle, species naming, minimap with click-to-navigate and heatmap toggle, population graphs with per-strategy sparklines, group metabolic discount, save/load, manual screenshots.
+See TODO.md "What's Done" section. Highlights: NEAT brains with memory and social sensing (22 inputs), predation with energy pyramid, sexual reproduction, seasons, geographic barriers, phylogenetic tree, world chronicle, species naming, minimap with click-to-navigate and heatmap toggle, egui UI with tabbed right panel (Inspect / Phylo / Graphs / Chronicle / Events / Help), egui_plot line charts, plant density competition, bloom events, death markers, parent species tracking, save/load.
 
 ## What's Next (from TODO.md)
 
