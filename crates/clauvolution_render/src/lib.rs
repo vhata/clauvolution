@@ -31,7 +31,6 @@ impl Plugin for RenderPlugin {
                     update_death_markers,
                     camera_control_system,
                     update_stats_text,
-                    update_inspect_panel,
                     update_graph,
                     update_phylo_tree,
                     update_minimap,
@@ -46,9 +45,6 @@ pub struct MainCamera;
 
 #[derive(Component)]
 pub struct StatsText;
-
-#[derive(Component)]
-pub struct InspectPanel;
 
 #[derive(Component)]
 pub struct OrganismSprite;
@@ -160,26 +156,6 @@ fn setup_camera(mut commands: Commands, config: Res<SimConfig>, asset_server: Re
         },
         panel_bg,
         StatsText,
-    ));
-
-    // Inspect panel (top-right, below minimap)
-    commands.spawn((
-        Text::new(""),
-        TextFont {
-            font: font.clone(),
-            font_size: 14.0,
-            ..default()
-        },
-        TextColor(Color::srgb(1.0, 1.0, 0.8)),
-        Node {
-            position_type: PositionType::Absolute,
-            right: Val::Px(10.0),
-            top: Val::Px(180.0), // below 160px minimap + gap
-            padding: UiRect::all(Val::Px(6.0)),
-            ..default()
-        },
-        panel_bg,
-        InspectPanel,
     ));
 
     // Population graph (bottom-left)
@@ -781,105 +757,6 @@ fn update_stats_text(
 }
 
 /// Show details about selected organism
-fn update_inspect_panel(
-    selected: Res<SelectedOrganism>,
-    organisms: Query<(&Energy, &Health, &BodySize, &Genome, &SpeciesId, &Position, &Age, &Generation, &Signal, &GroupSize, &ParentInfo), With<Organism>>,
-    mut text_query: Query<&mut Text, With<InspectPanel>>,
-    tile_map: Option<Res<TileMap>>,
-    config: Res<SimConfig>,
-    phylo: Res<PhyloTree>,
-) {
-    let Ok(mut text) = text_query.get_single_mut() else {
-        return;
-    };
-
-    let Some(entity) = selected.entity else {
-        **text = String::new();
-        return;
-    };
-
-    let Ok((energy, health, body_size, genome, species, pos, age, generation, signal, group_size, parent_info)) = organisms.get(entity) else {
-        **text = "Selected organism died".to_string();
-        return;
-    };
-
-    let terrain_name = if let Some(tm) = &tile_map {
-        let tile = tm.tile_at_pos(pos.0);
-        format!("{:?}", tile.terrain)
-    } else {
-        "?".to_string()
-    };
-
-    let body_parts: Vec<String> = genome
-        .body_segments
-        .iter()
-        .map(|s| format!("{:?}", s.segment_type))
-        .collect();
-
-    let _strategy = if genome.photosynthesis_rate > 0.3 && genome.has_photo_surface() {
-        "Photosynthesizer"
-    } else if genome.claw_power() > 0.5 {
-        "Predator"
-    } else {
-        "Forager"
-    };
-
-    let species_name = phylo.nodes.get(&species.0)
-        .map(|n| n.name.as_str())
-        .unwrap_or("Unknown");
-
-    let parent_name = parent_info.parent_species_id
-        .and_then(|pid| phylo.nodes.get(&pid))
-        .map(|n| n.name.as_str())
-        .unwrap_or("(origin)");
-
-    **text = format!(
-        "--- ORGANISM ---\n\
-         {}\n\
-         Parent: {}\n\
-         Gen: {}  |  Age: {}\n\
-         Energy: {:.1} / {:.0}\n\
-         Health: {:.0}%\n\
-         Position: ({:.0}, {:.0})\n\
-         Terrain: {}\n\
-         \n\
-         --- BODY ---\n\
-         Size: {:.2}\n\
-         Speed: {:.2}\n\
-         Sense range: {:.1}\n\
-         Aquatic: {:.0}%\n\
-         Photo: {:.0}%\n\
-         Attack: {:.2}\n\
-         Armor: {:.2}\n\
-         Signal: {:.2}\n\
-         Group: {} nearby\n\
-         Parts: {}\n\
-         \n\
-         --- BRAIN ---\n\
-         Neurons: {}\n\
-         Connections: {}\n",
-        species_name,
-        parent_name,
-        generation.0, age.0,
-        energy.0, config.max_organism_energy,
-        health.0 * 100.0,
-        pos.0.x, pos.0.y,
-        terrain_name,
-        body_size.0,
-        genome.speed_factor,
-        genome.effective_sense_range(),
-        genome.aquatic_adaptation * 100.0,
-        genome.photosynthesis_rate * 100.0,
-        genome.claw_power(),
-        genome.armor_value(),
-        signal.0,
-        group_size.0,
-        body_parts.join(", "),
-        genome.neurons.len(),
-        genome.connections.iter().filter(|c| c.enabled).count(),
-    );
-}
-
 /// Toggle population graph visibility
 fn toggle_graph_system(
     keys: Res<ButtonInput<KeyCode>>,

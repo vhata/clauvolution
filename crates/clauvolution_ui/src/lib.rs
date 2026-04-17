@@ -1,7 +1,9 @@
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPlugin};
 use clauvolution_core::*;
-use clauvolution_phylogeny::{WorldChronicle};
+use clauvolution_genome::Genome;
+use clauvolution_phylogeny::{PhyloTree, WorldChronicle};
+use clauvolution_world::TileMap;
 
 pub struct UiPlugin;
 
@@ -154,6 +156,11 @@ fn right_panel_system(
     chronicle: Res<WorldChronicle>,
     mut event_writer: EventWriter<WorldEventRequest>,
     bloom: Res<BloomEffects>,
+    selected: Res<SelectedOrganism>,
+    organisms: Query<(&Energy, &Health, &BodySize, &Genome, &SpeciesId, &Position, &Age, &Generation, &Signal, &GroupSize, &ParentInfo), With<Organism>>,
+    tile_map: Option<Res<TileMap>>,
+    config: Res<SimConfig>,
+    phylo: Res<PhyloTree>,
 ) {
     let ctx = contexts.ctx_mut();
 
@@ -175,10 +182,7 @@ fn right_panel_system(
 
             match ui_state.right_tab {
                 RightTab::Inspect => {
-                    egui::ScrollArea::vertical().show(ui, |ui| {
-                        ui.heading("Inspect");
-                        ui.label("(migrating — old panel still active)");
-                    });
+                    inspect_tab(ui, &selected, &organisms, tile_map.as_deref(), &config, &phylo);
                 }
                 RightTab::Phylo => {
                     egui::ScrollArea::vertical().show(ui, |ui| {
@@ -205,6 +209,142 @@ fn right_panel_system(
                 }
             }
         });
+}
+
+fn inspect_tab(
+    ui: &mut egui::Ui,
+    selected: &SelectedOrganism,
+    organisms: &Query<(&Energy, &Health, &BodySize, &Genome, &SpeciesId, &Position, &Age, &Generation, &Signal, &GroupSize, &ParentInfo), With<Organism>>,
+    tile_map: Option<&TileMap>,
+    config: &SimConfig,
+    phylo: &PhyloTree,
+) {
+    let Some(entity) = selected.entity else {
+        ui.heading("Inspect");
+        ui.label("Click an organism to inspect it.");
+        return;
+    };
+
+    let Ok((energy, health, body_size, genome, species, pos, age, generation, signal, group_size, parent_info)) = organisms.get(entity) else {
+        ui.heading("Inspect");
+        ui.colored_label(egui::Color32::LIGHT_RED, "Selected organism died.");
+        return;
+    };
+
+    let species_name = phylo.nodes.get(&species.0)
+        .map(|n| n.name.as_str())
+        .unwrap_or("Unknown");
+    let parent_name = parent_info.parent_species_id
+        .and_then(|pid| phylo.nodes.get(&pid))
+        .map(|n| n.name.as_str())
+        .unwrap_or("(origin)");
+
+    let terrain_name = tile_map
+        .map(|tm| format!("{:?}", tm.tile_at_pos(pos.0).terrain))
+        .unwrap_or_else(|| "?".to_string());
+
+    let strategy = if genome.photosynthesis_rate > 0.2 && genome.has_photo_surface() {
+        ("Photosynthesizer", egui::Color32::from_rgb(120, 200, 100))
+    } else if genome.claw_power() > 0.5 {
+        ("Predator", egui::Color32::from_rgb(220, 100, 100))
+    } else {
+        ("Forager", egui::Color32::from_rgb(230, 230, 230))
+    };
+
+    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.heading(species_name);
+            ui.colored_label(strategy.1, strategy.0);
+        });
+        ui.separator();
+
+        egui::Grid::new("inspect_overview").num_columns(2).striped(true).show(ui, |ui| {
+            ui.label("Parent species");
+            ui.label(parent_name);
+            ui.end_row();
+
+            ui.label("Generation");
+            ui.label(generation.0.to_string());
+            ui.end_row();
+
+            ui.label("Age (ticks)");
+            ui.label(age.0.to_string());
+            ui.end_row();
+
+            ui.label("Energy");
+            let ratio = (energy.0 / config.max_organism_energy).clamp(0.0, 1.0);
+            ui.add(egui::ProgressBar::new(ratio)
+                .text(format!("{:.1} / {:.0}", energy.0, config.max_organism_energy)));
+            ui.end_row();
+
+            ui.label("Health");
+            ui.add(egui::ProgressBar::new(health.0.clamp(0.0, 1.0))
+                .text(format!("{:.0}%", health.0 * 100.0)));
+            ui.end_row();
+
+            ui.label("Position");
+            ui.label(format!("({:.0}, {:.0})", pos.0.x, pos.0.y));
+            ui.end_row();
+
+            ui.label("Terrain");
+            ui.label(terrain_name);
+            ui.end_row();
+
+            ui.label("Group nearby");
+            ui.label(group_size.0.to_string());
+            ui.end_row();
+        });
+
+        ui.add_space(8.0);
+        egui::CollapsingHeader::new("Body traits").default_open(true).show(ui, |ui| {
+            egui::Grid::new("inspect_body").num_columns(2).striped(true).show(ui, |ui| {
+                ui.label("Size");
+                ui.label(format!("{:.2}", body_size.0));
+                ui.end_row();
+
+                ui.label("Speed factor");
+                ui.label(format!("{:.2}", genome.speed_factor));
+                ui.end_row();
+
+                ui.label("Sense range");
+                ui.label(format!("{:.1}", genome.effective_sense_range()));
+                ui.end_row();
+
+                ui.label("Aquatic adaptation");
+                ui.label(format!("{:.0}%", genome.aquatic_adaptation * 100.0));
+                ui.end_row();
+
+                ui.label("Photosynthesis rate");
+                ui.label(format!("{:.0}%", genome.photosynthesis_rate * 100.0));
+                ui.end_row();
+
+                ui.label("Attack (claw power)");
+                ui.label(format!("{:.2}", genome.claw_power()));
+                ui.end_row();
+
+                ui.label("Armor value");
+                ui.label(format!("{:.2}", genome.armor_value()));
+                ui.end_row();
+
+                ui.label("Signal");
+                ui.label(format!("{:.2}", signal.0));
+                ui.end_row();
+            });
+        });
+
+        egui::CollapsingHeader::new("Body segments").show(ui, |ui| {
+            for seg in &genome.body_segments {
+                ui.label(format!("• {:?} (size {:.2})", seg.segment_type, seg.size));
+            }
+        });
+
+        egui::CollapsingHeader::new("Brain").show(ui, |ui| {
+            ui.label(format!("Neurons: {}", genome.neurons.len()));
+            ui.label(format!("Connections: {} enabled / {} total",
+                genome.connections.iter().filter(|c| c.enabled).count(),
+                genome.connections.len()));
+        });
+    });
 }
 
 fn events_tab(
