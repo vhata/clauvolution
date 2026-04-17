@@ -49,6 +49,10 @@ An evolution simulator where you watch life emerge, adapt, compete, and speciate
 - [x] Social sensing — group size + average group signal brain inputs, group metabolic discount (~5%)
 - [x] Performance — frustum culling, food hidden at far zoom, virtual time cap (100ms) prevents death spiral
 - [x] UI panel backgrounds — semi-transparent dark backing on all text panels for readability
+- [x] Death markers — red flash for predation kills, amber for starvation/old age
+- [x] Parent species tracking — inspect panel shows organism's lineage
+- [x] Bloom events — solar bloom (B), nutrient rain (N), Cambrian spark (J)
+- [x] Plant density competition — photosynthesizers shade each other, caps monoculture dominance
 
 ## What's Next (prioritised)
 
@@ -78,15 +82,6 @@ The big one. Pad all NEAT networks to a uniform max size, flatten into GPU buffe
 
 ### 4. WASM+WebGPU browser build
 Accessibility — run in a browser without installing anything.
-
----
-
-## Ecosystem Balance
-
-### Plant density competition
-Photosynthesizers currently don't compete for light — 500 plants on one tile all get the same yield. This makes plant worlds a stable attractor that crowds out other strategies. Fix: photosynthesis yield should drop with local plant density (shading). More plants on a tile = less light each. Biologically honest and naturally caps plant dominance, leaving room for predators and foragers to evolve.
-
-Could be as simple as: in photosynthesis_system, count plants on the same tile (or in a small radius), divide light by that count. Plants spread out to avoid competition, which creates gaps for other strategies.
 
 ---
 
