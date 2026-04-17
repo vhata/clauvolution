@@ -174,7 +174,7 @@ fn right_panel_system(
     mut event_writer: EventWriter<WorldEventRequest>,
     bloom: Res<BloomEffects>,
     selected: Res<SelectedOrganism>,
-    organisms: Query<(&Energy, &Health, &BodySize, &Genome, &SpeciesId, &Position, &Age, &Generation, &Signal, &GroupSize, &ParentInfo), With<Organism>>,
+    organisms: Query<(&Energy, &Health, &BodySize, &Genome, &SpeciesId, &Position, &Age, &Generation, &Signal, &GroupSize, &ParentInfo, Option<&Infection>), With<Organism>>,
     tile_map: Option<Res<TileMap>>,
     config: Res<SimConfig>,
     phylo: Res<PhyloTree>,
@@ -350,7 +350,7 @@ fn species_row(ui: &mut egui::Ui, node: &PhyloNode, current_tick: u64) {
 fn inspect_tab(
     ui: &mut egui::Ui,
     selected: &SelectedOrganism,
-    organisms: &Query<(&Energy, &Health, &BodySize, &Genome, &SpeciesId, &Position, &Age, &Generation, &Signal, &GroupSize, &ParentInfo), With<Organism>>,
+    organisms: &Query<(&Energy, &Health, &BodySize, &Genome, &SpeciesId, &Position, &Age, &Generation, &Signal, &GroupSize, &ParentInfo, Option<&Infection>), With<Organism>>,
     tile_map: Option<&TileMap>,
     config: &SimConfig,
     phylo: &PhyloTree,
@@ -361,7 +361,7 @@ fn inspect_tab(
         return;
     };
 
-    let Ok((energy, health, body_size, genome, species, pos, age, generation, signal, group_size, parent_info)) = organisms.get(entity) else {
+    let Ok((energy, health, body_size, genome, species, pos, age, generation, signal, group_size, parent_info, infection)) = organisms.get(entity) else {
         ui.heading("Inspect");
         ui.colored_label(egui::Color32::LIGHT_RED, "Selected organism died.");
         return;
@@ -391,6 +391,13 @@ fn inspect_tab(
         ui.horizontal(|ui| {
             ui.heading(species_name);
             ui.colored_label(strategy.1, strategy.0);
+            if let Some(inf) = infection {
+                ui.colored_label(
+                    egui::Color32::from_rgb(180, 80, 220),
+                    format!("⚠ INFECTED ({}s, sev {:.0}%)",
+                        inf.ticks_remaining / 30, inf.severity * 100.0),
+                );
+            }
         });
         ui.separator();
 
@@ -460,6 +467,10 @@ fn inspect_tab(
 
                 ui.label("Armor value");
                 ui.label(format!("{:.2}", genome.armor_value()));
+                ui.end_row();
+
+                ui.label("Disease resistance");
+                ui.label(format!("{:.0}%", genome.disease_resistance * 100.0));
                 ui.end_row();
 
                 ui.label("Signal");

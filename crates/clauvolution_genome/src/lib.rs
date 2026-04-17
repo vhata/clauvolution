@@ -200,6 +200,7 @@ pub struct Genome {
     pub photosynthesis_rate: f32,
     pub armor: f32,
     pub attack_power: f32,
+    pub disease_resistance: f32, // 0.0 = vulnerable, 1.0 = fully resistant
 }
 
 impl Genome {
@@ -269,6 +270,7 @@ impl Genome {
             photosynthesis_rate: rng.gen_range(0.0..0.1),
             armor: rng.gen_range(0.0..0.1),
             attack_power: rng.gen_range(0.0..0.1),
+            disease_resistance: rng.gen_range(0.0..0.2),
         }
     }
 
@@ -455,6 +457,10 @@ impl Genome {
             self.attack_power += normal.sample(rng) as f32 * 0.05;
             self.attack_power = self.attack_power.clamp(0.0, 1.0);
         }
+        if rng.gen::<f32>() < rate {
+            self.disease_resistance += normal.sample(rng) as f32 * 0.05;
+            self.disease_resistance = self.disease_resistance.clamp(0.0, 1.0);
+        }
 
         // Mutate existing body segments
         for seg in &mut self.body_segments {
@@ -629,6 +635,7 @@ impl Genome {
             photosynthesis_rate: self.photosynthesis_rate * t + other.photosynthesis_rate * (1.0 - t),
             armor: self.armor * t + other.armor * (1.0 - t),
             attack_power: self.attack_power * t + other.attack_power * (1.0 - t),
+            disease_resistance: self.disease_resistance * t + other.disease_resistance * (1.0 - t),
         }
     }
 
@@ -674,7 +681,8 @@ impl Genome {
             + (self.aquatic_adaptation - other.aquatic_adaptation).abs()
             + (self.photosynthesis_rate - other.photosynthesis_rate).abs()
             + (self.armor - other.armor).abs()
-            + (self.attack_power - other.attack_power).abs();
+            + (self.attack_power - other.attack_power).abs()
+            + (self.disease_resistance - other.disease_resistance).abs() * 0.5;
 
         (c1 * excess as f32 / n) + (c2 * disjoint as f32 / n) + (c3 * avg_weight_diff) + body_diff * 0.5
     }

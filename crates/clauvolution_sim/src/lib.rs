@@ -23,6 +23,8 @@ impl Plugin for SimPlugin {
                     predation_system,
                     photosynthesis_system,
                     niche_construction_system,
+                    disease_transmission_system,
+                    disease_effects_system,
                     metabolism_system,
                     death_system,
                     reproduction_system,
@@ -579,6 +581,93 @@ fn niche_construction_system(
 
         // All organisms slightly increase nutrients (waste products)
         tile.nutrients = (tile.nutrients + 0.0001).min(1.0);
+    }
+}
+
+/// Spread infection between nearby organisms and seed rare background infections.
+/// Runs before metabolism so infection status this tick can affect energy drain.
+fn disease_transmission_system(
+    spatial_hash: Res<SpatialHash>,
+    mut commands: Commands,
+    healthy: Query<(Entity, &Position, &Genome), (With<Organism>, Without<Infection>)>,
+    infected: Query<(&Position, &Infection), With<Organism>>,
+    tick: Res<TickCounter>,
+) {
+    let mut rng = rand::thread_rng();
+
+    // 1. Background spontaneous infection — keeps disease present even when
+    // populations would otherwise clear all pathogens. Very rare.
+    // Only runs every 30 ticks (once per sim-second) to keep cost down.
+    if tick.0 % 30 == 0 {
+        for (entity, _, genome) in &healthy {
+            if rng.gen::<f32>() < 0.0003 * (1.0 - genome.disease_resistance) {
+                commands.entity(entity).insert(Infection {
+                    severity: rng.gen_range(0.3..0.7),
+                    ticks_remaining: rng.gen_range(300..700), // 10-23 seconds
+                });
+            }
+        }
+    }
+
+    // 2. Proximity transmission — spreads from infected to nearby healthy.
+    // Cost: spatial_hash query per infected organism, typically O(infected * ~20).
+    for (entity, healthy_pos, genome) in &healthy {
+        // Short-range transmission — you catch it from near-contact, not the whole biome
+        let transmission_range = 12.0;
+        let nearby = spatial_hash.query_radius(healthy_pos.0, transmission_range);
+
+        let mut infection_pressure = 0.0f32;
+        let mut best_severity = 0.0f32;
+        let mut best_remaining = 0u32;
+
+        for &sick_entity in &nearby {
+            if sick_entity == entity { continue; }
+            if let Ok((sick_pos, sick_inf)) = infected.get(sick_entity) {
+                let dist = (sick_pos.0 - healthy_pos.0).length();
+                if dist < transmission_range {
+                    // Closer + more severe = more pressure
+                    let prox = 1.0 - (dist / transmission_range);
+                    infection_pressure += sick_inf.severity * prox;
+                    if sick_inf.severity > best_severity {
+                        best_severity = sick_inf.severity;
+                        best_remaining = sick_inf.ticks_remaining;
+                    }
+                }
+            }
+        }
+
+        if infection_pressure <= 0.001 { continue; }
+
+        // Per-tick infection chance, reduced by resistance
+        let chance = (infection_pressure * 0.005 * (1.0 - genome.disease_resistance)).min(0.1);
+        if rng.gen::<f32>() < chance {
+            // Inherit roughly the strain's severity & duration, slightly weakened
+            commands.entity(entity).insert(Infection {
+                severity: (best_severity * 0.9).clamp(0.1, 1.0),
+                ticks_remaining: (best_remaining * 8 / 10).max(200),
+            });
+        }
+    }
+}
+
+/// Apply per-tick disease effects: energy drain, tick down timer, remove when expired.
+fn disease_effects_system(
+    mut commands: Commands,
+    mut infected: Query<(Entity, &mut Energy, &mut Infection, &Genome), With<Organism>>,
+    config: Res<SimConfig>,
+) {
+    for (entity, mut energy, mut infection, genome) in &mut infected {
+        // Resistance cushions the drain
+        let drain = config.base_metabolism_cost
+            * infection.severity
+            * (1.0 - genome.disease_resistance * 0.5)
+            * 0.8;
+        energy.0 -= drain;
+
+        infection.ticks_remaining = infection.ticks_remaining.saturating_sub(1);
+        if infection.ticks_remaining == 0 {
+            commands.entity(entity).remove::<Infection>();
+        }
     }
 }
 

@@ -452,6 +452,14 @@ pub struct ParentInfo {
     pub parent_species_id: Option<u64>,
 }
 
+/// An organism's current infection state. Absent = healthy.
+/// Severity and ticks_remaining are sampled on infection and decrement over time.
+#[derive(Component, Default, Clone)]
+pub struct Infection {
+    pub severity: f32,       // 0.0-1.0, scales energy drain and transmission
+    pub ticks_remaining: u32, // counts down to 0 = recovered
+}
+
 /// Ring buffer of recent positions, used for drawing trails behind organisms.
 /// Sampled every N ticks by the sim, consumed by the render trail system.
 #[derive(Component, Default)]

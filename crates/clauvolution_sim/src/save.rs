@@ -52,6 +52,8 @@ pub struct SaveGenome {
     pub photosynthesis_rate: f32,
     pub armor: f32,
     pub attack_power: f32,
+    #[serde(default)]
+    pub disease_resistance: f32,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -152,6 +154,7 @@ fn genome_to_save(g: &Genome) -> SaveGenome {
         photosynthesis_rate: g.photosynthesis_rate,
         armor: g.armor,
         attack_power: g.attack_power,
+        disease_resistance: g.disease_resistance,
     }
 }
 
@@ -202,6 +205,7 @@ fn save_to_genome(s: &SaveGenome) -> Genome {
         photosynthesis_rate: s.photosynthesis_rate,
         armor: s.armor,
         attack_power: s.attack_power,
+        disease_resistance: s.disease_resistance,
     }
 }
 

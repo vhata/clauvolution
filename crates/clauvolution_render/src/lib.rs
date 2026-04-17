@@ -29,6 +29,7 @@ impl Plugin for RenderPlugin {
                     sync_food_transforms,
                     update_death_markers,
                     draw_trails_system,
+                    draw_infection_indicators_system,
                     camera_control_system,
                     update_minimap,
                 )
@@ -658,6 +659,39 @@ fn toggle_trails_system(
                 trail.positions.clear();
             }
         }
+    }
+}
+
+/// Draw a pulsing purple halo around infected organisms using gizmos.
+/// Stateless — no entity bookkeeping, batched into a single draw call.
+fn draw_infection_indicators_system(
+    mut gizmos: Gizmos,
+    infected: Query<(&Position, &BodySize, &Infection), With<Organism>>,
+    camera: Query<(&Transform, &OrthographicProjection), (With<MainCamera>, Without<Organism>, Without<SelectionRing>)>,
+    time: Res<Time>,
+) {
+    let Ok((cam_t, proj)) = camera.get_single() else { return };
+    let half_w = 960.0 * proj.scale;
+    let half_h = 540.0 * proj.scale;
+    let margin = 40.0 * proj.scale;
+    let cam_left = cam_t.translation.x - half_w - margin;
+    let cam_right = cam_t.translation.x + half_w + margin;
+    let cam_bottom = cam_t.translation.y - half_h - margin;
+    let cam_top = cam_t.translation.y + half_h + margin;
+
+    // Pulse rate: slow (about 1Hz). Breath-like.
+    let pulse = (time.elapsed_secs() * std::f32::consts::TAU).sin() * 0.15 + 0.85;
+
+    for (pos, body_size, infection) in &infected {
+        if pos.0.x < cam_left || pos.0.x > cam_right
+            || pos.0.y < cam_bottom || pos.0.y > cam_top {
+            continue;
+        }
+        // Purple, opacity scales with severity
+        let alpha = (0.35 + 0.35 * infection.severity).clamp(0.2, 0.8);
+        let color = Color::srgba(0.7, 0.2, 0.9, alpha);
+        let radius = body_size.0 * 2.2 * pulse;
+        gizmos.circle_2d(pos.0, radius, color);
     }
 }
 
