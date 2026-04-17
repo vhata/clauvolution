@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPlugin};
 use clauvolution_core::*;
+use clauvolution_phylogeny::{WorldChronicle};
 
 pub struct UiPlugin;
 
@@ -24,10 +25,21 @@ pub enum RightTab {
     Help,
 }
 
-#[derive(Resource, Default)]
+#[derive(Resource)]
 pub struct UiState {
     pub right_tab: RightTab,
     pub egui_wants_keyboard: bool,
+    pub chronicle_hide_seasons: bool,
+}
+
+impl Default for UiState {
+    fn default() -> Self {
+        Self {
+            right_tab: RightTab::default(),
+            egui_wants_keyboard: false,
+            chronicle_hide_seasons: false,
+        }
+    }
 }
 
 fn help_tab(ui: &mut egui::Ui) {
@@ -139,6 +151,7 @@ fn header_bar_system(
 fn right_panel_system(
     mut contexts: EguiContexts,
     mut ui_state: ResMut<UiState>,
+    chronicle: Res<WorldChronicle>,
 ) {
     let ctx = contexts.ctx_mut();
 
@@ -158,33 +171,75 @@ fn right_panel_system(
             });
             ui.separator();
 
-            // Content area — placeholder for each tab until migrated
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                match ui_state.right_tab {
-                    RightTab::Inspect => {
+            match ui_state.right_tab {
+                RightTab::Inspect => {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
                         ui.heading("Inspect");
                         ui.label("(migrating — old panel still active)");
-                    }
-                    RightTab::Phylo => {
+                    });
+                }
+                RightTab::Phylo => {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
                         ui.heading("Phylogenetic tree");
                         ui.label("(migrating — old panel still active)");
-                    }
-                    RightTab::Graphs => {
+                    });
+                }
+                RightTab::Graphs => {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
                         ui.heading("Population graphs");
                         ui.label("(migrating — old panel still active)");
-                    }
-                    RightTab::Chronicle => {
-                        ui.heading("World chronicle");
-                        ui.label("(migrating — old panel still active)");
-                    }
-                    RightTab::Events => {
+                    });
+                }
+                RightTab::Chronicle => {
+                    chronicle_tab(ui, &chronicle, &mut ui_state.chronicle_hide_seasons);
+                }
+                RightTab::Events => {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
                         ui.heading("Events");
                         ui.label("(migrating — old panel still active)");
-                    }
-                    RightTab::Help => {
+                    });
+                }
+                RightTab::Help => {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
                         help_tab(ui);
+                    });
+                }
+            }
+        });
+}
+
+fn chronicle_tab(ui: &mut egui::Ui, chronicle: &WorldChronicle, hide_seasons: &mut bool) {
+    ui.horizontal(|ui| {
+        ui.heading("Chronicle");
+        ui.add_space(8.0);
+        ui.checkbox(hide_seasons, "Hide seasons");
+    });
+    ui.separator();
+
+    let hide = *hide_seasons;
+    egui::ScrollArea::vertical()
+        .stick_to_bottom(true)
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            for entry in &chronicle.entries {
+                // Simple filter: skip season change entries if hidden
+                if hide {
+                    let t = &entry.text;
+                    if t.starts_with("Spring") || t.starts_with("Summer")
+                        || t.starts_with("Autumn") || t.starts_with("Winter") {
+                        continue;
                     }
                 }
-            });
+                let time_secs = entry.tick / 30;
+                let time_str = if time_secs >= 60 {
+                    format!("{}m{:02}s", time_secs / 60, time_secs % 60)
+                } else {
+                    format!("{:3}s", time_secs)
+                };
+                ui.horizontal(|ui| {
+                    ui.monospace(format!("[{}]", time_str));
+                    ui.label(&entry.text);
+                });
+            }
         });
 }

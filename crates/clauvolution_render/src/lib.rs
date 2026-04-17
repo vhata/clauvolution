@@ -6,7 +6,7 @@ use bevy::window::PrimaryWindow;
 use clauvolution_body::BodyPlan;
 use clauvolution_core::*;
 use clauvolution_genome::{Genome, SegmentType};
-use clauvolution_phylogeny::{PhyloTree, WorldChronicle};
+use clauvolution_phylogeny::PhyloTree;
 use clauvolution_world::TileMap;
 
 pub struct RenderPlugin;
@@ -16,12 +16,11 @@ impl Plugin for RenderPlugin {
         app.init_resource::<CameraDragState>()
             .init_resource::<SharedMeshes>()
             .init_resource::<LodState>()
-            .init_resource::<ChronicleVisible>()
             .init_resource::<MinimapMode>()
             .add_systems(Startup, (setup_camera, setup_shared_meshes, setup_minimap))
             .add_systems(
                 Update,
-                (speed_control_system, click_select_system, toggle_graph_system, toggle_chronicle_system, toggle_minimap_mode_system, lod_change_system, manual_screenshot_system, minimap_click_system),
+                (speed_control_system, click_select_system, toggle_graph_system, toggle_minimap_mode_system, lod_change_system, manual_screenshot_system, minimap_click_system),
             )
             .add_systems(
                 PostUpdate,
@@ -35,7 +34,6 @@ impl Plugin for RenderPlugin {
                     update_inspect_panel,
                     update_graph,
                     update_phylo_tree,
-                    update_chronicle,
                     update_minimap,
                 )
                     .chain(),
@@ -76,11 +74,6 @@ impl Default for LodState {
     }
 }
 
-#[derive(Resource, Default)]
-pub struct ChronicleVisible(pub bool);
-
-#[derive(Component)]
-pub struct ChronicleText;
 
 #[derive(Resource)]
 pub struct UiFont(pub Handle<Font>);
@@ -227,26 +220,6 @@ fn setup_camera(mut commands: Commands, config: Res<SimConfig>, asset_server: Re
         },
         panel_bg,
         PhyloText,
-    ));
-
-    // Chronicle (left side, above graphs)
-    commands.spawn((
-        Text::new(""),
-        TextFont {
-            font: font.clone(),
-            font_size: 11.0,
-            ..default()
-        },
-        TextColor(Color::srgba(1.0, 0.9, 0.7, 0.9)),
-        Node {
-            position_type: PositionType::Absolute,
-            left: Val::Px(10.0),
-            top: Val::Percent(40.0),
-            padding: UiRect::all(Val::Px(6.0)),
-            ..default()
-        },
-        panel_bg,
-        ChronicleText,
     ));
 
 }
@@ -1030,15 +1003,6 @@ fn update_phylo_tree(
     **text = phylo.render_text(tick.0);
 }
 
-fn toggle_chronicle_system(
-    keys: Res<ButtonInput<KeyCode>>,
-    mut visible: ResMut<ChronicleVisible>,
-) {
-    if keys.just_pressed(KeyCode::KeyC) {
-        visible.0 = !visible.0;
-    }
-}
-
 fn toggle_minimap_mode_system(
     keys: Res<ButtonInput<KeyCode>>,
     mut mode: ResMut<MinimapMode>,
@@ -1051,22 +1015,6 @@ fn toggle_minimap_mode_system(
     }
 }
 
-fn update_chronicle(
-    visible: Res<ChronicleVisible>,
-    chronicle: Res<WorldChronicle>,
-    mut text_query: Query<&mut Text, With<ChronicleText>>,
-) {
-    let Ok(mut text) = text_query.get_single_mut() else {
-        return;
-    };
-
-    if !visible.0 {
-        **text = String::new();
-        return;
-    }
-
-    **text = chronicle.render_text();
-}
 
 /// Detect zoom crossing the LOD threshold and strip sprites so they re-render
 fn lod_change_system(
