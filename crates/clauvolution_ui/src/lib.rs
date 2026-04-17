@@ -12,8 +12,24 @@ impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(EguiPlugin)
             .init_resource::<UiState>()
-            .add_systems(Update, (header_bar_system, right_panel_system));
+            // Read egui's capture state from the PREVIOUS frame's panel layout
+            // so Update/PostUpdate systems this frame can gate on it.
+            // egui carries layout state across frames (immediate mode builds
+            // rects during show() and they remain queryable until next show()).
+            .add_systems(PreUpdate, update_input_capture_system)
+            .add_systems(Update, (header_bar_system, right_panel_system).chain());
     }
+}
+
+fn update_input_capture_system(
+    mut contexts: EguiContexts,
+    mut input_state: ResMut<UiInputState>,
+) {
+    let ctx = contexts.ctx_mut();
+    input_state.wants_keyboard = ctx.wants_keyboard_input();
+    input_state.pointer_over_ui = ctx.is_pointer_over_area()
+        || ctx.wants_pointer_input()
+        || ctx.is_using_pointer();
 }
 
 /// Which tab the right panel is showing
@@ -109,7 +125,6 @@ fn header_bar_system(
     season: Res<Season>,
     speed: Res<SimSpeed>,
     mut ui_state: ResMut<UiState>,
-    mut input_state: ResMut<UiInputState>,
 ) {
     let ctx = contexts.ctx_mut();
 
@@ -147,10 +162,7 @@ fn header_bar_system(
             });
         });
 
-    // Track whether egui is consuming input so world-view systems can gate themselves
     ui_state.egui_wants_keyboard = ctx.wants_keyboard_input();
-    input_state.wants_keyboard = ctx.wants_keyboard_input();
-    input_state.pointer_over_ui = ctx.is_pointer_over_area() || ctx.wants_pointer_input();
 }
 
 /// Right side panel with tabs — one content area switched via tab bar
