@@ -57,7 +57,7 @@ One-liner list of what Clauvolution does, grouped by area. For the design ration
 
 ## Navigation & camera
 
-- **Minimap** — top-right world overview with click-to-navigate and camera viewport rectangle
+- **Minimap** — top-left world overview with click-to-navigate and camera viewport rectangle
 - **Minimap legend** — colour key below the minimap for plants / foragers / predators
 - **Minimap selection marker** — bright yellow plus at the selected organism's position
 - **Population heatmap (M)** — minimap toggles between organism-dots and strategy-coloured density

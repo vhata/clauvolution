@@ -148,7 +148,8 @@ fn setup_camera(mut commands: Commands, config: Res<SimConfig>, asset_server: Re
         MainCamera,
     ));
 
-    // Minimap legend — sits directly below the 160px minimap (top:10, size:160 → 175 for 5px gap)
+    // Minimap legend — sits directly below the 160px minimap (top:38, size:160 → 203 for 5px gap).
+    // Top offset of 38 clears the 28px egui header bar plus a 10px gap.
     // Colours mirror the minimap organism dots and heatmap bins.
     let legend_entries: [(Color, &str); 3] = [
         (Color::srgb(0.39, 1.0, 0.39), "plants"),
@@ -159,8 +160,8 @@ fn setup_camera(mut commands: Commands, config: Res<SimConfig>, asset_server: Re
         .spawn((
             Node {
                 position_type: PositionType::Absolute,
-                right: Val::Px(10.0),
-                top: Val::Px(175.0),
+                left: Val::Px(10.0),
+                top: Val::Px(203.0),
                 width: Val::Px(160.0),
                 flex_direction: FlexDirection::Column,
                 padding: UiRect::all(Val::Px(5.0)),
@@ -870,13 +871,15 @@ fn setup_minimap(
     image.sampler = ImageSampler::nearest();
     let image_handle = images.add(image);
 
-    // Spawn UI node for the minimap
+    // Spawn UI node for the minimap.
+    // Placed top-LEFT below the 28px egui header bar so the egui side panel
+    // (which always hugs the right edge) can't hide it.
     commands.spawn((
         ImageNode::new(image_handle.clone()),
         Node {
             position_type: PositionType::Absolute,
-            right: Val::Px(10.0),
-            top: Val::Px(10.0),
+            left: Val::Px(10.0),
+            top: Val::Px(38.0),
             width: Val::Px(size as f32),
             height: Val::Px(size as f32),
             ..default()
@@ -1144,12 +1147,11 @@ fn minimap_click_system(
     // Get minimap screen position and size
     let Ok((_node, _computed)) = minimap_node.get_single() else { return };
 
-    // The minimap is positioned at right:10, top:10 with fixed size
+    // The minimap is positioned at left:10, top:38 with fixed size
+    // (38 = 28px egui header + 10px gap).
     let map_size = minimap.size as f32;
-    let win_w = window.width();
-    let map_right = 10.0;
-    let map_top = 10.0;
-    let map_left = win_w - map_right - map_size;
+    let map_left = 10.0;
+    let map_top = 38.0;
 
     // Check if click is within minimap bounds
     let local_x = cursor_pos.x - map_left;
