@@ -57,6 +57,28 @@ const CAMBRIAN_MUTATION_MULTIPLIER: f32 = 3.0;
 /// Fraction of world tiles that receive a food drop during a nutrient rain.
 const NUTRIENT_RAIN_DENSITY: f32 = 0.05;
 
+// -----------------------------------------------------------------------------
+// Other simulation tuning constants
+// -----------------------------------------------------------------------------
+
+/// Penalty coefficient for plants sharing a tile. Yield = 1 / (1 + others × k).
+/// Higher k = steeper penalty. Raising this combats green-world monocultures.
+const PLANT_DENSITY_PENALTY: f32 = 0.2;
+
+/// Minimum real-time seconds between extinction/bloom events (prevents spam).
+const WORLD_EVENT_COOLDOWN_SECS: f32 = 2.0;
+
+/// Real-time seconds between species-classification passes.
+/// Higher = more stable species names; lower = faster speciation detection.
+const SPECIES_CLASSIFICATION_PERIOD_SECS: f32 = 5.0;
+
+/// Seconds between population-history samples (drives Graphs tab granularity).
+const POP_HISTORY_SAMPLE_SECS: f32 = 1.0;
+
+/// Hysteresis factor: organisms stay in their current species if their distance
+/// is within this multiple of the compatibility threshold. Prevents flip-flopping.
+const SPECIES_HYSTERESIS_FACTOR: f32 = 1.3;
+
 pub struct SimPlugin;
 
 impl Plugin for SimPlugin {
@@ -85,11 +107,11 @@ impl Plugin for SimPlugin {
             .insert_resource(Time::<Fixed>::from_hz(30.0))
             .insert_resource(Time::<Virtual>::from_max_delta(std::time::Duration::from_millis(100)))
             .insert_resource(SpeciesClassificationTimer(Timer::from_seconds(
-                5.0,
+                SPECIES_CLASSIFICATION_PERIOD_SECS,
                 TimerMode::Repeating,
             )))
-            .insert_resource(ExtinctionCooldown(Timer::from_seconds(2.0, TimerMode::Once)))
-            .insert_resource(PopHistoryTimer(Timer::from_seconds(1.0, TimerMode::Repeating)));
+            .insert_resource(ExtinctionCooldown(Timer::from_seconds(WORLD_EVENT_COOLDOWN_SECS, TimerMode::Once)))
+            .insert_resource(PopHistoryTimer(Timer::from_seconds(POP_HISTORY_SAMPLE_SECS, TimerMode::Repeating)));
     }
 }
 
@@ -603,7 +625,7 @@ fn photosynthesis_system(
             let ty = (pos.0.y as u32).min(tile_map.height - 1);
             let tile_plants = plants_per_tile.get(&(tx, ty)).copied().unwrap_or(1);
             let others = tile_plants.saturating_sub(1);
-            let density_factor = 1.0 / (1.0 + others as f32 * 0.2);
+            let density_factor = 1.0 / (1.0 + others as f32 * PLANT_DENSITY_PENALTY);
 
             let gained = genome.photosynthesis_rate * photo_area * tile.light_level * light_mult * density_factor * 2.0;
             energy.0 = (energy.0 + gained).min(config.max_organism_energy);
@@ -985,7 +1007,7 @@ fn species_classification_system(
 
         // Hysteresis: prefer current species — only leave if nothing fits within threshold
         // but give current species a bonus (1.5x threshold to stay)
-        let stay_threshold = config.species_compat_threshold * 1.3;
+        let stay_threshold = config.species_compat_threshold * SPECIES_HYSTERESIS_FACTOR;
 
         for (species_id, rep_genome) in &species_reps {
             let dist = genome.compatibility_distance(rep_genome);

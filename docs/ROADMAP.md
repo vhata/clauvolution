@@ -231,10 +231,9 @@ Observing the sim trend toward any of these = trigger to tune.
 - `render` systems clone mesh/material handles frequently — handles are cheap (Arc-like) but the pattern obscures that.
 
 **Magic numbers that should be named:**
-- Disease tuning literals (`20.0` transmission range, `1.6` drain multiplier, `0.0015` mortality, `300..700` infection duration, `0.001` background rate) live inline in `disease_transmission_system` / `disease_effects_system`. Should be grouped as `DiseaseConfig` constants or even moved into `SimConfig` so tuning doesn't require a recompile.
-- Bloom durations all hardcoded as `900` (30s at 30Hz) in three places in `mass_extinction_input_system`. One named const.
-- Plant density competition coefficient `0.2` in `photosynthesis_system`.
-- 2-second extinction cooldown and 5-second species-classification period in `SimPlugin::build`. These are tuned values, deserve names.
+- ~~Disease tuning literals~~, ~~bloom durations~~, ~~plant density coefficient~~, ~~extinction cooldown~~, ~~species classification period~~, ~~species hysteresis factor~~ — all done (named consts at top of `clauvolution_sim/src/lib.rs`).
+- Still inline: random click-radius, frustum margin, disease severity clamps, NEAT innovation/mutation thresholds in genome crate. Lower priority — not frequently tuned.
+- Future: promote the tuning consts to a `SimConfig`-style resource so they can be edited live via the UI without recompile (would serve the tuning loop even more directly).
 
 **Large multi-concern functions:**
 - `sensing_and_brain_system` (~114 lines) does spatial querying, input assembly, social sensing computation, and brain evaluation in one loop. Splitting the sensing pass from the brain-eval pass would also enable Rayon parallelism (ROADMAP theme 4).
