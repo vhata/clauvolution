@@ -62,16 +62,15 @@ When a species dies out, capture a snapshot of its last 30 seconds — populatio
 
 More kinds of evolution to watch unfold. Each adds a qualitatively new pressure.
 
-**Top pick:** Symbiosis. After disease, it's the next piece of the richer-ecosystem puzzle.
+**Top pick:** Long-term climate shift, now that symbiosis has shipped.
 
 ### Symbiosis
-Two organisms spending extended time in close proximity develop an "energy link". A genome trait determines whether they drain (parasite), donate (altruist), or both (mutualist). Evolution decides whether symbiotic pairs outcompete solo organisms.
+✅ **Shipped (v1).** Genome gets a `symbiosis_rate` trait in [-1.0, +1.0]. Proximity tracker looks for a mutual-nearest neighbour held for 30+ consecutive ticks within 6 world units; once locked, each party transfers `rate * 0.05` energy to its partner per tick (negative rate drains). Graphs tab shows mutual-pair count + avg evolved rate. Inspect tab labels each organism parasite/neutral/donor.
 
-**Shape:**
-- Proximity tracker per organism (nearest-stable-neighbour over N ticks)
-- New genome trait: `symbiosis_rate` (-1.0 drain to +1.0 donate)
-- When link forms, energy transfer happens per tick based on both parties' rates
-- Selection sorts out viable strategies
+**Follow-ups / known roughness:**
+- Dynamic barely bites at v1 numbers. 3000-tick headless runs show only ~26 mutual pairs across ~2000 orgs and the rate doesn't drift much — budget a tuning pass. Candidates: relax the 30-tick streak, widen the 6-unit contact range, bump the 0.05 transfer rate, or give linked pairs a metabolic discount so mutualists have a reason to stay.
+- Visual feedback is text-only in Inspect; a gizmos line between linked pairs would make the dynamic visible in the main view.
+- No brain input yet — organisms can't sense "am I linked?" or "what's my partner doing?" Worth adding if we want behavioural co-adaptation.
 
 ### Long-term climate shift
 Very slow sinusoidal temperature drift over many seasons (e.g. a 30-minute cycle vs the 60-second year). Multi-generational selection pressure distinct from seasons.

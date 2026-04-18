@@ -16,6 +16,7 @@ One-liner list of what Clauvolution does, grouped by area. For the design ration
 - **Metabolism** — quadratic costs for body size, armor, claws, speed; per-segment maintenance costs
 - **Organism aging** — metabolism cost rises past age 500; natural death past age 3000
 - **Chemical signalling** — each organism emits and senses a signal; evolution decides meaning
+- **Symbiosis** — `symbiosis_rate` genome trait; mutual-nearest neighbours held for 30+ ticks form a link, exchanging energy per each party's rate (parasite ↔ donor). v1, tuning pending.
 - **Social sensing** — group size + avg nearby signal as brain inputs; small metabolic discount for clustering
 - **Niche construction** — organisms modify the tiles they occupy (vegetation, moisture, nutrients)
 
