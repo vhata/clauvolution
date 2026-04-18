@@ -20,6 +20,7 @@ impl Plugin for CorePlugin {
         app.add_event::<WorldEventRequest>()
             .insert_resource(SimConfig::default())
             .insert_resource(SimStats::default())
+            .insert_resource(PredationStats::default())
             .insert_resource(TickCounter(0))
             .insert_resource(SimSpeed::default())
             .insert_resource(SpeciesColors::default())
@@ -182,6 +183,25 @@ pub struct SimStats {
     pub species_count: u32,
     /// Deaths categorised by cause, indexed by DeathCause as usize
     pub deaths_by_cause: [u64; 4],
+}
+
+/// Instrumentation counters for the attack path. Rolled up over a whole run
+/// so we can diagnose why "Predator"-classified genomes produce zero
+/// predation deaths — is the brain never firing the attack output, are
+/// targets out of range, is the size gate rejecting, or is damage too low
+/// after armor?
+#[derive(Resource, Default)]
+pub struct PredationStats {
+    /// `output.attack > 0.5` fired this tick
+    pub attacks_attempted: u64,
+    /// Attacker found at least one neighbour entity within attack range
+    pub targets_considered: u64,
+    /// Candidate rejected: attacker body size <= prey body size * 0.6
+    pub rejected_size_gate: u64,
+    /// Candidate rejected: damage (claw vs armor) <= 0.1
+    pub rejected_damage: u64,
+    /// Successful kills
+    pub kills: u64,
 }
 
 #[derive(Resource)]

@@ -355,6 +355,7 @@ fn headless_tick_counter(
     target: Res<HeadlessTickTarget>,
     tick: Res<clauvolution_core::TickCounter>,
     stats: Res<clauvolution_core::SimStats>,
+    predation: Res<clauvolution_core::PredationStats>,
     history: Res<clauvolution_core::PopulationHistory>,
     mut exit: EventWriter<AppExit>,
     mut done: Local<bool>,
@@ -363,7 +364,7 @@ fn headless_tick_counter(
         return;
     }
     if tick.0 >= target.0 {
-        print_headless_summary(&stats, &history);
+        print_headless_summary(&stats, &predation, &history);
         exit.send(AppExit::Success);
         *done = true;
     }
@@ -371,6 +372,7 @@ fn headless_tick_counter(
 
 fn print_headless_summary(
     stats: &clauvolution_core::SimStats,
+    predation: &clauvolution_core::PredationStats,
     history: &clauvolution_core::PopulationHistory,
 ) {
     eprintln!();
@@ -401,5 +403,12 @@ fn print_headless_summary(
         eprintln!("  Disease resistance:  {:.0}%", latest.avg_disease_resistance * 100.0);
         eprintln!("  Avg lifespan:        {:.0} ticks", latest.avg_lifespan);
     }
+    eprintln!();
+    eprintln!("Predation funnel:");
+    eprintln!("  Attack intents:      {}", predation.attacks_attempted);
+    eprintln!("  Targets considered:  {}", predation.targets_considered);
+    eprintln!("  Rejected (size):     {}", predation.rejected_size_gate);
+    eprintln!("  Rejected (damage):   {}", predation.rejected_damage);
+    eprintln!("  Kills:               {}", predation.kills);
     eprintln!();
 }

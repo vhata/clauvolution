@@ -565,6 +565,7 @@ fn predation_system(
     >,
     _commands: Commands,
     _stats: ResMut<SimStats>,
+    mut predation_stats: ResMut<PredationStats>,
 ) {
     // Collect attack intents
     let attackers: Vec<(Entity, Vec2, f32, f32, f32)> = organisms
@@ -576,6 +577,7 @@ fn predation_system(
             (e, pos.0, attack_str, attack_range, body_size.0)
         })
         .collect();
+    predation_stats.attacks_attempted += attackers.len() as u64;
 
     // (killer, victim, victim_energy) — energy transfer computed at kill time
     let mut kills: Vec<(Entity, Entity, f32)> = Vec::new();
@@ -596,10 +598,21 @@ fn predation_system(
                     continue;
                 }
 
+                predation_stats.targets_considered += 1;
+
                 let defense = target_genome.armor_value() * target_body_size.0;
                 let damage = (attack_str - defense * 0.5).max(0.0);
+                let size_ok = *attacker_size > target_body_size.0 * 0.6;
+                let damage_ok = damage > 0.1;
 
-                if damage > 0.1 && *attacker_size > target_body_size.0 * 0.6 {
+                if !size_ok {
+                    predation_stats.rejected_size_gate += 1;
+                }
+                if !damage_ok {
+                    predation_stats.rejected_damage += 1;
+                }
+
+                if damage_ok && size_ok {
                     // Energy pyramid: predator gets 10% of prey's actual stored energy.
                     // This is thermodynamics — most energy is lost as heat.
                     let energy_gained = target_energy.0 * 0.1;
@@ -609,6 +622,8 @@ fn predation_system(
             }
         }
     }
+
+    predation_stats.kills += kills.len() as u64;
 
     for (killer, victim, energy_gained) in kills {
         if let Ok((_, _, mut killer_energy, _, mut killer_flash, _, _, _)) = organisms.get_mut(killer) {
@@ -821,9 +836,15 @@ fn metabolism_system(
 
         energy.0 -= cost;
 
-        // Health regenerates slower with age
-        let regen_rate = 0.005 / age_factor;
-        health.0 = (health.0 + regen_rate).min(1.0);
+        // Health regenerates slower with age.
+        // Skip regen if already at zero — a fatally-wounded organism shouldn't
+        // heal itself between predation and death_system. Without this gate,
+        // predation kills get misattributed to Starvation because the victim's
+        // health bounces back to ~0.005 before death_system reads it.
+        if health.0 > 0.0 {
+            let regen_rate = 0.005 / age_factor;
+            health.0 = (health.0 + regen_rate).min(1.0);
+        }
 
         // Old age death: after ~3000 ticks (~100 seconds), health degrades
         if age.0 > 3000 {
