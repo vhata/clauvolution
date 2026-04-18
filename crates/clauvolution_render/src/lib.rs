@@ -200,8 +200,14 @@ fn click_select_system(
         return;
     }
 
-    let Ok(window) = windows.get_single() else { return };
-    let Ok((cam_transform, projection)) = camera.get_single() else { return };
+    let Ok(window) = windows.get_single() else {
+        warn_once!("click_select: primary window missing — clicks will do nothing");
+        return;
+    };
+    let Ok((cam_transform, projection)) = camera.get_single() else {
+        warn_once!("click_select: MainCamera missing — clicks will do nothing");
+        return;
+    };
 
     let Some(cursor_pos) = window.cursor_position() else { return };
 
@@ -593,6 +599,7 @@ fn camera_control_system(
     ui_input: Res<UiInputState>,
 ) {
     let Ok((mut transform, mut projection)) = camera.get_single_mut() else {
+        warn_once!("camera_control: MainCamera missing — pan/zoom disabled");
         return;
     };
 
