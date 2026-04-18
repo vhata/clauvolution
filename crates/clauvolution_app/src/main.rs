@@ -70,12 +70,15 @@ fn main() {
     let script_path: Option<String> = args.iter()
         .position(|a| a == "--script")
         .and_then(|i| args.get(i + 1).cloned());
+    let save_as: Option<String> = args.iter()
+        .position(|a| a == "--save-as")
+        .and_then(|i| args.get(i + 1).cloned());
 
     let worker_cap = compute_worker_cap();
     eprintln!("Compute pool capped at {} workers (set CLAU_WORKERS to override)", worker_cap);
 
     if let Some(ticks) = headless_ticks {
-        run_headless(ticks, seed, worker_cap, headless_speed);
+        run_headless(ticks, seed, worker_cap, headless_speed, load_path, save_as);
         return;
     }
 
@@ -357,7 +360,14 @@ fn set_window_title(
 
 // --- Headless mode ---
 
-fn run_headless(ticks: u64, seed: Option<u64>, worker_cap: usize, speed: f32) {
+fn run_headless(
+    ticks: u64,
+    seed: Option<u64>,
+    worker_cap: usize,
+    speed: f32,
+    load_path: Option<String>,
+    save_as: Option<String>,
+) {
     use bevy::app::ScheduleRunnerPlugin;
 
     let start = std::time::Instant::now();
@@ -367,8 +377,20 @@ fn run_headless(ticks: u64, seed: Option<u64>, worker_cap: usize, speed: f32) {
 
     let mut app = App::new();
 
-    // Pre-insert an ephemeral Session so CorePlugin doesn't create a directory.
-    app.insert_resource(Session::new_ephemeral());
+    // Pick a real named session when the user asked to save, otherwise
+    // use the ephemeral session so we don't clutter sessions/.
+    let session = match &save_as {
+        Some(name) => {
+            eprintln!("Will save to sessions/{} at end of run", name);
+            Session::with_name(name)
+        }
+        None => Session::new_ephemeral(),
+    };
+    app.insert_resource(session);
+
+    if let Some(ref path) = load_path {
+        eprintln!("Loading session from {}", path);
+    }
 
     // MinimalPlugins gives us Time + ScheduleRunner. We don't want it to sleep
     // between frames, so configure run_loop with zero duration.
@@ -390,17 +412,23 @@ fn run_headless(ticks: u64, seed: Option<u64>, worker_cap: usize, speed: f32) {
         .add_plugins(SimPlugin)
         .add_plugins(PhylogenyPlugin)
         .insert_resource(InnovationCounter(100))
-        .insert_resource(LoadPath(None))
+        .insert_resource(LoadPath(load_path))
         .insert_resource(SeedOverride(seed))
         .insert_resource(HeadlessSpeed(speed))
+        .insert_resource(HeadlessSaveAtEnd(save_as.is_some()))
         .add_systems(
             Startup,
             (apply_seed_override, startup_system, set_headless_speed).chain(),
         );
 
-    // Counter system that exits after N FixedUpdate ticks.
-    app.insert_resource(HeadlessTickTarget(ticks))
-        .add_systems(FixedUpdate, headless_tick_counter);
+    // Counter system that exits after N FixedUpdate ticks from whatever
+    // tick we're at when the loop starts (so `--load X --headless 300`
+    // runs 300 more ticks on top of the loaded state, not 300 absolute).
+    app.insert_resource(HeadlessTickTarget {
+        ticks_to_run: ticks,
+        absolute_target: None,
+    })
+    .add_systems(FixedUpdate, headless_tick_counter);
 
     // Headless runs virtual time at `--speed` ×, so FixedUpdate can fire
     // faster than 30Hz wall-clock up to whatever the CPU can sustain. Every
@@ -423,26 +451,60 @@ fn set_headless_speed(speed: Res<HeadlessSpeed>, mut vtime: ResMut<Time<Virtual>
     vtime.set_relative_speed(speed.0);
 }
 
+/// Number of additional ticks to run in headless mode. `--headless N` means
+/// "run N more ticks from wherever we start", so a loaded save at tick 1500
+/// with `--headless 300` runs to tick 1800.
 #[derive(Resource)]
-struct HeadlessTickTarget(u64);
+struct HeadlessTickTarget {
+    ticks_to_run: u64,
+    /// Absolute target tick, computed on the first frame once we know
+    /// what TickCounter says after load/init.
+    absolute_target: Option<u64>,
+}
 
+#[derive(Resource)]
+struct HeadlessSaveAtEnd(bool);
 
 fn headless_tick_counter(
-    target: Res<HeadlessTickTarget>,
+    mut target: ResMut<HeadlessTickTarget>,
     tick: Res<clauvolution_core::TickCounter>,
     stats: Res<clauvolution_core::SimStats>,
     predation: Res<clauvolution_core::PredationStats>,
     history: Res<clauvolution_core::PopulationHistory>,
+    save_at_end: Res<HeadlessSaveAtEnd>,
+    mut events: EventWriter<clauvolution_core::WorldEventRequest>,
     mut exit: EventWriter<AppExit>,
-    mut done: Local<bool>,
+    // 0 = running, 1 = summary printed + save requested, 2 = waited a frame
+    // for save_system to run, 3 = exit sent
+    mut phase: Local<u8>,
 ) {
-    if *done {
+    if *phase >= 3 {
         return;
     }
-    if tick.0 >= target.0 {
-        print_headless_summary(&stats, &predation, &history);
-        exit.send(AppExit::Success);
-        *done = true;
+    let ticks_to_run = target.ticks_to_run;
+    let abs_target = *target
+        .absolute_target
+        .get_or_insert_with(|| tick.0 + ticks_to_run);
+    if tick.0 < abs_target && *phase == 0 {
+        return;
+    }
+    match *phase {
+        0 => {
+            print_headless_summary(&stats, &predation, &history);
+            if save_at_end.0 {
+                events.send(clauvolution_core::WorldEventRequest::Save);
+            }
+            *phase = 1;
+        }
+        1 => {
+            // save_system reads the event this frame and writes synchronously
+            *phase = 2;
+        }
+        2 => {
+            exit.send(AppExit::Success);
+            *phase = 3;
+        }
+        _ => {}
     }
 }
 

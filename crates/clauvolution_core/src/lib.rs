@@ -65,6 +65,18 @@ impl Session {
     /// A session that doesn't create an on-disk directory. For headless
     /// runs, tests, or any mode where the cosmic-named sessions/<name>/
     /// folder would be noise.
+    /// Create or reuse a session directory with the given name. Intended
+    /// for headless `--save-as <name>` — same name on rerun overwrites
+    /// the previous save in-place (no `-2`, `-3` collision suffixes).
+    pub fn with_name(name: &str) -> Self {
+        let dir = PathBuf::from("sessions").join(name);
+        std::fs::create_dir_all(&dir).expect("Failed to create session directory");
+        Self {
+            name: name.to_string(),
+            dir,
+        }
+    }
+
     pub fn new_ephemeral() -> Self {
         Self {
             name: format!("ephemeral-{}", Self::generate_name()),
