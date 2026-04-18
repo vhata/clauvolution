@@ -126,6 +126,7 @@ fn header_bar_system(
     season: Res<Season>,
     speed: Res<SimSpeed>,
     mut ui_state: ResMut<UiState>,
+    bloom: Res<BloomEffects>,
 ) {
     let ctx = contexts.ctx_mut();
 
@@ -160,6 +161,25 @@ fn header_bar_system(
                 ui.label(format!("Gen: {}", stats.max_generation));
                 ui.separator();
                 ui.label(format!("Speed: {}", speed_str));
+
+                // Active bloom effects — coloured so they stand out, showing seconds remaining.
+                // Only appear while ticking down, never intrude when nothing's active.
+                if bloom.solar_ticks > 0 {
+                    ui.separator();
+                    let secs = bloom.solar_ticks / 30;
+                    ui.colored_label(
+                        egui::Color32::from_rgb(255, 210, 80),
+                        format!("☀ solar {}s", secs),
+                    );
+                }
+                if bloom.mutation_ticks > 0 {
+                    ui.separator();
+                    let secs = bloom.mutation_ticks / 30;
+                    ui.colored_label(
+                        egui::Color32::from_rgb(200, 140, 255),
+                        format!("✦ spark {}s", secs),
+                    );
+                }
             });
         });
 
