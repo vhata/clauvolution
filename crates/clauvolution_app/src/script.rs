@@ -105,6 +105,14 @@ pub fn script_runner_system(
         if elapsed < action.at_seconds {
             break;
         }
+        // If a screenshot capture is in flight (the egui-aware path needs
+        // a handful of frames to render + readback), don't advance other
+        // actions in the meantime — otherwise a `SetTab` could change the
+        // UI mid-capture and the saved PNG would show the next tab, not
+        // the one we intended.
+        if screenshot_state.pending.is_some() {
+            break;
+        }
         info!("Script @{:.2}s: {:?}", action.at_seconds, action.kind);
         match &action.kind {
             ScriptActionKind::SetTab { tab } => {

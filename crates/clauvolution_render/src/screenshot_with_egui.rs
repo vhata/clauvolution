@@ -94,9 +94,17 @@ pub struct PendingScreenshot {
     pub height: u32,
     pub camera_entity: Entity,
     pub window_entity: Entity,
-    /// Frames left before we spawn the Readback. We need at least one full
-    /// render pass for the scene + egui to have populated the image.
-    pub frames_until_readback: u32,
+    pub state: CaptureState,
+}
+
+/// Capture goes through two phases: first wait a few frames for the scene
+/// + egui to have rendered into the image, then spawn a Readback and
+/// wait for its observer to fire. The second phase is tracked so callers
+/// (e.g. the script runner) can tell a capture is "still in flight" right
+/// up until the PNG actually hits disk.
+pub enum CaptureState {
+    WaitingFrames(u32),
+    AwaitingReadback,
 }
 
 /// Kick off a screenshot capture. Returns immediately; saving happens
@@ -181,26 +189,35 @@ pub fn begin_screenshot(
         // the GPU, (b) Added<EguiRenderToImage> fires on extract and adds
         // the render node, (c) that node actually runs at least once with
         // the image in RenderAssets<GpuImage>. Empirically 2 is too few.
-        frames_until_readback: 6,
+        state: CaptureState::WaitingFrames(6),
     });
 }
 
-/// Every frame, if a capture is pending, decrement its countdown. When it
-/// reaches zero, spawn a Readback entity with an observer that saves the
-/// PNG and cleans up the temporary scaffolding.
+/// Every frame, if a capture is in `WaitingFrames`, decrement it. When it
+/// reaches zero, spawn a Readback and flip to `AwaitingReadback`. The
+/// observer attached to the Readback entity is what finally clears
+/// `state.pending` — so callers can treat `state.pending.is_some()` as
+/// "capture still in flight" right up to disk write.
 pub fn drive_screenshot_capture(
     mut commands: Commands,
     mut state: ResMut<ScreenshotState>,
 ) {
     let Some(pending) = state.pending.as_mut() else { return };
 
-    if pending.frames_until_readback > 0 {
-        pending.frames_until_readback -= 1;
-        return;
+    match &mut pending.state {
+        CaptureState::WaitingFrames(n) if *n > 0 => {
+            *n -= 1;
+            return;
+        }
+        CaptureState::AwaitingReadback => {
+            // Observer will clear state.pending — nothing to do here.
+            return;
+        }
+        CaptureState::WaitingFrames(_) => {
+            // Countdown exhausted — fall through to spawn the Readback.
+        }
     }
 
-    // Snapshot out of the pending state so we can hand it to the observer
-    // closure. The state itself transitions to `None` below.
     let handle = pending.handle.clone();
     let path = pending.path.clone();
     let width = pending.width;
@@ -210,21 +227,23 @@ pub fn drive_screenshot_capture(
 
     commands
         .spawn(Readback::texture(handle))
-        .observe(move |trigger: Trigger<ReadbackComplete>, mut cmds: Commands| {
-            let bytes = &trigger.event().0;
-            match save_bgra_as_png(&path, width, height, bytes) {
-                Ok(_) => info!("Screenshot saved: {}", path.display()),
-                Err(e) => error!("Failed to save screenshot: {}", e),
-            }
-            // Cleanup: despawn secondary camera and the Readback entity,
-            // and pull EguiRenderToImage off the primary window so egui
-            // stops double-rendering.
-            cmds.entity(camera_entity).try_despawn_recursive();
-            cmds.entity(trigger.entity()).try_despawn_recursive();
-            cmds.entity(window_entity).remove::<EguiRenderToImage>();
-        });
+        .observe(
+            move |trigger: Trigger<ReadbackComplete>,
+                  mut cmds: Commands,
+                  mut state: ResMut<ScreenshotState>| {
+                let bytes = &trigger.event().0;
+                match save_bgra_as_png(&path, width, height, bytes) {
+                    Ok(_) => info!("Screenshot saved: {}", path.display()),
+                    Err(e) => error!("Failed to save screenshot: {}", e),
+                }
+                cmds.entity(camera_entity).try_despawn_recursive();
+                cmds.entity(trigger.entity()).try_despawn_recursive();
+                cmds.entity(window_entity).remove::<EguiRenderToImage>();
+                state.pending = None;
+            },
+        );
 
-    state.pending = None;
+    pending.state = CaptureState::AwaitingReadback;
 }
 
 fn save_bgra_as_png(

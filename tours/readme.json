@@ -1,0 +1,26 @@
+{
+  "_comment": "README screenshot tour. Evolves the sim at high speed for a bit, then captures each tab. Run against a loaded session for prettier pictures: clauvolution --load sessions/<name> --script tours/readme.json",
+  "actions": [
+    { "at_seconds": 1.0,  "kind": "set_speed", "multiplier": 8.0 },
+    { "at_seconds": 1.0,  "kind": "set_tab",   "tab": "inspect" },
+    { "at_seconds": 1.0,  "kind": "set_zoom",  "zoom": 1.0 },
+
+    { "at_seconds": 12.0, "kind": "set_tab",   "tab": "graphs" },
+    { "at_seconds": 13.0, "kind": "screenshot", "name": "01_graphs" },
+
+    { "at_seconds": 14.0, "kind": "set_tab",   "tab": "phylo" },
+    { "at_seconds": 15.5, "kind": "screenshot", "name": "02_phylogeny" },
+
+    { "at_seconds": 16.0, "kind": "set_tab",   "tab": "chronicle" },
+    { "at_seconds": 17.5, "kind": "screenshot", "name": "03_chronicle" },
+
+    { "at_seconds": 18.0, "kind": "set_tab",   "tab": "inspect" },
+    { "at_seconds": 18.5, "kind": "set_zoom",  "zoom": 0.25 },
+    { "at_seconds": 20.0, "kind": "screenshot", "name": "04_closeup" },
+
+    { "at_seconds": 20.5, "kind": "set_zoom",  "zoom": 1.0 },
+    { "at_seconds": 22.0, "kind": "screenshot", "name": "05_wide" },
+
+    { "at_seconds": 23.0, "kind": "exit" }
+  ]
+}
