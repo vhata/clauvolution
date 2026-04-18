@@ -129,6 +129,7 @@ fn header_bar_system(
     mut ui_state: ResMut<UiState>,
     bloom: Res<BloomEffects>,
     infected: Query<(), (With<Organism>, With<Infection>)>,
+    tick: Res<TickCounter>,
 ) {
     let ctx = contexts.ctx_mut();
 
@@ -154,6 +155,15 @@ fn header_bar_system(
                     format!("{}x", speed.multiplier as u32)
                 };
 
+                // Sim time in mm:ss — lets you see at a glance how long this run has been going
+                let secs = tick.0 / 30;
+                let time_str = if secs >= 60 {
+                    format!("{}m{:02}s", secs / 60, secs % 60)
+                } else {
+                    format!("{}s", secs)
+                };
+                ui.label(format!("⏱ {}", time_str));
+                ui.separator();
                 ui.label(format!("{} (light {}%)", season_name, light_pct));
                 ui.separator();
                 ui.label(format!("Pop: {}", stats.total_organisms));
