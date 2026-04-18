@@ -9,6 +9,54 @@ use clauvolution_world::{SpatialHash, TileMap};
 use rand::Rng;
 use std::collections::HashMap;
 
+// -----------------------------------------------------------------------------
+// Disease tuning constants
+//
+// Grouped here so tuning doesn't require hunting for literals scattered through
+// disease_transmission_system / disease_effects_system. Adjust, rebuild, observe.
+// See docs/ROADMAP.md "Current tuning state" for the history of these values.
+// -----------------------------------------------------------------------------
+
+/// How often (in sim ticks) the background spontaneous-infection roll runs.
+/// Ticks are 1/30s, so 30 = once per sim-second.
+const DISEASE_BACKGROUND_PERIOD_TICKS: u64 = 30;
+/// Per-check chance each healthy organism gets spontaneously infected (before resistance).
+const DISEASE_BACKGROUND_RATE: f32 = 0.001;
+/// Severity range \[min, max) for background spontaneous infections.
+const DISEASE_BACKGROUND_SEVERITY: std::ops::Range<f32> = 0.3..0.7;
+/// Duration range \[min, max) (in ticks) for background spontaneous infections. 10–23s at 30Hz.
+const DISEASE_BACKGROUND_DURATION_TICKS: std::ops::Range<u32> = 300..700;
+
+/// Radius (world units) within which infection can transmit between organisms.
+const DISEASE_TRANSMISSION_RANGE: f32 = 20.0;
+/// Per-tick infection chance multiplier from proximity pressure.
+const DISEASE_TRANSMISSION_RATE: f32 = 0.005;
+/// Hard cap on per-tick transmission chance (prevents runaway at dense cluster centres).
+const DISEASE_TRANSMISSION_CHANCE_CAP: f32 = 0.1;
+/// Fraction of source severity retained when the disease transmits to a new host.
+const DISEASE_TRANSMISSION_SEVERITY_DECAY: f32 = 0.9;
+/// Minimum duration (in ticks) for a transmitted infection.
+const DISEASE_TRANSMISSION_MIN_DURATION_TICKS: u32 = 200;
+
+/// Energy-drain multiplier applied per tick to infected organisms (scales on severity and resistance).
+const DISEASE_DRAIN_MULTIPLIER: f32 = 1.6;
+/// Base per-tick chance of direct disease-caused death (scales on severity and (1 - resistance)).
+/// At severity 0.5 and zero resistance this gives ~22% cumulative chance over 20s.
+const DISEASE_MORTALITY_RATE: f32 = 0.0015;
+
+// -----------------------------------------------------------------------------
+// Bloom event tuning constants
+// -----------------------------------------------------------------------------
+
+/// Duration of a bloom effect in sim ticks. 900 ticks = 30 seconds at 30Hz.
+const BLOOM_DURATION_TICKS: u64 = 900;
+/// Multiplier applied to light intensity during a solar bloom.
+const SOLAR_BLOOM_LIGHT_MULTIPLIER: f32 = 2.0;
+/// Multiplier applied to mutation rate during a Cambrian spark.
+const CAMBRIAN_MUTATION_MULTIPLIER: f32 = 3.0;
+/// Fraction of world tiles that receive a food drop during a nutrient rain.
+const NUTRIENT_RAIN_DENSITY: f32 = 0.05;
+
 pub struct SimPlugin;
 
 impl Plugin for SimPlugin {
@@ -218,11 +266,11 @@ fn mass_extinction_input_system(
         triggered = true;
     }
 
-    // Solar bloom (double light for 30 seconds)
+    // Solar bloom (boost light for a fixed duration)
     if matches!(req, WorldEventRequest::SolarBloom) {
         info!("BLOOM: Solar bloom!");
-        bloom.solar_bloom = 2.0;
-        bloom.solar_ticks = 900; // 30 seconds at 30hz
+        bloom.solar_bloom = SOLAR_BLOOM_LIGHT_MULTIPLIER;
+        bloom.solar_ticks = BLOOM_DURATION_TICKS;
         chronicle.log(tick.0, "SOLAR BLOOM! Light doubled — photosynthesizers surge".to_string());
         triggered = true;
     }
@@ -231,7 +279,7 @@ fn mass_extinction_input_system(
     if matches!(req, WorldEventRequest::NutrientRain) {
         info!("BLOOM: Nutrient rain!");
         let mut rng = rand::thread_rng();
-        let food_count = (config.world_width as f32 * config.world_height as f32 * 0.05) as u32;
+        let food_count = (config.world_width as f32 * config.world_height as f32 * NUTRIENT_RAIN_DENSITY) as u32;
         for _ in 0..food_count {
             let x = rng.gen_range(0.0..config.world_width as f32);
             let y = rng.gen_range(0.0..config.world_height as f32);
@@ -245,11 +293,11 @@ fn mass_extinction_input_system(
         triggered = true;
     }
 
-    // Cambrian spark (triple mutation rate for 30 seconds)
+    // Cambrian spark (boost mutation rate for a fixed duration)
     if matches!(req, WorldEventRequest::CambrianSpark) {
         info!("BLOOM: Cambrian spark!");
-        bloom.mutation_boost = 3.0;
-        bloom.mutation_ticks = 900; // 30 seconds at 30hz
+        bloom.mutation_boost = CAMBRIAN_MUTATION_MULTIPLIER;
+        bloom.mutation_ticks = BLOOM_DURATION_TICKS;
         chronicle.log(tick.0, "CAMBRIAN SPARK! Mutation rate tripled — rapid speciation".to_string());
         triggered = true;
     }
@@ -597,13 +645,12 @@ fn disease_transmission_system(
 
     // 1. Background spontaneous infection — keeps disease present even when
     // populations would otherwise clear all pathogens.
-    // Only runs every 30 ticks (once per sim-second) to keep cost down.
-    if tick.0 % 30 == 0 {
+    if tick.0 % DISEASE_BACKGROUND_PERIOD_TICKS == 0 {
         for (entity, _, genome) in &healthy {
-            if rng.gen::<f32>() < 0.001 * (1.0 - genome.disease_resistance) {
+            if rng.gen::<f32>() < DISEASE_BACKGROUND_RATE * (1.0 - genome.disease_resistance) {
                 commands.entity(entity).insert(Infection {
-                    severity: rng.gen_range(0.3..0.7),
-                    ticks_remaining: rng.gen_range(300..700), // 10-23 seconds
+                    severity: rng.gen_range(DISEASE_BACKGROUND_SEVERITY),
+                    ticks_remaining: rng.gen_range(DISEASE_BACKGROUND_DURATION_TICKS),
                 });
             }
         }
@@ -611,8 +658,7 @@ fn disease_transmission_system(
 
     // 2. Proximity transmission — spreads from infected to nearby healthy.
     for (entity, healthy_pos, genome) in &healthy {
-        let transmission_range = 20.0;
-        let nearby = spatial_hash.query_radius(healthy_pos.0, transmission_range);
+        let nearby = spatial_hash.query_radius(healthy_pos.0, DISEASE_TRANSMISSION_RANGE);
 
         let mut infection_pressure = 0.0f32;
         let mut best_severity = 0.0f32;
@@ -622,9 +668,9 @@ fn disease_transmission_system(
             if sick_entity == entity { continue; }
             if let Ok((sick_pos, sick_inf)) = infected.get(sick_entity) {
                 let dist = (sick_pos.0 - healthy_pos.0).length();
-                if dist < transmission_range {
+                if dist < DISEASE_TRANSMISSION_RANGE {
                     // Closer + more severe = more pressure
-                    let prox = 1.0 - (dist / transmission_range);
+                    let prox = 1.0 - (dist / DISEASE_TRANSMISSION_RANGE);
                     infection_pressure += sick_inf.severity * prox;
                     if sick_inf.severity > best_severity {
                         best_severity = sick_inf.severity;
@@ -636,13 +682,14 @@ fn disease_transmission_system(
 
         if infection_pressure <= 0.001 { continue; }
 
-        // Per-tick infection chance, reduced by resistance
-        let chance = (infection_pressure * 0.005 * (1.0 - genome.disease_resistance)).min(0.1);
+        // Per-tick infection chance, reduced by resistance, capped.
+        let chance = (infection_pressure * DISEASE_TRANSMISSION_RATE * (1.0 - genome.disease_resistance))
+            .min(DISEASE_TRANSMISSION_CHANCE_CAP);
         if rng.gen::<f32>() < chance {
-            // Inherit roughly the strain's severity & duration, slightly weakened
+            // Inherit roughly the strain's severity & duration, slightly weakened.
             commands.entity(entity).insert(Infection {
-                severity: (best_severity * 0.9).clamp(0.1, 1.0),
-                ticks_remaining: (best_remaining * 8 / 10).max(200),
+                severity: (best_severity * DISEASE_TRANSMISSION_SEVERITY_DECAY).clamp(0.1, 1.0),
+                ticks_remaining: (best_remaining * 8 / 10).max(DISEASE_TRANSMISSION_MIN_DURATION_TICKS),
             });
         }
     }
@@ -657,19 +704,18 @@ fn disease_effects_system(
 ) {
     let mut rng = rand::thread_rng();
     for (entity, mut energy, mut infection, genome) in &mut infected {
-        // Resistance cushions the drain; cranked up so plants actually feel it
+        // Resistance cushions the drain; multiplier cranked above 1.0 so
+        // photosynthesisers can't trivially out-absorb the cost from sunlight.
         let drain = config.base_metabolism_cost
             * infection.severity
             * (1.0 - genome.disease_resistance * 0.5)
-            * 1.6;
+            * DISEASE_DRAIN_MULTIPLIER;
         energy.0 -= drain;
 
         // Direct mortality chance per tick — ignores energy reserves so
         // photosynthesisers can't just sun-bathe through an infection.
-        // ~0.15% × severity × (1 - resistance) per tick. At severity 0.5
-        // and zero resistance that's ~22% chance to die within 20 seconds.
         // Zero only energy (not health) so death_system attributes to Disease.
-        let mortality = 0.0015 * infection.severity * (1.0 - genome.disease_resistance);
+        let mortality = DISEASE_MORTALITY_RATE * infection.severity * (1.0 - genome.disease_resistance);
         if rng.gen::<f32>() < mortality {
             energy.0 = 0.0;
         }
