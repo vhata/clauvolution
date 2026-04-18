@@ -68,7 +68,8 @@ Clauvolution is a personal project. The goal isn't to answer a research question
 That reshapes priorities:
 - Features that **enrich what you can see and understand while watching** are the core. (Comprehension, new dynamics, visual polish.)
 - Features that **skip past the watching** (evolve-until, replay) are less urgent — the unfolding *is* the point.
-- Features for **sharing, exporting, external research** (WASM, config sweeps, organism export) are deprioritised — there's no audience but you.
+- Features that **enable better tuning** (headless, parameter sweeps, integration tests) serve the watching indirectly — a well-tuned sim produces more interesting unfoldings to watch.
+- Features for **sharing, exporting, external research** (WASM, organism export) are deprioritised — there's no audience but you.
 
 Themes below are ordered by how much they serve the joy-of-watching motivation.
 
@@ -200,6 +201,50 @@ Run at unlimited speed until a triggering event (new species, extinction, etc.),
 
 ---
 
+## Theme 4: Tuning infrastructure — serve the watching indirectly
+
+The recent disease-tuning session made the pain clear: eyeballing 2 minutes of sim to find out a parameter is wrong is a slow feedback loop. These items make tuning fast and measurable, which in turn makes the live sim richer.
+
+### Headless mode
+Run the sim without rendering or UI, as fast as the CPU allows. Emit a final summary (end-of-run stats, death breakdown, trait averages) and/or dump the full PopulationHistory as JSON.
+
+**Why it matters:**
+- **For tuning:** run 10 minutes of sim in seconds. Try a parameter, see the outcome, iterate.
+- **For Claude's help:** I can actually *test* tuning suggestions rather than predict them. "Does doubling transmission radius raise disease deaths into the 10-30% range?" becomes a measurable answer, not a guess.
+- **For integration tests:** "spawn 100 organisms, run 1000 ticks, assert population > 0 and species > 1" becomes a unit test — catches regressions in the simulation itself.
+
+**Shape of implementation:**
+- New `--headless <ticks>` (or `--headless-until <condition>`) CLI flag on the existing binary
+- App uses `MinimalPlugins` + `ScheduleRunnerPlugin` when headless; skips `RenderPlugin` and `UiPlugin`
+- Override `Time::<Virtual>` or manually step FixedUpdate to run faster than wall-clock
+- Final report: JSON dump of SimStats + final PopulationHistory snapshot + top species list
+- Optional `--seed <N>` for reproducibility
+- Optional `--session-name <s>` or `--no-session` to skip the cosmic-name session directory
+
+**Gotchas:**
+- Bevy `DefaultPlugins` pull in `bevy_winit` (window) and rendering — need MinimalPlugins
+- `Time::<Fixed>` at 30Hz is wall-clock driven by default; need to either step manually or use a tight loop via `ScheduleRunnerPlugin::run_loop(Duration::ZERO)`
+- Asset loading — the JetBrains Mono font load lives in `setup_camera` which headless won't run, so that's automatically skipped
+- Session directory creation happens in `Session::new()` regardless — add a `Session::new_ephemeral()` for headless
+
+### Parameter sweep mode (builds on headless)
+Headless runs with different parameter combinations, outputs a CSV or comparison view. "Does `mutation_rate=0.3` produce more species than `0.1`? Does `disease_transmission=20` vs `12` change the infection/resistance trajectory?"
+
+**Shape:**
+- `--sweep config.toml` loads a matrix of parameters, runs each, writes one row per run with summary stats
+- Or `--runs N --param mutation_rate=0.1,0.3,0.5` for ad-hoc sweeps
+
+### Integration tests
+Test crate that spawns an app in headless mode, runs N ticks, asserts invariants. Examples:
+- "After 1000 ticks with default config, population > 100 AND species > 1" — catches simulation death-spirals
+- "Organisms never have negative energy" — invariant check
+- "After an asteroid event, 60-80% of organisms are gone" — behaviour check
+- "Disease resistance average increases after 2000 ticks with disease enabled" — selection check
+
+Runs as part of `cargo test`. Takes seconds per test. Catches regressions when we tune.
+
+---
+
 # Backlog
 
 Items that don't directly serve the joy-of-watching motivation. Here for completeness — pick up if we ever want to scale, share, or do science.
@@ -231,14 +276,7 @@ Run in a browser without installing anything. Only matters if you ever want to s
 
 ---
 
-## Theme: Meta / experimentation *(deprioritised)*
-
-No research question to answer, so these are lower priority. Here for reference.
-
-### Config sweep mode
-Launch N simulations with different parameters, summarise outcomes at the end. Answers questions like "does mutation_rate=0.3 produce more species than 0.1?"
-
-**Shape:** Headless batch mode, N parallel instances, collect end-of-run stats, output a CSV or comparison view.
+## Theme: Sharing *(deprioritised)*
 
 ### Organism export / import
 Save an interesting creature to a file. Load it into another sim as seed population.
