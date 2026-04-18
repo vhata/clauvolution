@@ -28,6 +28,7 @@ impl Plugin for RenderPlugin {
                     manual_screenshot_system,
                     minimap_click_system,
                     cycle_species_member_system,
+                    random_select_system,
                 ),
             )
             .add_systems(
@@ -1157,6 +1158,30 @@ fn minimap_click_system(
         cam_transform.translation.x = world_x;
         cam_transform.translation.y = world_y;
     }
+}
+
+/// R — pick a random living organism and select it. Frictionless "show me
+/// something alive" shortcut when you don't have anything in mind or want
+/// to break out of a stuck-on-one-creature mental loop.
+fn random_select_system(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut selected: ResMut<SelectedOrganism>,
+    organisms: Query<Entity, With<Organism>>,
+    ui_input: Res<UiInputState>,
+) {
+    if ui_input.wants_keyboard {
+        return;
+    }
+    if !keys.just_pressed(KeyCode::KeyR) {
+        return;
+    }
+    let candidates: Vec<Entity> = organisms.iter().collect();
+    if candidates.is_empty() {
+        return;
+    }
+    let mut rng = rand::thread_rng();
+    let idx = rand::Rng::gen_range(&mut rng, 0..candidates.len());
+    selected.entity = Some(candidates[idx]);
 }
 
 /// , / . — cycle backward/forward through living members of the selected
