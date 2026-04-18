@@ -503,6 +503,14 @@ pub struct Velocity(pub Vec2);
 #[derive(Component, Clone)]
 pub struct BrainMemory(pub [f32; 3]);
 
+/// Per-organism record of the last-tick neural activations, keyed by
+/// neuron ID. Populated by `sensing_and_brain_system` for live UI
+/// visualisation (brain activation heatmap in the Inspect tab).
+#[derive(Component, Clone, Default, Debug)]
+pub struct BrainActivations {
+    pub values: std::collections::HashMap<u64, f32>,
+}
+
 /// Chemical signal emitted by an organism — sensed by nearby organisms
 #[derive(Component, Clone, Default)]
 pub struct Signal(pub f32);

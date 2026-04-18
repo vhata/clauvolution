@@ -4,8 +4,9 @@
 
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPlugin};
+use clauvolution_brain::Brain;
 use clauvolution_core::*;
-use clauvolution_genome::Genome;
+use clauvolution_genome::{Genome, NUM_INPUTS, NUM_OUTPUTS};
 use clauvolution_phylogeny::{PhyloTree, PhyloNode, SpeciesStrategy, WorldChronicle};
 use clauvolution_world::TileMap;
 use egui_plot::{Line, Plot, PlotPoints, Legend};
@@ -222,7 +223,7 @@ fn right_panel_system(
     mut event_writer: EventWriter<WorldEventRequest>,
     bloom: Res<BloomEffects>,
     mut selected: ResMut<SelectedOrganism>,
-    organisms: Query<(&Energy, &Health, &BodySize, &Genome, &SpeciesId, &Position, &Age, &Generation, &Signal, &GroupSize, &ParentInfo, Option<&Infection>), With<Organism>>,
+    organisms: Query<(&Energy, &Health, &BodySize, &Genome, &SpeciesId, &Position, &Age, &Generation, &Signal, &GroupSize, &ParentInfo, Option<&Infection>, &Brain, &BrainActivations), With<Organism>>,
     species_members: Query<(Entity, &SpeciesId), With<Organism>>,
     tile_map: Option<Res<TileMap>>,
     config: Res<SimConfig>,
@@ -428,7 +429,7 @@ fn species_row(ui: &mut egui::Ui, node: &PhyloNode, current_tick: u64) -> bool {
 fn inspect_tab(
     ui: &mut egui::Ui,
     selected: &mut SelectedOrganism,
-    organisms: &Query<(&Energy, &Health, &BodySize, &Genome, &SpeciesId, &Position, &Age, &Generation, &Signal, &GroupSize, &ParentInfo, Option<&Infection>), With<Organism>>,
+    organisms: &Query<(&Energy, &Health, &BodySize, &Genome, &SpeciesId, &Position, &Age, &Generation, &Signal, &GroupSize, &ParentInfo, Option<&Infection>, &Brain, &BrainActivations), With<Organism>>,
     species_members: &Query<(Entity, &SpeciesId), With<Organism>>,
     tile_map: Option<&TileMap>,
     config: &SimConfig,
@@ -440,7 +441,7 @@ fn inspect_tab(
         return;
     };
 
-    let Ok((energy, health, body_size, genome, species, pos, age, generation, signal, group_size, parent_info, infection)) = organisms.get(entity) else {
+    let Ok((energy, health, body_size, genome, species, pos, age, generation, signal, group_size, parent_info, infection, brain, activations)) = organisms.get(entity) else {
         ui.heading("Inspect");
         ui.colored_label(egui::Color32::LIGHT_RED, "Selected organism died.");
         return;
@@ -584,13 +585,179 @@ fn inspect_tab(
             }
         });
 
-        egui::CollapsingHeader::new("Brain").show(ui, |ui| {
-            ui.label(format!("Neurons: {}", genome.neurons.len()));
+        egui::CollapsingHeader::new("Brain").default_open(true).show(ui, |ui| {
+            ui.label(format!("Neurons: {} ({} hidden)",
+                genome.neurons.len(),
+                genome.neurons.len().saturating_sub(NUM_INPUTS + NUM_OUTPUTS)));
             ui.label(format!("Connections: {} enabled / {} total",
                 genome.connections.iter().filter(|c| c.enabled).count(),
                 genome.connections.len()));
+            ui.add_space(4.0);
+            draw_brain_viz(ui, genome, brain, activations);
+            ui.small("Inputs left, outputs right, hidden middle. Node colour = activation, line colour = weight sign, line alpha = signal this tick.");
         });
     });
+}
+
+const BRAIN_INPUT_LABELS: [&str; NUM_INPUTS] = [
+    "energy", "food dx", "food dy", "food near",
+    "org dx", "org dy", "org near", "org size",
+    "in water", "nutrients", "light", "aquatic",
+    "health", "same sp",
+    "mem 0", "mem 1", "mem 2",
+    "photo hint", "org signal",
+    "group sz", "group sig", "bias",
+];
+
+const BRAIN_OUTPUT_LABELS: [&str; NUM_OUTPUTS] = [
+    "move x", "move y", "eat", "reproduce",
+    "attack", "signal",
+    "mem out 0", "mem out 1", "mem out 2",
+];
+
+fn brain_node_color(activation: f32) -> egui::Color32 {
+    // Activations mostly land in [-1, 1] thanks to sigmoid/tanh, but linear
+    // activations can exceed that. Clamp for visualisation.
+    let a = activation.clamp(-1.5, 1.5);
+    let mag = (a.abs()).min(1.0);
+    let base: u8 = 55;
+    let intensity = (mag * 200.0) as u8;
+    if a >= 0.0 {
+        egui::Color32::from_rgb(base, base.saturating_add(intensity), base.saturating_add(intensity / 2))
+    } else {
+        egui::Color32::from_rgb(base.saturating_add(intensity), base, base.saturating_add(intensity / 3))
+    }
+}
+
+fn draw_brain_viz(
+    ui: &mut egui::Ui,
+    genome: &Genome,
+    brain: &Brain,
+    activations: &BrainActivations,
+) {
+    use egui::{Color32, Pos2, Sense, Stroke, Vec2 as EVec2};
+    use std::collections::{HashMap, HashSet};
+
+    // Clamp width so the painter can never exceed the current UI's clip —
+    // prevents the heatmap drifting outside the side panel on wider monitors.
+    let width = ui.available_width().clamp(200.0, 360.0);
+    let height = 300.0_f32;
+    let (response, painter) = ui.allocate_painter(EVec2::new(width, height), Sense::hover());
+    let rect = response.rect;
+    // Force the painter's clip rect to the allocated area so drawing stays
+    // inside the widget regardless of the parent UI's clip state.
+    let painter = painter.with_clip_rect(rect);
+
+    painter.rect_filled(rect, 4.0, Color32::from_rgb(18, 18, 24));
+
+    let margin = 8.0;
+    let label_width = 62.0;
+    let node_radius = 4.0;
+
+    let input_set: HashSet<u64> = brain.input_ids().iter().copied().collect();
+    let output_set: HashSet<u64> = brain.output_ids().iter().copied().collect();
+    let hidden_ids: Vec<u64> = genome
+        .neurons
+        .iter()
+        .filter(|n| !input_set.contains(&n.id) && !output_set.contains(&n.id))
+        .map(|n| n.id)
+        .collect();
+
+    let input_x = rect.left() + margin + label_width;
+    let output_x = rect.right() - margin - label_width;
+    let hidden_left = input_x + 24.0;
+    let hidden_right = output_x - 24.0;
+    let top = rect.top() + margin;
+    let bottom = rect.bottom() - margin;
+    let col_height = bottom - top;
+
+    let mut positions: HashMap<u64, Pos2> = HashMap::new();
+
+    // Inputs: evenly spaced on the left
+    let input_count = brain.input_ids().len().max(1);
+    for (i, &id) in brain.input_ids().iter().enumerate() {
+        let y = top + (i as f32 + 0.5) * col_height / input_count as f32;
+        positions.insert(id, Pos2::new(input_x, y));
+    }
+
+    // Outputs: evenly spaced on the right
+    let output_count = brain.output_ids().len().max(1);
+    for (i, &id) in brain.output_ids().iter().enumerate() {
+        let y = top + (i as f32 + 0.5) * col_height / output_count as f32;
+        positions.insert(id, Pos2::new(output_x, y));
+    }
+
+    // Hidden: grid in the middle. Deterministic from insertion order so
+    // the layout doesn't jitter frame-to-frame. NEAT creates hidden neurons
+    // with monotonic IDs so iteration order is stable.
+    if !hidden_ids.is_empty() {
+        let cols = ((hidden_ids.len() as f32).sqrt().ceil() as usize).max(1);
+        let rows = hidden_ids.len().div_ceil(cols).max(1);
+        let col_w = (hidden_right - hidden_left) / cols as f32;
+        let row_h = col_height / rows as f32;
+        for (i, &id) in hidden_ids.iter().enumerate() {
+            let col = i % cols;
+            let row = i / cols;
+            let x = hidden_left + (col as f32 + 0.5) * col_w;
+            let y = top + (row as f32 + 0.5) * row_h;
+            positions.insert(id, Pos2::new(x, y));
+        }
+    }
+
+    // Connections first (behind nodes)
+    for conn in &genome.connections {
+        if !conn.enabled {
+            continue;
+        }
+        let Some(&from_pos) = positions.get(&conn.from) else { continue };
+        let Some(&to_pos) = positions.get(&conn.to) else { continue };
+
+        let source_act = activations.values.get(&conn.from).copied().unwrap_or(0.0);
+        let signal = (source_act * conn.weight).abs().min(2.0) / 2.0;
+        let alpha = ((signal * 210.0) as u8).saturating_add(25);
+        let thickness = conn.weight.abs().clamp(0.15, 2.5) * 0.9;
+
+        let color = if conn.weight >= 0.0 {
+            Color32::from_rgba_unmultiplied(90, 170, 220, alpha)
+        } else {
+            Color32::from_rgba_unmultiplied(220, 110, 90, alpha)
+        };
+
+        painter.line_segment([from_pos, to_pos], Stroke::new(thickness, color));
+    }
+
+    // Nodes
+    for (id, &pos) in &positions {
+        let act = activations.values.get(id).copied().unwrap_or(0.0);
+        painter.circle_filled(pos, node_radius, brain_node_color(act));
+        painter.circle_stroke(pos, node_radius, Stroke::new(0.8, Color32::from_rgb(90, 90, 100)));
+    }
+
+    // Input labels
+    for (i, &id) in brain.input_ids().iter().enumerate() {
+        let Some(&pos) = positions.get(&id) else { continue };
+        let label = BRAIN_INPUT_LABELS.get(i).copied().unwrap_or("?");
+        painter.text(
+            Pos2::new(pos.x - node_radius - 3.0, pos.y),
+            egui::Align2::RIGHT_CENTER,
+            label,
+            egui::FontId::proportional(9.5),
+            Color32::from_rgb(170, 170, 180),
+        );
+    }
+
+    // Output labels
+    for (i, &id) in brain.output_ids().iter().enumerate() {
+        let Some(&pos) = positions.get(&id) else { continue };
+        let label = BRAIN_OUTPUT_LABELS.get(i).copied().unwrap_or("?");
+        painter.text(
+            Pos2::new(pos.x + node_radius + 3.0, pos.y),
+            egui::Align2::LEFT_CENTER,
+            label,
+            egui::FontId::proportional(9.5),
+            Color32::from_rgb(170, 170, 180),
+        );
+    }
 }
 
 fn graphs_tab(ui: &mut egui::Ui, history: &PopulationHistory) {

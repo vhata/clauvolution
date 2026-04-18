@@ -359,7 +359,7 @@ pub fn spawn_saved_organisms(
             Signal(org.signal),
             GroupSize::default(),
             ParentInfo::default(), // parent info not preserved in saves
-        )).insert((brain, genome, TrailHistory::default()));
+        )).insert((brain, genome, TrailHistory::default(), BrainActivations::default()));
     }
 }
 

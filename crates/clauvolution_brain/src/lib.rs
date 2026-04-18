@@ -70,6 +70,16 @@ impl Brain {
 
     /// Evaluate the network given input values. Returns output values.
     pub fn evaluate(&self, inputs: &[f32; NUM_INPUTS]) -> [f32; NUM_OUTPUTS] {
+        self.evaluate_trace(inputs).0
+    }
+
+    /// Evaluate and return both the outputs and the full per-neuron activation
+    /// map. The activation map is what the brain-activation heatmap renders —
+    /// every neuron ID → its last firing value.
+    pub fn evaluate_trace(
+        &self,
+        inputs: &[f32; NUM_INPUTS],
+    ) -> ([f32; NUM_OUTPUTS], HashMap<u64, f32>) {
         let mut values: HashMap<u64, f32> = HashMap::new();
 
         // Set input values
@@ -110,7 +120,17 @@ impl Brain {
             }
         }
 
-        outputs
+        (outputs, values)
+    }
+
+    /// Sorted input neuron IDs (used by UI to align labels with indices)
+    pub fn input_ids(&self) -> &[u64] {
+        &self.input_ids
+    }
+
+    /// Sorted output neuron IDs
+    pub fn output_ids(&self) -> &[u64] {
+        &self.output_ids
     }
 }
 

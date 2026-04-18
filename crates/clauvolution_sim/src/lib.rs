@@ -365,7 +365,7 @@ fn sensing_and_brain_system(
     spatial_hash: Res<SpatialHash>,
     tile_map: Res<TileMap>,
     mut organisms: Query<
-        (Entity, &Position, &Energy, &Health, &Genome, &Brain, &BodySize, &SpeciesId, &BrainMemory, &mut BrainOutput, &mut GroupSize),
+        (Entity, &Position, &Energy, &Health, &Genome, &Brain, &BodySize, &SpeciesId, &BrainMemory, &mut BrainOutput, &mut GroupSize, &mut BrainActivations),
         With<Organism>,
     >,
     food_snapshot: Res<FoodSnapshot>,
@@ -373,12 +373,12 @@ fn sensing_and_brain_system(
 ) {
     // Parallelised across organisms. Each iteration only reads from shared
     // Res/Query (spatial_hash, food_snapshot, all_org_data — all Sync) and
-    // writes to its own BrainOutput + GroupSize via the per-iter Mut guard,
-    // so there's no cross-organism data dependency.
+    // writes to its own BrainOutput + GroupSize + BrainActivations via the
+    // per-iter Mut guard, so there's no cross-organism data dependency.
     //
     // Brain eval dominates the per-tick cost at 2000 organisms. Rayon
     // (via Bevy's TaskPool) spreads it across cores.
-    organisms.par_iter_mut().for_each(|(entity, pos, energy, health, genome, brain, body_size, species_id, memory, mut output, mut group_size)| {
+    organisms.par_iter_mut().for_each(|(entity, pos, energy, health, genome, brain, body_size, species_id, memory, mut output, mut group_size, mut activations)| {
         let mut inputs = [0.0f32; NUM_INPUTS];
 
         inputs[0] = energy.0 / config.max_organism_energy;
@@ -470,7 +470,7 @@ fn sensing_and_brain_system(
         };
         inputs[21] = 1.0; // bias
 
-        let brain_out = brain.evaluate(&inputs);
+        let (brain_out, trace) = brain.evaluate_trace(&inputs);
         output.move_x = brain_out[0];
         output.move_y = brain_out[1];
         output.eat = brain_out[2];
@@ -478,6 +478,7 @@ fn sensing_and_brain_system(
         output.attack = brain_out[4];
         output.signal = brain_out[5];
         output.memory_out = [brain_out[6], brain_out[7], brain_out[8]];
+        activations.values = trace;
     });
 }
 
@@ -1008,7 +1009,7 @@ fn reproduction_system(
             Signal::default(),
             GroupSize::default(),
             ParentInfo { parent_species_id: Some(parent_species) },
-        )).insert((brain, child_genome, TrailHistory::default()));
+        )).insert((brain, child_genome, TrailHistory::default(), BrainActivations::default()));
 
         stats.total_births += 1;
         if child_gen > stats.max_generation {
@@ -1308,7 +1309,7 @@ pub fn spawn_initial_population(
             Signal::default(),
             GroupSize::default(),
             ParentInfo::default(),
-        )).insert((brain, genome, TrailHistory::default()));
+        )).insert((brain, genome, TrailHistory::default(), BrainActivations::default()));
     }
 }
 
