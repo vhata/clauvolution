@@ -207,7 +207,9 @@ Headless mode (Theme 4) will make this much faster once it lands.
 
 **Current tuning state:**
 - **Disease (v2 pass in progress).** First pass too mild. Second pass: radius 12→20, drain ×2, background ×3, added direct mortality. Not yet validated in a run. May need further adjustment.
-- **Plant dominance attractor.** Plant density competition shipped but recent runs still go 100% plants in ~50 seconds. Density formula might need to be steeper (current: `1/(1 + others × 0.2)`; steeper: `× 0.4`). Initial seeding is 30% plants — could reduce to 20%.
+- ~~**Plant dominance attractor.**~~ Broken by `PHOTO_OUTPUT_MULTIPLIER = 0.5` (see DECISIONS.md). Density competition alone didn't bite because the world is too large for plants to actually cluster. Validated across four seeds: plant share 38–79%, foragers 7–61%, predators 0.5–14%. Lesson: two independent pressures on the same strategy isn't "double the pressure" if one of them doesn't engage in the actual operating regime.
+- **Starvation-dominant deaths.** At current tuning, ~85% of deaths are starvation. Expected (foragers have to earn their place) but worth watching — if predators and disease never contribute meaningfully, it suggests the other selection pressures aren't firing.
+- **Predators don't actually predate.** `SpeciesStrategy::Predator` is assigned by genome (`claw_power > 0.5`), but in four 1500-tick headless runs zero deaths were attributed to predation despite 6–284 "predators" being alive. Either brains aren't firing the attack output, attack damage isn't overcoming armor, or the size-gate (`attacker > prey × 0.6`) is too tight. Worth an instrumentation pass: attack-attempt counter, damage-distribution histogram, size-gate rejection count.
 - **Predation energy pyramid (10% trophic efficiency).** Thermodynamically motivated but worth sanity-checking — are predators ever viable, or does 10% make them unsustainable?
 - **Quadratic body/armor/claw costs.** Prevents "stack everything" meta — but if nobody evolves big bodies or heavy armor, the cost may be too punishing.
 
@@ -217,7 +219,7 @@ Headless mode (Theme 4) will make this much faster once it lands.
 
 Stable-but-boring configurations the sim can fall into. Each should get counter-pressure so the world doesn't stay there.
 
-- **Green world** — plants win everything. Partially addressed by plant density competition; disease is intended to finish the job.
+- **Green world** — plants win everything. Addressed by `PHOTO_OUTPUT_MULTIPLIER = 0.5` (see DECISIONS.md); density competition alone didn't bite.
 - **Predator starvation collapse** — too many predators, prey crashes, predators starve. Natural but boring if it always happens. Energy pyramid (10%) is supposed to prevent it.
 - **Minimal viable organism** — everyone converges to a tiny, cheap, photo-surface-only organism that barely moves. Watch for low body_size + low speed averages plus no predators.
 - **Genetic stagnation** — species count stabilises low, traits flatline. Suggests mutation rate or structural mutation rate is too low.

@@ -20,11 +20,17 @@ Not an exhaustive list of every tweak — just the decisions where someone readi
 **Why:** prevents "stack everything" meta. If costs were linear, evolution would converge on maxed-out big armored fast predators. Quadratic costs force trade-offs — you can be fast *or* armored *or* big, but not all three cheaply.
 **Accepted tradeoff:** organisms might never evolve extreme traits because the marginal cost becomes prohibitive. If we see everyone converging to tiny low-trait organisms, that's the sign we've overtuned it.
 
-### Plant density competition — `yield × 1/(1 + others_on_tile × 0.2)`
+### Plant density competition — `yield × 1/(1 + others_on_tile × 0.3)`
 **Chosen:** photosynthesis yield drops inversely with the number of other plants on the same tile.
-**Alternatives:** no competition (resulted in 100% plant worlds), linear penalty (too harsh — nobody survives clustering), carrying-capacity cliff (abrupt and unfair).
-**Why:** biologically honest (real plants shade each other) and naturally caps monocultures without banning clustering. Smooth diminishing returns mean plants are always better off clustering than dying alone; just not unboundedly so.
-**Accepted tradeoff:** current coefficient (0.2) may not be steep enough — plant-dominated worlds still happen. Tuning candidate to bump to 0.4.
+**Alternatives:** no competition (100% plant worlds), linear penalty (too harsh — nobody survives clustering), carrying-capacity cliff (abrupt and unfair).
+**Why:** biologically honest (real plants shade each other) and naturally caps monocultures without banning clustering.
+**Accepted tradeoff:** on its own, this mechanism **doesn't** cap plant dominance. Swept the coefficient 0.2 → 0.5 → 2.0 in a 512² world with ~2000 organisms and plants still reached 90%+. The world is large enough that plants naturally spread to ~1 per tile, so density rarely bites. Density competition is real pressure *when plants cluster*, but it's not the thing that prevents monoculture. That's what `PHOTO_OUTPUT_MULTIPLIER` is for (separate entry).
+
+### Photosynthesis output multiplier — raw scalar on yield
+**Chosen:** a global `PHOTO_OUTPUT_MULTIPLIER = 0.5` multiplier on the photosynthesis energy equation.
+**Alternatives:** steeper density penalty (see above — doesn't help), more aggressive metabolism costs for photosynthesisers (biased against a strategy rather than rebalancing), reducing sunlight (same effect, worse name).
+**Why:** density competition on its own wasn't enough because plants don't cluster densely in a large world. The blunt lever is lowering the raw photosynthesis yield so plant energy intake becomes comparable to what foraging yields — at which point foragers can actually compete. Tuning journey: 2.0 (original) → 1.0 → 0.7 all produced 90%+ plant monocultures. 0.5 consistently produces diverse ecologies across four tested seeds (plant share ranges 38%–79%, foragers 7%–61%, predators 0.5%–14%).
+**Accepted tradeoff:** starvation becomes the dominant death cause (~85% of deaths). This is the correct signal, not a bug — foragers "earn" their place by out-eating the photosynthesis shortfall, and the sim stays near the population cap with ~2000 organisms stable across the whole run. The alternative (free lunch for photosynthesisers) is a monoculture with nothing to watch. Also noted during this pass: "Predator" is a genome classification (`claw_power > 0.5`) but actual predation deaths are zero in tested runs — brains aren't firing the attack output enough, or damage isn't overcoming armor reliably. Separate issue on the roadmap.
 
 ### Disease: direct mortality + energy drain, not drain alone
 **Chosen:** infected organisms suffer both a per-tick energy drain AND a small per-tick chance of direct death (scaled by severity × (1-resistance)).

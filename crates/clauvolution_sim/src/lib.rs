@@ -67,7 +67,23 @@ const NUTRIENT_RAIN_DENSITY: f32 = 0.05;
 
 /// Penalty coefficient for plants sharing a tile. Yield = 1 / (1 + others × k).
 /// Higher k = steeper penalty. Raising this combats green-world monocultures.
-const PLANT_DENSITY_PENALTY: f32 = 0.2;
+/// Tuning history:
+///   0.2 → 0.5 → 2.0 : all ineffective. The world is big (512² tiles, 2000
+///   organisms), so plants naturally spread to ~1 per tile anyway. Density
+///   penalty never really bites. Moving the pressure elsewhere instead.
+const PLANT_DENSITY_PENALTY: f32 = 0.3;
+
+/// Raw multiplier on photosynthesis yield. Scales how much energy the sun
+/// gives. Lowering this makes photosynthesis less free-lunch and evens the
+/// scales with foraging/predation.
+/// Tuning history:
+///   2.0 — initial, plants dominate 90%+
+///   1.0 — 50% cut, plants still 91% but more starvation
+///   0.7 — 65% cut, back to 92% plants — too lenient
+///   0.5 — (current) 75% cut: breaks monoculture (~72/26/1% split).
+///         Starvation becomes dominant death cause but that's the correct
+///         signal — foragers earn their place by out-eating the shortfall.
+const PHOTO_OUTPUT_MULTIPLIER: f32 = 0.5;
 
 /// Minimum real-time seconds between extinction/bloom events (prevents spam).
 const WORLD_EVENT_COOLDOWN_SECS: f32 = 2.0;
@@ -644,7 +660,7 @@ fn photosynthesis_system(
             let others = tile_plants.saturating_sub(1);
             let density_factor = 1.0 / (1.0 + others as f32 * PLANT_DENSITY_PENALTY);
 
-            let gained = genome.photosynthesis_rate * photo_area * tile.light_level * light_mult * density_factor * 2.0;
+            let gained = genome.photosynthesis_rate * photo_area * tile.light_level * light_mult * density_factor * PHOTO_OUTPUT_MULTIPLIER;
             energy.0 = (energy.0 + gained).min(config.max_organism_energy);
         }
     }
