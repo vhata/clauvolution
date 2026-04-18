@@ -19,3 +19,5 @@ clauvolution_sim = { path = "../clauvolution_sim" }
 clauvolution_render = { path = "../clauvolution_render" }
 clauvolution_phylogeny = { path = "../clauvolution_phylogeny" }
 clauvolution_ui = { path = "../clauvolution_ui" }
+serde = { workspace = true }
+serde_json = { workspace = true }

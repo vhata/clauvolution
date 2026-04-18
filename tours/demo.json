@@ -1,0 +1,12 @@
+{
+  "actions": [
+    { "at_seconds": 3.0,  "kind": "set_speed", "multiplier": 4.0 },
+    { "at_seconds": 8.0,  "kind": "set_tab",   "tab": "graphs"   },
+    { "at_seconds": 9.0,  "kind": "screenshot", "name": "01_graphs" },
+    { "at_seconds": 10.0, "kind": "set_tab",   "tab": "phylo"    },
+    { "at_seconds": 11.0, "kind": "screenshot", "name": "02_phylo" },
+    { "at_seconds": 12.0, "kind": "set_tab",   "tab": "chronicle" },
+    { "at_seconds": 13.0, "kind": "screenshot", "name": "03_chronicle" },
+    { "at_seconds": 14.0, "kind": "exit" }
+  ]
+}

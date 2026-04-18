@@ -1,3 +1,5 @@
+mod script;
+
 use bevy::core::{TaskPoolOptions, TaskPoolPlugin, TaskPoolThreadAssignmentPolicy};
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{save_to_disk, Screenshot};
@@ -12,6 +14,7 @@ use clauvolution_sim::SimPlugin;
 use clauvolution_ui::UiPlugin;
 use clauvolution_world::{self, TileMap, WorldPlugin};
 use rand::SeedableRng;
+use script::{load_script, script_runner_system, ScriptState};
 
 /// Default cap on Bevy's compute task pool workers — leaves cores free for
 /// the rest of the OS so running this sim doesn't spin up the fans and
@@ -64,6 +67,9 @@ fn main() {
         .and_then(|i| args.get(i + 1))
         .and_then(|s| s.parse().ok())
         .unwrap_or(DEFAULT_HEADLESS_SPEED);
+    let script_path: Option<String> = args.iter()
+        .position(|a| a == "--script")
+        .and_then(|i| args.get(i + 1).cloned());
 
     let worker_cap = compute_worker_cap();
     eprintln!("Compute pool capped at {} workers (set CLAU_WORKERS to override)", worker_cap);
@@ -100,6 +106,20 @@ fn main() {
     if screenshot_mode {
         app.insert_resource(ScreenshotSchedule::new())
             .add_systems(Update, screenshot_system);
+    }
+
+    if let Some(path) = script_path {
+        match load_script(std::path::Path::new(&path)) {
+            Ok(script) => {
+                eprintln!("Loaded script with {} action(s) from {}", script.actions.len(), path);
+                app.insert_resource(ScriptState { script, next_action: 0 })
+                    .add_systems(Update, script_runner_system);
+            }
+            Err(e) => {
+                eprintln!("Failed to load script: {}", e);
+                std::process::exit(1);
+            }
+        }
     }
 
     app.run();

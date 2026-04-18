@@ -22,7 +22,38 @@ impl Plugin for UiPlugin {
             // egui carries layout state across frames (immediate mode builds
             // rects during show() and they remain queryable until next show()).
             .add_systems(PreUpdate, update_input_capture_system)
-            .add_systems(Update, (header_bar_system, right_panel_system).chain());
+            .add_systems(Update, (header_bar_system, right_panel_system).chain())
+            .add_systems(Update, tab_shortcut_system);
+    }
+}
+
+/// Number keys 1-6 jump the right panel to a specific tab. Gated on
+/// wants_keyboard so typing into an egui text field doesn't flip tabs.
+fn tab_shortcut_system(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut ui_state: ResMut<UiState>,
+    ui_input: Res<UiInputState>,
+) {
+    if ui_input.wants_keyboard {
+        return;
+    }
+    let tab = if keys.just_pressed(KeyCode::Digit1) {
+        Some(RightTab::Inspect)
+    } else if keys.just_pressed(KeyCode::Digit2) {
+        Some(RightTab::Phylo)
+    } else if keys.just_pressed(KeyCode::Digit3) {
+        Some(RightTab::Graphs)
+    } else if keys.just_pressed(KeyCode::Digit4) {
+        Some(RightTab::Chronicle)
+    } else if keys.just_pressed(KeyCode::Digit5) {
+        Some(RightTab::Events)
+    } else if keys.just_pressed(KeyCode::Digit6) {
+        Some(RightTab::Help)
+    } else {
+        None
+    };
+    if let Some(t) = tab {
+        ui_state.right_tab = t;
     }
 }
 
@@ -106,6 +137,7 @@ fn help_tab(ui: &mut egui::Ui) {
                 ("T", "toggle trail for selected organism"),
                 ("F5", "save world"),
                 ("S", "take screenshot"),
+                ("1 … 6", "switch right-panel tab"),
             ] {
                 ui.monospace(key);
                 ui.label(desc);

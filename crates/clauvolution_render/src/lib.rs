@@ -845,11 +845,68 @@ fn manual_screenshot_system(
     if keys.just_pressed(KeyCode::KeyS) {
         let time_secs = tick.0 / 30;
         let label = format!("screenshot_{}s", time_secs);
-        let path = session.screenshot_path(&label).to_string_lossy().to_string();
-        info!("Screenshot: {}", path);
-        commands
-            .spawn(Screenshot::primary_window())
-            .observe(save_to_disk(path));
+        let path = session.screenshot_path(&label);
+        capture_window_screenshot(&mut commands, &path);
+    }
+}
+
+/// Capture the full display (or window) to `path`. On macOS shells out
+/// to `screencapture` so the egui overlays ARE included — Bevy's native
+/// Screenshot API captures only the main camera's render target because
+/// bevy_egui draws directly to the swapchain after camera output is
+/// redirected to the screenshot texture. On other platforms we fall back
+/// to Bevy's Screenshot (no egui).
+pub fn capture_window_screenshot(commands: &mut Commands, path: &std::path::Path) {
+    let path_str = path.to_string_lossy().to_string();
+    info!("Screenshot: {}", path_str);
+
+    #[cfg(target_os = "macos")]
+    {
+        // Raise our own window before capturing, otherwise screencapture
+        // grabs whatever's actually frontmost (your desktop, your terminal,
+        // whatever). `unix id is PID` targets our process specifically so
+        // we don't fight any other running app.
+        let pid = std::process::id();
+        let _ = std::process::Command::new("osascript")
+            .args([
+                "-e",
+                &format!(
+                    "tell application \"System Events\" to set frontmost of (first process whose unix id is {}) to true",
+                    pid
+                ),
+            ])
+            .status();
+        // Give the window server a moment to actually bring the window up
+        // before the capture latches the current frame. 200ms is plenty on
+        // a modern Mac.
+        std::thread::sleep(std::time::Duration::from_millis(200));
+
+        match std::process::Command::new("screencapture")
+            .args(["-x", "-m"])
+            .arg(&path_str)
+            .status()
+        {
+            Ok(status) if status.success() => {}
+            Ok(status) => {
+                warn!(
+                    "screencapture exited non-zero ({}); falling back to Bevy screenshot (no egui)",
+                    status
+                );
+                commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path_str));
+            }
+            Err(e) => {
+                warn!(
+                    "screencapture failed: {}; falling back to Bevy screenshot (no egui)",
+                    e
+                );
+                commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path_str));
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path_str));
     }
 }
 

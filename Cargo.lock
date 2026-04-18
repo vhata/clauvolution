@@ -1699,6 +1699,8 @@ dependencies = [
  "clauvolution_ui",
  "clauvolution_world",
  "rand 0.8.5",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

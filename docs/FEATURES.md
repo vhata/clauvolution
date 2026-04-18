@@ -94,8 +94,10 @@ One-liner list of what Clauvolution does, grouped by area. For the design ration
 - **Save/load** — F5 saves full world state to session directory; `--load sessions/<name>` restores
 - **Named sessions** — each run gets a unique cosmic three-word name; logs + screenshots + saves live in `sessions/<name>/`
 - **Seed-based terrain generation** — same seed produces same terrain; saved in save files
-- **Manual screenshots (S)** — saved to session directory with timestamp
+- **Manual screenshots (S)** — saved to session directory with timestamp. On macOS, uses `screencapture` so UI overlays (right panel, header, minimap legend) are included.
 - **Screenshot verification mode** — `--screenshot` CLI flag runs a scripted tour and captures images
+- **Scripted automation** — `--script path.json` runs a timed sequence of actions (set tab, set speed, set zoom, move camera, screenshot, exit). See `tours/demo.json` for an example; useful for producing README screenshots.
+- **Panel tab shortcuts (1–6)** — switch right-panel tab from the keyboard (1=Inspect, 2=Phylo, 3=Graphs, 4=Chronicle, 5=Events, 6=Help)
 - **JetBrains Mono font** — bundled for proper Unicode rendering
 
 ## Tuning instrumentation
