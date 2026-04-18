@@ -29,6 +29,7 @@ impl Plugin for RenderPlugin {
             .init_resource::<SharedMeshes>()
             .init_resource::<LodState>()
             .init_resource::<MinimapMode>()
+            .init_resource::<MinimapVisible>()
             .init_resource::<ScreenshotState>()
             .add_systems(Startup, (setup_camera, setup_shared_meshes, setup_minimap))
             .add_systems(
@@ -96,11 +97,25 @@ pub struct UiFont(pub Handle<Font>);
 #[derive(Component)]
 pub struct MinimapNode;
 
+/// Marker for UI nodes that should be hidden together when the user
+/// toggles minimap visibility (the minimap image itself and its legend).
+#[derive(Component)]
+pub struct MinimapChrome;
+
 #[derive(Resource, Default, PartialEq, Eq)]
 pub enum MinimapMode {
     #[default]
     Normal,
     Heatmap,
+}
+
+#[derive(Resource)]
+pub struct MinimapVisible(pub bool);
+
+impl Default for MinimapVisible {
+    fn default() -> Self {
+        Self(true)
+    }
 }
 
 #[derive(Resource)]
@@ -175,6 +190,7 @@ fn setup_camera(mut commands: Commands, config: Res<SimConfig>, asset_server: Re
                 ..default()
             },
             BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7)),
+            MinimapChrome,
         ))
         .with_children(|parent| {
             for (color, label) in legend_entries {
@@ -643,17 +659,23 @@ fn camera_control_system(
 
     let dt = time.delta_secs();
 
+    // WASD panning — suppress the letter keys when shift is held so
+    // Shift+S (screenshot) and Shift+M (minimap toggle) don't also pan.
+    // Arrow keys are unaffected because they're not used as modifier
+    // targets anywhere.
+    let shift_held =
+        keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
     let speed = 200.0 * projection.scale * dt;
-    if keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp) {
+    if (keys.pressed(KeyCode::KeyW) && !shift_held) || keys.pressed(KeyCode::ArrowUp) {
         transform.translation.y += speed;
     }
-    if keys.pressed(KeyCode::KeyS) || keys.pressed(KeyCode::ArrowDown) {
+    if (keys.pressed(KeyCode::KeyS) && !shift_held) || keys.pressed(KeyCode::ArrowDown) {
         transform.translation.y -= speed;
     }
-    if keys.pressed(KeyCode::KeyA) || keys.pressed(KeyCode::ArrowLeft) {
+    if (keys.pressed(KeyCode::KeyA) && !shift_held) || keys.pressed(KeyCode::ArrowLeft) {
         transform.translation.x -= speed;
     }
-    if keys.pressed(KeyCode::KeyD) || keys.pressed(KeyCode::ArrowRight) {
+    if (keys.pressed(KeyCode::KeyD) && !shift_held) || keys.pressed(KeyCode::ArrowRight) {
         transform.translation.x += speed;
     }
 
@@ -707,8 +729,22 @@ fn camera_control_system(
 fn toggle_minimap_mode_system(
     keys: Res<ButtonInput<KeyCode>>,
     mut mode: ResMut<MinimapMode>,
+    mut visible: ResMut<MinimapVisible>,
+    mut chrome: Query<&mut Node, With<MinimapChrome>>,
 ) {
-    if keys.just_pressed(KeyCode::KeyM) {
+    if !keys.just_pressed(KeyCode::KeyM) {
+        return;
+    }
+    let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
+    if shift {
+        // Shift+M: toggle minimap visibility (both image and legend)
+        visible.0 = !visible.0;
+        let display = if visible.0 { Display::Flex } else { Display::None };
+        for mut node in &mut chrome {
+            node.display = display;
+        }
+    } else {
+        // Plain M: cycle minimap mode (normal ↔ heatmap)
         *mode = match *mode {
             MinimapMode::Normal => MinimapMode::Heatmap,
             MinimapMode::Heatmap => MinimapMode::Normal,
@@ -854,9 +890,11 @@ fn manual_screenshot_system(
     main_camera: Query<(&Transform, &OrthographicProjection), With<MainCamera>>,
     primary_window: Query<(Entity, &Window), With<PrimaryWindow>>,
 ) {
-    // F12 is the conventional screenshot key and, unlike S, it doesn't
-    // collide with the camera-south WASD binding.
-    if keys.just_pressed(KeyCode::F12) {
+    // Shift+S takes a screenshot. Plain S is WASD camera-south; the
+    // camera_control_system skips panning when shift is pressed so the
+    // two don't fight.
+    let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
+    if shift && keys.just_pressed(KeyCode::KeyS) {
         let time_secs = tick.0 / 30;
         let label = format!("screenshot_{}s", time_secs);
         let path = session.screenshot_path(&label);
@@ -903,6 +941,7 @@ fn setup_minimap(
             ..default()
         },
         MinimapNode,
+        MinimapChrome,
     ));
 
     commands.insert_resource(MinimapData {

@@ -33,7 +33,7 @@ Incremental release builds are enabled in Cargo.toml for fast iteration after th
 
 ## Controls summary
 
-Space=pause, [/]=speed, WASD=pan, scroll=zoom, click=inspect, F12=screenshot, F5=save, M=heatmap, T=trails, X=asteroid, I=ice age, V=volcano, B=solar bloom, N=nutrient rain, J=Cambrian spark, 1–6=switch right-panel tab. Graphs/chronicle/phylo/help are in egui tabs in the right panel.
+Space=pause, [/]=speed, WASD=pan, scroll=zoom, click=inspect, Shift+S=screenshot, F5=save, M=heatmap, Shift+M=hide minimap, T=trails, X=asteroid, I=ice age, V=volcano, B=solar bloom, N=nutrient rain, J=Cambrian spark, 1–6=switch right-panel tab. Graphs/chronicle/phylo/help are in egui tabs in the right panel.
 
 ## Known rough edges
 

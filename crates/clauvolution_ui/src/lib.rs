@@ -30,7 +30,15 @@ impl Plugin for UiPlugin {
 
 /// Scale every text style proportionally so the `Body` size lands on
 /// `TARGET_BODY_SIZE`. Runs once at startup.
-const TARGET_BODY_SIZE: f32 = 20.0;
+pub const TARGET_BODY_SIZE: f32 = 16.0;
+
+/// egui's default body text size, used for computing scale factors
+/// relative to our target.
+const EGUI_DEFAULT_BODY: f32 = 14.0;
+
+/// Scale factor for UI dimensions that should grow with the font size
+/// (panel widths, for example).
+pub const UI_SCALE: f32 = TARGET_BODY_SIZE / EGUI_DEFAULT_BODY;
 
 fn scale_ui_fonts(mut contexts: EguiContexts) {
     let ctx = contexts.ctx_mut();
@@ -39,7 +47,7 @@ fn scale_ui_fonts(mut contexts: EguiContexts) {
         .text_styles
         .get(&egui::TextStyle::Body)
         .map(|f| f.size)
-        .unwrap_or(14.0);
+        .unwrap_or(EGUI_DEFAULT_BODY);
     let factor = TARGET_BODY_SIZE / current_body;
     for (_, font_id) in style.text_styles.iter_mut() {
         font_id.size *= factor;
@@ -154,9 +162,10 @@ fn help_tab(ui: &mut egui::Ui) {
                 ("Right-drag", "pan camera"),
                 ("WASD", "pan camera"),
                 ("M", "toggle minimap heatmap"),
+                ("Shift+M", "show/hide minimap"),
                 ("T", "toggle trail for selected organism"),
                 ("F5", "save world"),
-                ("F12", "take screenshot"),
+                ("Shift+S", "take screenshot"),
                 ("1 … 6", "switch right-panel tab"),
             ] {
                 ui.monospace(key);
@@ -287,8 +296,8 @@ fn right_panel_system(
 
     egui::SidePanel::right("right_panel")
         .resizable(true)
-        .default_width(380.0)
-        .min_width(280.0)
+        .default_width(380.0 * UI_SCALE)
+        .min_width(280.0 * UI_SCALE)
         .show(ctx, |ui| {
             // Tab strip
             ui.horizontal_wrapped(|ui| {
