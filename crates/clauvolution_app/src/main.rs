@@ -18,6 +18,12 @@ use rand::SeedableRng;
 /// bog everything else down. Override with the `CLAU_WORKERS` env var.
 const DEFAULT_WORKER_CAP: usize = 6;
 
+/// Default virtual-time multiplier in headless mode. 10× real-time is
+/// a sensible default — most laptops keep up, and it cuts validation
+/// cycles from minutes to seconds. Override with `--speed N` on the CLI.
+/// 1.0 reproduces the old behaviour (paced to wall clock).
+const DEFAULT_HEADLESS_SPEED: f32 = 10.0;
+
 fn compute_worker_cap() -> usize {
     std::env::var("CLAU_WORKERS")
         .ok()
@@ -53,12 +59,17 @@ fn main() {
         .position(|a| a == "--headless")
         .and_then(|i| args.get(i + 1))
         .and_then(|s| s.parse().ok());
+    let headless_speed: f32 = args.iter()
+        .position(|a| a == "--speed")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(DEFAULT_HEADLESS_SPEED);
 
     let worker_cap = compute_worker_cap();
     eprintln!("Compute pool capped at {} workers (set CLAU_WORKERS to override)", worker_cap);
 
     if let Some(ticks) = headless_ticks {
-        run_headless(ticks, seed, worker_cap);
+        run_headless(ticks, seed, worker_cap, headless_speed);
         return;
     }
 
@@ -326,12 +337,13 @@ fn set_window_title(
 
 // --- Headless mode ---
 
-fn run_headless(ticks: u64, seed: Option<u64>, worker_cap: usize) {
+fn run_headless(ticks: u64, seed: Option<u64>, worker_cap: usize, speed: f32) {
     use bevy::app::ScheduleRunnerPlugin;
 
     let start = std::time::Instant::now();
-    eprintln!("Headless run: {} ticks{}", ticks,
-        seed.map(|s| format!(", seed {}", s)).unwrap_or_default());
+    eprintln!("Headless run: {} ticks{} at {}× virtual-time", ticks,
+        seed.map(|s| format!(", seed {}", s)).unwrap_or_default(),
+        speed);
 
     let mut app = App::new();
 
@@ -360,26 +372,35 @@ fn run_headless(ticks: u64, seed: Option<u64>, worker_cap: usize) {
         .insert_resource(InnovationCounter(100))
         .insert_resource(LoadPath(None))
         .insert_resource(SeedOverride(seed))
-        .add_systems(Startup, (apply_seed_override, startup_system).chain());
+        .insert_resource(HeadlessSpeed(speed))
+        .add_systems(
+            Startup,
+            (apply_seed_override, startup_system, set_headless_speed).chain(),
+        );
 
     // Counter system that exits after N FixedUpdate ticks.
     app.insert_resource(HeadlessTickTarget(ticks))
         .add_systems(FixedUpdate, headless_tick_counter);
 
-    // NB: headless doesn't run "faster than real-time" — the sim is already
-    // CPU-bound at 30Hz with 2000 organisms. Removing rendering only recovers
-    // the modest GPU/UI overhead. For true speedup we need brain-eval
-    // parallelism (Rayon — see ROADMAP Theme 4).
-    //
-    // What headless DOES provide:
-    //   - No GPU / window, so it runs headlessly (CI, ssh, no display)
-    //   - Deterministic with --seed, usable for regression tests
-    //   - Single end-of-run report instead of real-time graphs
+    // Headless runs virtual time at `--speed` ×, so FixedUpdate can fire
+    // faster than 30Hz wall-clock up to whatever the CPU can sustain. Every
+    // sim timer (species classification, pop history, bloom durations) is
+    // defined in virtual seconds so their semantics stay intact — a run
+    // that used to take 50s wall-clock just completes in 5s at speed=10.
+    // On an M4 Max at speed=10 we keep up with the CPU; push it further
+    // and Bevy's catchup starts clamping via the 100ms max_delta cap.
 
     app.run();
 
     let elapsed = start.elapsed();
     eprintln!("Headless run complete in {:.2}s", elapsed.as_secs_f64());
+}
+
+#[derive(Resource)]
+struct HeadlessSpeed(f32);
+
+fn set_headless_speed(speed: Res<HeadlessSpeed>, mut vtime: ResMut<Time<Virtual>>) {
+    vtime.set_relative_speed(speed.0);
 }
 
 #[derive(Resource)]

@@ -128,16 +128,23 @@ Run at unlimited speed until a triggering event, then pause. "Skip to the punchl
 The recent disease-tuning session made the pain clear: eyeballing 2 minutes of sim to find out a parameter is wrong is a slow feedback loop. These items make tuning fast and measurable, which in turn makes the live sim richer.
 
 ### Headless mode
-✅ **Shipped (v1).** `--headless <ticks>` CLI flag runs the sim without rendering/UI and prints a final summary. `Session::new_ephemeral()` skips disk directory creation.
+✅ **Shipped (v2).** `--headless <ticks>` CLI flag runs the sim without rendering/UI and prints a final summary. `--speed N` multiplies virtual time so FixedUpdate can fire faster than 30Hz wall-clock.
 
-**Honest correction to my earlier pitch:** I claimed headless would "run 10 minutes of sim in seconds." Wrong. At 2000 organisms the sim is already CPU-bound at 30Hz — each tick takes ~1/30s of CPU to compute. Removing rendering saves a few percent. Headless is about the same wall-clock speed as live-at-1x for the same tick count.
+**v2 correction to the v1 framing:** I earlier claimed headless was pegged at 30Hz "because the sim is CPU-bound." Half right — the sim IS CPU-bound at ~85 ticks/sec on an M4 Max, but v1 was actually bottlenecked on Bevy's virtual-time pacing (30Hz virtual → 30Hz wall). Unchained, it runs 2.8× faster.
 
-What headless actually gives us:
+Measured (1500 ticks, seed 1, M4 Max, 6 compute workers):
+- `--speed 1` → 50.07s (1.0×, baseline)
+- `--speed 5` → 17.86s (2.8×)
+- `--speed 10` → 17.62s (2.8×)
+- `--speed 50` → 17.95s (2.8×)
+
+Past `--speed 5` the CPU is the floor. To push further we'd need less per-tick compute (more Rayon, GPU compute for brains, or fewer organisms).
+
+What headless gives us:
 - Runs without a display (ssh, CI, servers)
 - Scriptable (no keyboard/clicks required)
 - Single summary at the end instead of live graphs
-
-For real speedup we need less per-tick compute (more Rayon on other systems, GPU compute for brains, or fewer organisms). Those are separate projects below.
+- 2.8× speedup via `--speed N` for fast validation loops
 
 ### Session seeds — full reproducibility
 ⚠️ **Partial (v1).** `--seed <u64>` CLI flag + SimRng resource makes food regen, mutation, disease rolls, reproduction and asteroid targeting all derive from the master seed.

@@ -142,12 +142,12 @@ Not an exhaustive list of every tweak — just the decisions where someone readi
 **Why:** a 4-float-comparison per entity is trivial vs rendering cost for thousands of off-screen organisms. Big win at 2000 organisms.
 **Accepted tradeoff:** a small margin (~20px scaled) is used to prevent entities flickering at the camera edge — means we draw slightly more than strictly necessary.
 
-### Headless mode: same speed as live, not faster
-**Chosen:** `--headless` runs the sim with `MinimalPlugins` at the standard 30Hz FixedUpdate timestep. Same wall-clock speed as live-at-1x.
-**Alternatives considered:** inflating `Time::<Virtual>`'s relative speed (tried — caused runaway catchup), tiny fixed timestep (same runaway), manual schedule invocation (breaks timer-dependent systems like species classification).
-**Why this is where we landed:** at 2000 organisms the sim is CPU-bound — each tick already takes about 1/30s of CPU to compute. Uncapping Bevy's time-gate just means each frame's catchup loop tries to run more ticks than the CPU can handle, which stalls. Rendering removal saves only a few percent of per-frame overhead.
-**What was wrong with the initial assumption:** I pitched headless as "run 10 minutes of sim in seconds." That was wishful — the compute cost doesn't disappear when rendering does.
-**Accepted tradeoff:** headless is still worth having for the non-speed reasons (scriptable, no display, deterministic-ish). For true speedup we need either fewer organisms or more per-tick parallelism (Rayon on more systems, GPU compute for brains). Those are separate projects on the roadmap.
+### Headless mode: `--speed N` virtual-time multiplier, capped by CPU
+**Chosen:** `--headless` runs with `MinimalPlugins` and `--speed N` (default 10) scales `Time::<Virtual>::relative_speed`. FixedUpdate fires as fast as the CPU can sustain, bounded by Bevy's `max_delta` catchup cap.
+**Alternatives considered:** tiny fixed timestep (changes the semantic meaning of one tick for virtual-time timers like species classification), manual schedule invocation (breaks timers entirely), keeping it at 1× wall-clock (what v1 did).
+**Why this is where we landed:** relative_speed leaves every sim timer semantically intact (classification still runs every 5 virtual-seconds, seasons still 60 virtual-seconds, etc.) — only the mapping from virtual to wall-clock changes. Measured speedup is 2.8× (50s → 17.6s for 1500 ticks on M4 Max). Beyond `--speed 5` further multiplication does nothing because the CPU is the floor at ~85 ticks/sec.
+**What was wrong with the v1 assumption:** I previously claimed headless couldn't go faster than 30Hz because "the sim is CPU-bound at 30Hz." Half right. The sim IS CPU-bound at ~85 ticks/sec, but v1 was bottlenecked on Bevy's virtual-time pacing at 30Hz wall-clock — which is a configurable thing, not a compute thing. Fixing the pacing gets us to the real CPU ceiling.
+**Accepted tradeoff:** speedup caps at whatever your CPU sustains per-tick, which depends heavily on organism count and system count. For further speedup we still need less per-tick compute (more Rayon, GPU compute for brains, or fewer organisms). Note also that non-determinism beyond ~50 ticks (from parallel task pool / HashMap ordering) is unchanged by `--speed` — integration tests needing bit-identical replay need single-threaded mode, which costs Rayon and runs slower.
 
 ### Rayon parallelism via Bevy `par_iter_mut`, not rayon crate directly
 **Chosen:** Used Bevy's `Query::par_iter_mut` in `sensing_and_brain_system`. Bevy's task pool wraps Rayon under the hood.
