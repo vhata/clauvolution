@@ -218,9 +218,45 @@ Observing the sim trend toward any of these = trigger to tune.
 
 ## Code health
 
-- Known rough edges tracked in `CLAUDE.md` under "Known Issues / Rough Edges"
+- Known rough edges tracked in `CLAUDE.md` under "Known rough edges"
 - Big files worth splitting if they grow further: `clauvolution_sim/src/lib.rs` (~1200 lines), `clauvolution_render/src/lib.rs` (~1100), `clauvolution_ui/src/lib.rs` (~830)
 - When a function in one of those crosses 100 lines, it's probably ready to move to its own module
+
+### Known tech debt (not blocking, worth addressing when touching nearby code)
+
+**Performance / allocation hotspots:**
+- `photosynthesis_system` allocates a new `HashMap<(u32,u32), u32>` every tick (30/sec) for plant density counting. Two passes over all organisms. At 2000 organisms this is fine, but could reuse a cached resource for the count.
+- Food positions are collected into a new `Vec` every tick in both `sensing_and_brain_system` and `action_system`. The spatial hash already has food — could query it directly.
+- `reproduction_system` calls `genome.clone()` multiple times when setting up mate candidates. Genomes are large (neurons + connections + body segments). Could pass references via a lookup table.
+- `render` systems clone mesh/material handles frequently — handles are cheap (Arc-like) but the pattern obscures that.
+
+**Magic numbers that should be named:**
+- Disease tuning literals (`20.0` transmission range, `1.6` drain multiplier, `0.0015` mortality, `300..700` infection duration, `0.001` background rate) live inline in `disease_transmission_system` / `disease_effects_system`. Should be grouped as `DiseaseConfig` constants or even moved into `SimConfig` so tuning doesn't require a recompile.
+- Bloom durations all hardcoded as `900` (30s at 30Hz) in three places in `mass_extinction_input_system`. One named const.
+- Plant density competition coefficient `0.2` in `photosynthesis_system`.
+- 2-second extinction cooldown and 5-second species-classification period in `SimPlugin::build`. These are tuned values, deserve names.
+
+**Large multi-concern functions:**
+- `sensing_and_brain_system` (~114 lines) does spatial querying, input assembly, social sensing computation, and brain evaluation in one loop. Splitting the sensing pass from the brain-eval pass would also enable Rayon parallelism (ROADMAP theme 4).
+- `reproduction_system` (~114 lines) mixes mate finding, genome crossover/mutation, and child spawning. Natural split along those three concerns.
+
+**Inconsistent patterns:**
+- Event-based triggering vs direct Commands usage varies across systems. `mass_extinction_input_system` uses `WorldEventRequest` but `action_system` spawns food entities directly. Should decide: is every world mutation an event, or only user-triggered ones? Right now it's "user-triggered only", which is fine — just document.
+- Some systems use explicit chaining (`.chain()`), others rely on default Bevy ordering within a tuple. Be deliberate about which.
+
+**Name duplication:**
+- `body_descriptor`, `habitat_word`, `strategy_noun` in `clauvolution_phylogeny` use the same `pick!` macro three times with only the word lists differing. Unifying saves a few lines and makes adding a fourth category trivial.
+
+**Silent failure spots:**
+- Many `let Ok(...) else { return }` patterns in `click_select_system`, `camera_control_system` — if window or camera are ever absent, the system silently does nothing. In normal flow these are always present, but a `warn!` on the else arm would make engine-state bugs easier to diagnose.
+- `save_system` wraps save writes in `.expect("Failed to write save file")` — panics on disk full / permissions. For a personal tool this is fine but worth noting.
+
+**Validation / save compatibility:**
+- Loaded save files get no structural validation — a corrupted `genome.neurons` list would just produce a weird organism.
+- `disease_resistance` uses `#[serde(default)]` for backward-compat with old saves. Other fields don't. When adding new genome fields, default them too, or the load will fail.
+
+**Type complexity:**
+- Several Bevy `Query` type signatures are 150+ characters. Named `type` aliases would help readability — clippy warns about this.
 
 ---
 
