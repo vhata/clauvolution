@@ -11,6 +11,7 @@ use bevy::prelude::*;
 use bevy::image::{Image, ImageSampler};
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::window::PrimaryWindow;
+use bevy_egui::{egui, EguiContexts, EguiUserTextures};
 use clauvolution_body::BodyPlan;
 use clauvolution_core::*;
 use clauvolution_genome::{Genome, SegmentType};
@@ -42,7 +43,7 @@ impl Plugin for RenderPlugin {
                     lod_change_system,
                     manual_screenshot_system,
                     screenshot_with_egui::drive_screenshot_capture,
-                    minimap_click_system,
+                    draw_minimap_egui,
                     cycle_species_member_system,
                     random_select_system,
                 ),
@@ -93,14 +94,6 @@ impl Default for LodState {
 
 #[derive(Resource)]
 pub struct UiFont(pub Handle<Font>);
-
-#[derive(Component)]
-pub struct MinimapNode;
-
-/// Marker for UI nodes that should be hidden together when the user
-/// toggles minimap visibility (the minimap image itself and its legend).
-#[derive(Component)]
-pub struct MinimapChrome;
 
 #[derive(Resource, Default, PartialEq, Eq)]
 pub enum MinimapMode {
@@ -155,7 +148,7 @@ pub struct TerrainRendered;
 
 fn setup_camera(mut commands: Commands, config: Res<SimConfig>, asset_server: Res<AssetServer>) {
     let font: Handle<Font> = asset_server.load("fonts/JetBrainsMono-Regular.ttf");
-    commands.insert_resource(UiFont(font.clone()));
+    commands.insert_resource(UiFont(font));
     let center_x = config.world_width as f32 / 2.0;
     let center_y = config.world_height as f32 / 2.0;
 
@@ -168,39 +161,9 @@ fn setup_camera(mut commands: Commands, config: Res<SimConfig>, asset_server: Re
         },
         MainCamera,
     ));
-
-    // Minimap legend — sits directly below the 160px minimap (top:38, size:160 → 203 for 5px gap).
-    // Top offset of 38 clears the 28px egui header bar plus a 10px gap.
-    // Colours mirror the minimap organism dots and heatmap bins.
-    let legend_entries: [(Color, &str); 3] = [
-        (Color::srgb(0.39, 1.0, 0.39), "plants"),
-        (Color::srgb(1.0, 1.0, 1.0), "foragers"),
-        (Color::srgb(1.0, 0.24, 0.24), "predators"),
-    ];
-    commands
-        .spawn((
-            Node {
-                position_type: PositionType::Absolute,
-                left: Val::Px(10.0),
-                top: Val::Px(203.0),
-                width: Val::Px(160.0),
-                flex_direction: FlexDirection::Column,
-                padding: UiRect::all(Val::Px(5.0)),
-                row_gap: Val::Px(2.0),
-                ..default()
-            },
-            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7)),
-            MinimapChrome,
-        ))
-        .with_children(|parent| {
-            for (color, label) in legend_entries {
-                parent.spawn((
-                    Text::new(format!("● {}", label)),
-                    TextFont { font: font.clone(), font_size: 11.0, ..default() },
-                    TextColor(color),
-                ));
-            }
-        });
+    // Legend is drawn inline with the minimap by `draw_minimap_egui` now
+    // that the minimap lives in an egui Area (so it ends up in screenshots
+    // along with the rest of the panels).
 }
 
 /// Keyboard speed controls: Space = pause, [ = slower, ] = faster
@@ -730,19 +693,15 @@ fn toggle_minimap_mode_system(
     keys: Res<ButtonInput<KeyCode>>,
     mut mode: ResMut<MinimapMode>,
     mut visible: ResMut<MinimapVisible>,
-    mut chrome: Query<&mut Node, With<MinimapChrome>>,
 ) {
     if !keys.just_pressed(KeyCode::KeyM) {
         return;
     }
     let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
     if shift {
-        // Shift+M: toggle minimap visibility (both image and legend)
+        // Shift+M: toggle minimap visibility. draw_minimap_egui respects
+        // the flag; legend follows the image automatically.
         visible.0 = !visible.0;
-        let display = if visible.0 { Display::Flex } else { Display::None };
-        for mut node in &mut chrome {
-            node.display = display;
-        }
     } else {
         // Plain M: cycle minimap mode (normal ↔ heatmap)
         *mode = match *mode {
@@ -912,6 +871,7 @@ fn manual_screenshot_system(
 fn setup_minimap(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
+    mut egui_user_textures: ResMut<EguiUserTextures>,
     _config: Res<SimConfig>,
 ) {
     let size = 160u32;
@@ -927,22 +887,12 @@ fn setup_minimap(
     image.sampler = ImageSampler::nearest();
     let image_handle = images.add(image);
 
-    // Spawn UI node for the minimap.
-    // Placed top-LEFT below the 28px egui header bar so the egui side panel
-    // (which always hugs the right edge) can't hide it.
-    commands.spawn((
-        ImageNode::new(image_handle.clone()),
-        Node {
-            position_type: PositionType::Absolute,
-            left: Val::Px(10.0),
-            top: Val::Px(38.0),
-            width: Val::Px(size as f32),
-            height: Val::Px(size as f32),
-            ..default()
-        },
-        MinimapNode,
-        MinimapChrome,
-    ));
+    // Register the paint image as an egui texture so `draw_minimap_egui`
+    // can render it inside an egui Area. This replaces the old Bevy-UI
+    // ImageNode path — the egui Area ends up inside the render target
+    // that our screenshot pipeline captures, so the minimap now shows up
+    // in saved PNGs alongside the other overlays.
+    egui_user_textures.add_image(image_handle.clone());
 
     commands.insert_resource(MinimapData {
         image_handle,
@@ -1185,47 +1135,67 @@ fn paint_minimap_heatmap(
     }
 }
 
-/// Click on minimap to teleport camera
-fn minimap_click_system(
-    mouse: Res<ButtonInput<MouseButton>>,
-    windows: Query<&Window, With<PrimaryWindow>>,
-    minimap_node: Query<(&Node, &ComputedNode), With<MinimapNode>>,
+/// Draws the minimap (paint image + legend) as an egui Area in the
+/// top-left corner. Being egui means it flows through the same render
+/// path as the right-side panel and header bar, so the screenshot
+/// pipeline catches it automatically. Click-to-teleport is handled via
+/// the egui image Response rather than cursor coordinates.
+fn draw_minimap_egui(
+    mut contexts: EguiContexts,
     minimap: Option<Res<MinimapData>>,
+    visible: Res<MinimapVisible>,
     config: Res<SimConfig>,
     mut camera: Query<&mut Transform, With<MainCamera>>,
 ) {
-    if !mouse.just_pressed(MouseButton::Left) {
+    if !visible.0 {
         return;
     }
     let Some(minimap) = minimap else { return };
-    let Ok(window) = windows.get_single() else { return };
-    let Some(cursor_pos) = window.cursor_position() else { return };
 
-    // Get minimap screen position and size
-    let Ok((_node, _computed)) = minimap_node.get_single() else { return };
-
-    // The minimap is positioned at left:10, top:38 with fixed size
-    // (38 = 28px egui header + 10px gap).
-    let map_size = minimap.size as f32;
-    let map_left = 10.0;
-    let map_top = 38.0;
-
-    // Check if click is within minimap bounds
-    let local_x = cursor_pos.x - map_left;
-    let local_y = cursor_pos.y - map_top;
-
-    if local_x < 0.0 || local_x > map_size || local_y < 0.0 || local_y > map_size {
+    let Some(tex_id) = contexts.image_id(&minimap.image_handle) else {
+        // Image not yet registered with egui this frame — try again later.
         return;
-    }
+    };
 
-    // Convert minimap pixel to world coordinate
-    let world_x = local_x / map_size * config.world_width as f32;
-    let world_y = (1.0 - local_y / map_size) * config.world_height as f32;
+    let ctx = contexts.ctx_mut();
+    let size = minimap.size as f32;
 
-    if let Ok(mut cam_transform) = camera.get_single_mut() {
-        cam_transform.translation.x = world_x;
-        cam_transform.translation.y = world_y;
-    }
+    egui::Area::new(egui::Id::new("minimap"))
+        .fixed_pos([10.0, 38.0])
+        .order(egui::Order::Foreground)
+        .show(ctx, |ui| {
+            egui::Frame::NONE
+                .fill(egui::Color32::from_rgba_unmultiplied(0, 0, 0, 160))
+                .inner_margin(egui::Margin::same(4))
+                .show(ui, |ui| {
+                    ui.vertical(|ui| {
+                        let image = egui::Image::new(egui::load::SizedTexture::new(
+                            tex_id,
+                            egui::vec2(size, size),
+                        ));
+                        let response = ui.add(image.sense(egui::Sense::click()));
+
+                        if response.clicked() {
+                            if let Some(pos) = response.interact_pointer_pos() {
+                                let local = pos - response.rect.min;
+                                let nx = (local.x / size).clamp(0.0, 1.0);
+                                let ny = (local.y / size).clamp(0.0, 1.0);
+                                let world_x = nx * config.world_width as f32;
+                                let world_y = (1.0 - ny) * config.world_height as f32;
+                                if let Ok(mut t) = camera.get_single_mut() {
+                                    t.translation.x = world_x;
+                                    t.translation.y = world_y;
+                                }
+                            }
+                        }
+
+                        ui.add_space(2.0);
+                        ui.colored_label(egui::Color32::from_rgb(100, 255, 100), "● plants");
+                        ui.colored_label(egui::Color32::from_rgb(230, 230, 230), "● foragers");
+                        ui.colored_label(egui::Color32::from_rgb(255, 60, 60), "● predators");
+                    });
+                });
+        });
 }
 
 /// R — pick a random living organism and select it. Frictionless "show me
