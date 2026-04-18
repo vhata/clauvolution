@@ -862,6 +862,7 @@ fn update_minimap(
     organisms: Query<(&Position, &Genome), With<Organism>>,
     camera: Query<(&Transform, &OrthographicProjection), With<MainCamera>>,
     minimap_mode: Res<MinimapMode>,
+    selected: Res<SelectedOrganism>,
 ) {
     minimap.timer.tick(time.delta());
     if !minimap.timer.just_finished() {
@@ -913,6 +914,29 @@ fn update_minimap(
                     image.data[idx] = 255;
                     image.data[idx + 1] = 255;
                     image.data[idx + 2] = 0;
+                }
+            }
+        }
+    }
+
+    // Paint selected organism as a bright yellow plus marker.
+    // Plus (crosshair) shape is more legible than a square at 1-2 pixel scale
+    // and doesn't obscure the organism dot beneath it.
+    if let Some(sel_entity) = selected.entity {
+        if let Ok((pos, _genome)) = organisms.get(sel_entity) {
+            let cx = (pos.0.x / world_w * size as f32) as i32;
+            let cy = size as i32 - 1 - (pos.0.y / world_h * size as f32) as i32;
+            // Draw plus shape: center + 2 pixels each direction
+            for &(dx, dy) in &[(0, 0), (-2, 0), (-1, 0), (1, 0), (2, 0),
+                               (0, -2), (0, -1), (0, 1), (0, 2)] {
+                let x = cx + dx;
+                let y = cy + dy;
+                if x >= 0 && (x as usize) < size && y >= 0 && (y as usize) < size {
+                    let idx = (y as usize * size + x as usize) * 4;
+                    image.data[idx] = 255;
+                    image.data[idx + 1] = 230;
+                    image.data[idx + 2] = 50;
+                    image.data[idx + 3] = 255;
                 }
             }
         }
