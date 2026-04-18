@@ -16,6 +16,8 @@ Each run gets a unique cosmic name (e.g. "pale-fading-shard"). Session data — 
 # Save: press F5 during gameplay
 cargo run --release -- --load sessions/pale-fading-shard   # load a saved session
 cargo run --release -- --screenshot                        # scripted verification tour
+cargo run --release -- --seed 42                           # deterministic-ish sim (see docs)
+cargo run --release -- --headless 1000 --seed 42           # no-UI run, prints summary at end
 ```
 
 Requires Rust (latest stable) and a GPU with Metal / Vulkan / DX12 support.

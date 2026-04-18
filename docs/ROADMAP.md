@@ -128,20 +128,23 @@ Run at unlimited speed until a triggering event, then pause. "Skip to the punchl
 The recent disease-tuning session made the pain clear: eyeballing 2 minutes of sim to find out a parameter is wrong is a slow feedback loop. These items make tuning fast and measurable, which in turn makes the live sim richer.
 
 ### Headless mode
-Run the sim without rendering or UI, as fast as the CPU allows. Emit a final summary (end-of-run stats, death breakdown, trait averages) and/or dump the full PopulationHistory as JSON.
+✅ **Shipped (v1).** `--headless <ticks>` CLI flag runs the sim without rendering/UI and prints a final summary. `Session::new_ephemeral()` skips disk directory creation.
 
-**Shape:**
-- New `--headless <ticks>` (or `--headless-until <condition>`) CLI flag on the existing binary
-- App uses `MinimalPlugins` + `ScheduleRunnerPlugin` when headless; skips `RenderPlugin` and `UiPlugin`
-- Override `Time::<Virtual>` or manually step FixedUpdate to run faster than wall-clock
-- Final report: JSON dump of SimStats + final PopulationHistory snapshot + top species list
-- Optional `--seed <N>` for reproducibility
-- Optional `--no-session` to skip session-directory creation
+Honest caveats:
+- Not faster than real-time at 2000 organisms — the sim is CPU-bound. Removing rendering only recovers modest GPU/UI overhead.
+- For actual speedup: Rayon brain-eval parallelism (below) is the next step.
 
-**Gotchas:**
-- Bevy `DefaultPlugins` pull in windowing/rendering — need MinimalPlugins
-- `Time::<Fixed>` at 30Hz is wall-clock driven by default; need to step manually or use `ScheduleRunnerPlugin::run_loop(Duration::ZERO)`
-- `Session::new()` creates a directory regardless — add `Session::new_ephemeral()` for headless
+### Session seeds — full reproducibility
+⚠️ **Partial (v1).** `--seed <u64>` CLI flag + SimRng resource makes food regen, mutation, disease rolls, reproduction and asteroid targeting all derive from the master seed.
+
+What works: same seed → identical state for first ~50 ticks.
+What doesn't: runs diverge after that due to Bevy's parallel task pool and archetype-based Query iteration order.
+Enough for "same config, comparable outcomes" validation; not enough for exact integration-test bounds or bit-identical replay.
+
+**For full determinism (follow-up):**
+- Force single-threaded Bevy task pool (config `TaskPoolPlugin` with 1 worker) — costs parallelism but recovers determinism
+- Alternatively: sort query results by Entity ID before iterating anywhere order-sensitive (species classification, etc.)
+- Investigate whether HashMap iteration order (`seen_species`, etc.) contributes — swap to BTreeMap or explicit sorts
 
 ### Session seeds — full reproducibility
 Currently `terrain_seed` is deterministic but everything else (initial placement, mutation, food spawning, reproduction) uses `rand::thread_rng()`. Two runs with the same terrain still diverge at tick 0.
