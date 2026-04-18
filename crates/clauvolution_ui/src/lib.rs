@@ -17,6 +17,7 @@ impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(EguiPlugin)
             .init_resource::<UiState>()
+            .add_systems(Startup, scale_ui_fonts)
             // Read egui's capture state from the PREVIOUS frame's panel layout
             // so Update/PostUpdate systems this frame can gate on it.
             // egui carries layout state across frames (immediate mode builds
@@ -25,6 +26,25 @@ impl Plugin for UiPlugin {
             .add_systems(Update, (header_bar_system, right_panel_system).chain())
             .add_systems(Update, tab_shortcut_system);
     }
+}
+
+/// Scale every text style proportionally so the `Body` size lands on
+/// `TARGET_BODY_SIZE`. Runs once at startup.
+const TARGET_BODY_SIZE: f32 = 20.0;
+
+fn scale_ui_fonts(mut contexts: EguiContexts) {
+    let ctx = contexts.ctx_mut();
+    let mut style = (*ctx.style()).clone();
+    let current_body = style
+        .text_styles
+        .get(&egui::TextStyle::Body)
+        .map(|f| f.size)
+        .unwrap_or(14.0);
+    let factor = TARGET_BODY_SIZE / current_body;
+    for (_, font_id) in style.text_styles.iter_mut() {
+        font_id.size *= factor;
+    }
+    ctx.set_style(style);
 }
 
 /// Number keys 1-6 jump the right panel to a specific tab. Gated on
@@ -136,7 +156,7 @@ fn help_tab(ui: &mut egui::Ui) {
                 ("M", "toggle minimap heatmap"),
                 ("T", "toggle trail for selected organism"),
                 ("F5", "save world"),
-                ("S", "take screenshot"),
+                ("F12", "take screenshot"),
                 ("1 … 6", "switch right-panel tab"),
             ] {
                 ui.monospace(key);

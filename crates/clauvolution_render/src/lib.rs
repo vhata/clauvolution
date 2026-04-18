@@ -854,7 +854,9 @@ fn manual_screenshot_system(
     main_camera: Query<(&Transform, &OrthographicProjection), With<MainCamera>>,
     primary_window: Query<(Entity, &Window), With<PrimaryWindow>>,
 ) {
-    if keys.just_pressed(KeyCode::KeyS) {
+    // F12 is the conventional screenshot key and, unlike S, it doesn't
+    // collide with the camera-south WASD binding.
+    if keys.just_pressed(KeyCode::F12) {
         let time_secs = tick.0 / 30;
         let label = format!("screenshot_{}s", time_secs);
         let path = session.screenshot_path(&label);

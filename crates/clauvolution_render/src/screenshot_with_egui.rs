@@ -252,22 +252,41 @@ fn save_bgra_as_png(
     height: u32,
     bgra: &[u8],
 ) -> Result<(), String> {
-    if bgra.len() as u32 != width * height * 4 {
+    // wgpu requires texture-to-buffer copies use rows aligned to
+    // COPY_BYTES_PER_ROW_ALIGNMENT (256 bytes). So if width * 4 isn't
+    // already a multiple of 256, each row in the buffer has trailing
+    // padding bytes we need to skip when reassembling the image.
+    if bgra.len() as u32 % height != 0 {
         return Err(format!(
-            "unexpected byte count: got {}, expected {}",
+            "byte count {} not divisible by height {}",
             bgra.len(),
-            width * height * 4
+            height
         ));
     }
-    // image::save_buffer expects RGBA8. Our texture format was BGRA
-    // (matching the typical macOS swap chain format), so swap R↔B.
-    let mut rgba = vec![0u8; bgra.len()];
-    for (src, dst) in bgra.chunks_exact(4).zip(rgba.chunks_exact_mut(4)) {
-        dst[0] = src[2];
-        dst[1] = src[1];
-        dst[2] = src[0];
-        dst[3] = src[3];
+    let padded_row = bgra.len() as u32 / height;
+    let real_row = width * 4;
+    if padded_row < real_row {
+        return Err(format!(
+            "row stride {} smaller than width*4 ({})",
+            padded_row, real_row
+        ));
     }
+
+    // image::save_buffer expects RGBA8. Our texture format is BGRA
+    // (matching the typical macOS swap chain format), so swap R↔B as we
+    // strip the per-row padding.
+    let mut rgba = Vec::with_capacity((real_row * height) as usize);
+    for row in 0..height {
+        let row_start = (row * padded_row) as usize;
+        let row_end = row_start + real_row as usize;
+        for px in bgra[row_start..row_end].chunks_exact(4) {
+            rgba.push(px[2]);
+            rgba.push(px[1]);
+            rgba.push(px[0]);
+            rgba.push(px[3]);
+        }
+    }
+
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("mkdir: {}", e))?;
     }
