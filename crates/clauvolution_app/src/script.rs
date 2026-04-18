@@ -20,8 +20,9 @@
 //! ```
 
 use bevy::prelude::*;
+use bevy::window::PrimaryWindow;
 use clauvolution_core::{Session, SimSpeed};
-use clauvolution_render::{capture_window_screenshot, MainCamera};
+use clauvolution_render::{begin_screenshot, MainCamera, ScreenshotState};
 use clauvolution_ui::{RightTab, UiState};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -92,7 +93,10 @@ pub fn script_runner_system(
     mut ui_state: ResMut<UiState>,
     mut sim_speed: ResMut<SimSpeed>,
     mut camera: Query<(&mut Transform, &mut OrthographicProjection), With<MainCamera>>,
+    primary_window: Query<(Entity, &Window), With<PrimaryWindow>>,
     session: Res<Session>,
+    mut images: ResMut<Assets<Image>>,
+    mut screenshot_state: ResMut<ScreenshotState>,
     mut exit: EventWriter<AppExit>,
     mut commands: Commands,
 ) {
@@ -123,7 +127,31 @@ pub fn script_runner_system(
             }
             ScriptActionKind::Screenshot { name } => {
                 let path = session.screenshot_path(name);
-                capture_window_screenshot(&mut commands, &path);
+                let Ok((cam_transform, cam_projection)) = camera.get_single() else {
+                    error!("No main camera; can't screenshot");
+                    state.next_action += 1;
+                    continue;
+                };
+                let Ok((window_entity, window)) = primary_window.get_single() else {
+                    error!("No primary window; can't screenshot");
+                    state.next_action += 1;
+                    continue;
+                };
+                let cam_transform = *cam_transform;
+                let cam_projection = cam_projection.clone();
+                let window_width = window.physical_width();
+                let window_height = window.physical_height();
+                begin_screenshot(
+                    path,
+                    &mut commands,
+                    &mut images,
+                    &mut screenshot_state,
+                    window_entity,
+                    window_width,
+                    window_height,
+                    &cam_transform,
+                    &cam_projection,
+                );
             }
             ScriptActionKind::Exit => {
                 exit.send(AppExit::Success);

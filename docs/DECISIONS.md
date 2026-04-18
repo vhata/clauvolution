@@ -155,6 +155,27 @@ Not an exhaustive list of every tweak — just the decisions where someone readi
 **Why:** Bevy's idiomatic parallel iteration is already set up, safe with Bevy's ECS borrow checker, and requires no extra deps or custom thread pools. Writes to per-organism components are conflict-free because each iteration gets its own `Mut<T>`.
 **Accepted tradeoff:** we don't control the pool size; Bevy picks based on cores. Measured ~1.4 effective cores used in practice — less than the 6 available because brain eval isn't the sole per-tick bottleneck. Spatial queries in sensing and the rest of the tick (metabolism, reproduction, disease) also contribute. Further parallelisation of those would pay off; wasn't in scope for v1.
 
+### Screenshotting egui overlays: Bevy + bevy_egui can't do it out of the box
+**Context:** we wanted `S` (manual) and the `--script` tour to produce images that include the header bar, side panel, and minimap legend. With Bevy 0.15.3 and bevy_egui 0.33.0, out-of-the-box `Screenshot::primary_window()` captures the main camera's render but **not** the egui overlay on top of it. The panel appears to "vanish" in the saved image.
+
+**Why this happens (the short version):**
+- bevy_egui draws directly to `window.swap_chain_texture_view` instead of going through Bevy's `ViewTarget` abstraction. See `bevy_egui-0.33.0/src/egui_node.rs` line ~285 — the render target is hardcoded to the swap chain.
+- Bevy's `Screenshot` API works by replacing the window target's `OutputColorAttachment` with a capture texture, so anything rendered via `ViewTarget` (main camera) lands in the capture. Egui, rendering straight to the swap chain, completely bypasses this redirection.
+- We'd happily read back from the swap chain after egui draws, except Bevy configures the surface with `TextureUsages::RENDER_ATTACHMENT` only (see `bevy_render-0.15.3/src/view/window/mod.rs` line ~356). Without `COPY_SRC` on the swap chain texture, wgpu refuses the readback.
+
+**Why this feels like a Bevy/bevy_egui failure:** three small integration decisions — egui bypassing `ViewTarget`, screenshot going through `ViewTarget`, swap chain not being `COPY_SRC` — combine to make "capture a frame of the app as the user sees it" impossible with the stock APIs. Each decision is individually defensible; together they box us out. Fixing any one of them upstream would resolve this.
+
+**Chosen:** patch the surface configuration to add `COPY_SRC`, then add a custom render-graph node that runs *after* `egui_pass`, copies the swap chain texture into a buffer, and saves it as PNG. Bevy-native, keeps egui's direct-to-swapchain rendering intact.
+
+**Alternatives considered:**
+- `screencapture` CLI shell-out on macOS. Shipped briefly, reverted — platform-specific, captures the entire monitor, required `osascript` to activate our window first.
+- Fork bevy_egui to render via `ViewTarget`. Ongoing upstream maintenance burden for a personal project.
+- Use `EguiRenderToImage` on a secondary entity to render egui to an image, composite with the main camera's output. Requires duplicating every UI-draw system across two contexts or somehow sharing paint jobs — invasive.
+- Render everything (camera + egui) to an intermediate texture we own, then blit to the swap chain for display. Needs bevy_egui cooperation we don't have.
+- Accept that screenshots miss egui. Would have been fine if we didn't want UI overlays in README images.
+
+**Accepted tradeoff:** we depend on `TextureUsages::COPY_SRC` being supported on the platform's swap chain surface (Metal on macOS definitely does; DX12 and Vulkan typically do; WebGPU has some restrictions). If a target platform later rejects `COPY_SRC` on the surface, the screenshot path breaks and we fall back to Bevy's egui-less capture. Also, modifying Bevy's surface setup couples us to internal Bevy details — any Bevy upgrade may require re-fitting the patch.
+
 ### Incremental release builds
 **Chosen:** `[profile.release] incremental = true` in Cargo.toml.
 **Alternatives:** default non-incremental release (much slower rebuilds).

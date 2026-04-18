@@ -10,21 +10,26 @@
 use bevy::prelude::*;
 use bevy::image::{Image, ImageSampler};
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use bevy::render::view::screenshot::{save_to_disk, Screenshot};
 use bevy::window::PrimaryWindow;
 use clauvolution_body::BodyPlan;
 use clauvolution_core::*;
 use clauvolution_genome::{Genome, SegmentType};
 use clauvolution_world::TileMap;
 
+mod screenshot_with_egui;
+
+pub use screenshot_with_egui::{begin_screenshot, capture_now, ScreenshotState};
+
 pub struct RenderPlugin;
 
 impl Plugin for RenderPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<CameraDragState>()
+        app.add_plugins(screenshot_with_egui::ScreenshotWithEguiPlugin)
+            .init_resource::<CameraDragState>()
             .init_resource::<SharedMeshes>()
             .init_resource::<LodState>()
             .init_resource::<MinimapMode>()
+            .init_resource::<ScreenshotState>()
             .add_systems(Startup, (setup_camera, setup_shared_meshes, setup_minimap))
             .add_systems(
                 Update,
@@ -35,6 +40,7 @@ impl Plugin for RenderPlugin {
                     toggle_trails_system,
                     lod_change_system,
                     manual_screenshot_system,
+                    screenshot_with_egui::drive_screenshot_capture,
                     minimap_click_system,
                     cycle_species_member_system,
                     random_select_system,
@@ -835,78 +841,31 @@ fn lod_change_system(
     }
 }
 
-/// S key takes a manual screenshot, saved to session directory
+/// S key takes a manual screenshot, saved to session directory.
+/// Uses the egui-aware capture path so the side panel, header bar, and
+/// minimap legend are all included in the saved PNG.
 fn manual_screenshot_system(
     mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,
     session: Res<Session>,
     tick: Res<TickCounter>,
+    mut images: ResMut<Assets<Image>>,
+    mut state: ResMut<ScreenshotState>,
+    main_camera: Query<(&Transform, &OrthographicProjection), With<MainCamera>>,
+    primary_window: Query<(Entity, &Window), With<PrimaryWindow>>,
 ) {
     if keys.just_pressed(KeyCode::KeyS) {
         let time_secs = tick.0 / 30;
         let label = format!("screenshot_{}s", time_secs);
         let path = session.screenshot_path(&label);
-        capture_window_screenshot(&mut commands, &path);
-    }
-}
-
-/// Capture the full display (or window) to `path`. On macOS shells out
-/// to `screencapture` so the egui overlays ARE included — Bevy's native
-/// Screenshot API captures only the main camera's render target because
-/// bevy_egui draws directly to the swapchain after camera output is
-/// redirected to the screenshot texture. On other platforms we fall back
-/// to Bevy's Screenshot (no egui).
-pub fn capture_window_screenshot(commands: &mut Commands, path: &std::path::Path) {
-    let path_str = path.to_string_lossy().to_string();
-    info!("Screenshot: {}", path_str);
-
-    #[cfg(target_os = "macos")]
-    {
-        // Raise our own window before capturing, otherwise screencapture
-        // grabs whatever's actually frontmost (your desktop, your terminal,
-        // whatever). `unix id is PID` targets our process specifically so
-        // we don't fight any other running app.
-        let pid = std::process::id();
-        let _ = std::process::Command::new("osascript")
-            .args([
-                "-e",
-                &format!(
-                    "tell application \"System Events\" to set frontmost of (first process whose unix id is {}) to true",
-                    pid
-                ),
-            ])
-            .status();
-        // Give the window server a moment to actually bring the window up
-        // before the capture latches the current frame. 200ms is plenty on
-        // a modern Mac.
-        std::thread::sleep(std::time::Duration::from_millis(200));
-
-        match std::process::Command::new("screencapture")
-            .args(["-x", "-m"])
-            .arg(&path_str)
-            .status()
-        {
-            Ok(status) if status.success() => {}
-            Ok(status) => {
-                warn!(
-                    "screencapture exited non-zero ({}); falling back to Bevy screenshot (no egui)",
-                    status
-                );
-                commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path_str));
-            }
-            Err(e) => {
-                warn!(
-                    "screencapture failed: {}; falling back to Bevy screenshot (no egui)",
-                    e
-                );
-                commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path_str));
-            }
-        }
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path_str));
+        capture_now(
+            path,
+            &mut commands,
+            &mut images,
+            &mut state,
+            &main_camera,
+            &primary_window,
+        );
     }
 }
 

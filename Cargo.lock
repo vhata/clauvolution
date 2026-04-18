@@ -1755,11 +1755,13 @@ name = "clauvolution_render"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "bevy_egui",
  "clauvolution_body",
  "clauvolution_core",
  "clauvolution_genome",
  "clauvolution_phylogeny",
  "clauvolution_world",
+ "image",
  "rand 0.8.5",
 ]
 
