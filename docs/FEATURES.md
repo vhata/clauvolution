@@ -58,6 +58,7 @@ One-liner list of what Clauvolution does, grouped by area. For the design ration
 ## Navigation & camera
 
 - **Minimap** — top-right world overview with click-to-navigate and camera viewport rectangle
+- **Minimap legend** — colour key below the minimap for plants / foragers / predators
 - **Population heatmap (M)** — minimap toggles between organism-dots and strategy-coloured density
 - **Pan / zoom / drag** — WASD, arrows, mouse wheel, right-drag, middle-drag
 - **Pause / speed control** — Space to pause, `[` / `]` to change speed (0.125× to 16×)

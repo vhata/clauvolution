@@ -264,9 +264,6 @@ Observing the sim trend toward any of these = trigger to tune.
 
 Small-to-medium features that aren't on the critical path but would be fun. Pick one when in the mood.
 
-### Minimap legend
-Small colour key on the heatmap so new viewers don't have to guess what green/red/white means.
-
 ### Symbiosis starter
 Lighter version of full symbiosis — energy transfer between nearby stable pairs, no genome trait yet. See whether the dynamic works at all before investing in evolvability.
 

@@ -129,6 +129,36 @@ fn setup_camera(mut commands: Commands, config: Res<SimConfig>, asset_server: Re
         MainCamera,
     ));
 
+    // Minimap legend — sits directly below the 160px minimap (top:10, size:160 → 175 for 5px gap)
+    // Colours mirror the minimap organism dots and heatmap bins.
+    let legend_entries: [(Color, &str); 3] = [
+        (Color::srgb(0.39, 1.0, 0.39), "plants"),
+        (Color::srgb(1.0, 1.0, 1.0), "foragers"),
+        (Color::srgb(1.0, 0.24, 0.24), "predators"),
+    ];
+    commands
+        .spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                right: Val::Px(10.0),
+                top: Val::Px(175.0),
+                width: Val::Px(160.0),
+                flex_direction: FlexDirection::Column,
+                padding: UiRect::all(Val::Px(5.0)),
+                row_gap: Val::Px(2.0),
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7)),
+        ))
+        .with_children(|parent| {
+            for (color, label) in legend_entries {
+                parent.spawn((
+                    Text::new(format!("● {}", label)),
+                    TextFont { font: font.clone(), font_size: 11.0, ..default() },
+                    TextColor(color),
+                ));
+            }
+        });
 }
 
 /// Keyboard speed controls: Space = pause, [ = slower, ] = faster
