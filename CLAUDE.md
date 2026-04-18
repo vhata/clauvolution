@@ -27,9 +27,12 @@ Start there before reading code for any meaningful change. The decisions doc in 
 cargo run --release                              # normal
 cargo run --release -- --screenshot              # scripted tour + screenshot
 cargo run --release -- --load sessions/<name>    # load saved session
+./scripts/build_macos_app.sh                     # build dist/Clauvolution.app (macOS dock icon)
 ```
 
 Incremental release builds are enabled in Cargo.toml for fast iteration after the first compile.
+
+The `.app` bundle is only needed so the macOS dock picks up our icon instead of the terminal's. `cargo run` still works unchanged for day-to-day iteration — the dock just shows the terminal's icon in that mode.
 
 ## Controls summary
 

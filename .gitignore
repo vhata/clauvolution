@@ -1,7 +1,9 @@
 /target
 /screenshots
 /sessions
+/dist
 **/*.rs.bk
 *.swp
 *.swo
 .DS_Store
+**/*.iconset/
