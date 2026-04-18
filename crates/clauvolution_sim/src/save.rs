@@ -275,10 +275,62 @@ pub fn save_world(
     info!("World saved to {}", path.display());
 }
 
-/// Load simulation state from a file
+/// Load simulation state from a file. Performs a basic structural sanity
+/// check and logs warnings for any anomalies found — the caller still gets
+/// a valid SaveState, but individual broken organisms are filtered out.
 pub fn load_world(path: &Path) -> Option<SaveState> {
     let json = std::fs::read_to_string(path).ok()?;
-    serde_json::from_str(&json).ok()
+    let mut state: SaveState = match serde_json::from_str(&json) {
+        Ok(s) => s,
+        Err(e) => {
+            warn!("Save file {} could not be parsed: {}", path.display(), e);
+            return None;
+        }
+    };
+
+    validate_save_state(&mut state);
+    Some(state)
+}
+
+/// Drop any organisms that fail basic sanity checks; log a count if any
+/// are removed. Non-fatal — the sim starts with the survivors.
+fn validate_save_state(state: &mut SaveState) {
+    let before = state.organisms.len();
+    state.organisms.retain(|org| {
+        // Genome must have at least a torso body segment
+        if org.genome.body_segments.is_empty() {
+            return false;
+        }
+        // Genome must have some neurons (otherwise the brain can't be built)
+        if org.genome.neurons.is_empty() {
+            return false;
+        }
+        // Every enabled connection must reference real neuron IDs
+        let neuron_ids: std::collections::HashSet<u64> =
+            org.genome.neurons.iter().map(|n| n.id).collect();
+        for conn in &org.genome.connections {
+            if !neuron_ids.contains(&conn.from) || !neuron_ids.contains(&conn.to) {
+                return false;
+            }
+        }
+        true
+    });
+    let removed = before - state.organisms.len();
+    if removed > 0 {
+        warn!("Save file had {} organism(s) with invalid genomes — skipped", removed);
+    }
+
+    // Clamp position components into finite numbers — NaN/inf would crash the spatial hash
+    for org in &mut state.organisms {
+        if !org.x.is_finite() {
+            warn!("Save organism x was non-finite ({}); snapping to 0", org.x);
+            org.x = 0.0;
+        }
+        if !org.y.is_finite() {
+            warn!("Save organism y was non-finite ({}); snapping to 0", org.y);
+            org.y = 0.0;
+        }
+    }
 }
 
 /// Reconstruct organisms from save data
