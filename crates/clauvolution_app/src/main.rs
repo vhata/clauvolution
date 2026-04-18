@@ -35,6 +35,31 @@ fn compute_worker_cap() -> usize {
         .unwrap_or(DEFAULT_WORKER_CAP)
 }
 
+/// When the app is launched via Finder / LaunchServices (double-click the
+/// `.app`), the working directory is `/`, which is read-only on macOS.
+/// Session::new tries to create `sessions/<name>/` in cwd and panics.
+///
+/// Detect that case and hop to `~/Clauvolution/` instead. No-op when
+/// launched from a terminal (the usual `cargo run` path) because cwd
+/// is the project root there, not `/`.
+fn chdir_to_writable_if_bundled() {
+    let Ok(cwd) = std::env::current_dir() else { return };
+    if cwd != std::path::Path::new("/") {
+        return;
+    }
+    let Ok(home) = std::env::var("HOME") else { return };
+    let dir = std::path::PathBuf::from(home).join("Clauvolution");
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    if std::env::set_current_dir(&dir).is_ok() {
+        eprintln!(
+            "Launched as .app — using {} as working directory (sessions/ live here).",
+            dir.display()
+        );
+    }
+}
+
 fn task_pool_plugin(worker_cap: usize) -> TaskPoolPlugin {
     TaskPoolPlugin {
         task_pool_options: TaskPoolOptions {
@@ -49,6 +74,7 @@ fn task_pool_plugin(worker_cap: usize) -> TaskPoolPlugin {
 }
 
 fn main() {
+    chdir_to_writable_if_bundled();
     let args: Vec<String> = std::env::args().collect();
     let screenshot_mode = args.iter().any(|a| a == "--screenshot");
     let load_path = args.iter()
