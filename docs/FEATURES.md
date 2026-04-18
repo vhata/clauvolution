@@ -59,16 +59,19 @@ One-liner list of what Clauvolution does, grouped by area. For the design ration
 
 - **Minimap** — top-right world overview with click-to-navigate and camera viewport rectangle
 - **Minimap legend** — colour key below the minimap for plants / foragers / predators
+- **Minimap selection marker** — bright yellow plus at the selected organism's position
 - **Population heatmap (M)** — minimap toggles between organism-dots and strategy-coloured density
 - **Pan / zoom / drag** — WASD, arrows, mouse wheel, right-drag, middle-drag
 - **Pause / speed control** — Space to pause, `[` / `]` to change speed (0.125× to 16×)
+- **Focus on selected (F)** — snap camera to the selected organism's position
+- **Cycle species members (, / .)** — step through living members of the selected organism's species
 
 ## User interface (bevy_egui)
 
-- **Compact header bar** — season, population, species count, speed, generation — always visible
+- **Compact header bar** — always-visible summary: sim time, season, population, species, generation, speed, infection count (when > 0), active bloom effects with seconds remaining
 - **Tabbed right panel** (Inspect / Phylo / Graphs / Chronicle / Events / Help):
   - **Inspect** — selected organism stats: species/strategy/parent, energy/health bars, body/brain collapsibles, infection state
-  - **Phylo** — collapsible lineage tree with strategy badges, declining indicators, recently-extinct section
+  - **Phylo** — collapsible lineage tree with strategy badges, declining indicators, recently-extinct section; click a species name to select a living member
   - **Graphs** — `egui_plot` line charts for population by strategy, death cause breakdown, infection rate & evolved resistance, trait evolution, pop vs species, food & lifespan. Current-stats readout and average-traits grid.
   - **Chronicle** — scrollable event log with "hide seasons" filter
   - **Events** — buttons for all extinction/bloom events with cooldown feedback; save-world button; active effects readout

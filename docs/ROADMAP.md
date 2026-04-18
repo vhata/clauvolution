@@ -244,10 +244,11 @@ Observing the sim trend toward any of these = trigger to tune.
 - Some systems use explicit chaining (`.chain()`), others rely on default Bevy ordering within a tuple. Be deliberate about which.
 
 **Name duplication:**
-- `body_descriptor`, `habitat_word`, `strategy_noun` in `clauvolution_phylogeny` use the same `pick!` macro three times with only the word lists differing. Unifying saves a few lines and makes adding a fourth category trivial.
+- ~~`body_descriptor`, `habitat_word`, `strategy_noun` `pick!` triplet~~ — done, unified to a shared `pick()` function.
 
 **Silent failure spots:**
-- Many `let Ok(...) else { return }` patterns in `click_select_system`, `camera_control_system` — if window or camera are ever absent, the system silently does nothing. In normal flow these are always present, but a `warn!` on the else arm would make engine-state bugs easier to diagnose.
+- ~~`click_select_system` and `camera_control_system` window/camera silent returns~~ — now use `warn_once!` so engine-state bugs leave a single log breadcrumb.
+- Remaining overlay systems (minimap viewport rect, trails, infection halos) still silently skip on missing camera — kept silent because they're cosmetic and can't confuse input behaviour.
 - `save_system` wraps save writes in `.expect("Failed to write save file")` — panics on disk full / permissions. For a personal tool this is fine but worth noting.
 
 **Validation / save compatibility:**
