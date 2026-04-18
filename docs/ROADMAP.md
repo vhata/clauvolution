@@ -226,7 +226,7 @@ Observing the sim trend toward any of these = trigger to tune.
 
 **Performance / allocation hotspots:**
 - `photosynthesis_system` allocates a new `HashMap<(u32,u32), u32>` every tick (30/sec) for plant density counting. Two passes over all organisms. At 2000 organisms this is fine, but could reuse a cached resource for the count.
-- Food positions are collected into a new `Vec` every tick in both `sensing_and_brain_system` and `action_system`. The spatial hash already has food — could query it directly.
+- ~~Food positions collected into a new Vec twice per tick~~ — now unified behind a single `FoodSnapshot` resource built once per tick.
 - `reproduction_system` calls `genome.clone()` multiple times when setting up mate candidates. Genomes are large (neurons + connections + body segments). Could pass references via a lookup table.
 - `render` systems clone mesh/material handles frequently — handles are cheap (Arc-like) but the pattern obscures that.
 
@@ -252,11 +252,11 @@ Observing the sim trend toward any of these = trigger to tune.
 - `save_system` wraps save writes in `.expect("Failed to write save file")` — panics on disk full / permissions. For a personal tool this is fine but worth noting.
 
 **Validation / save compatibility:**
-- Loaded save files get no structural validation — a corrupted `genome.neurons` list would just produce a weird organism.
+- ~~Loaded save files get no structural validation~~ — basic validation now runs on load (genome shape checks, non-finite position clamping, broken organisms skipped with a warn).
 - `disease_resistance` uses `#[serde(default)]` for backward-compat with old saves. Other fields don't. When adding new genome fields, default them too, or the load will fail.
 
 **Type complexity:**
-- Several Bevy `Query` type signatures are 150+ characters. Named `type` aliases would help readability — clippy warns about this.
+- ~~Bevy `Query` type signatures flagged by clippy~~ — silenced crate-wide with `#![allow(clippy::type_complexity, clippy::too_many_arguments)]` in the three Bevy-heavy crates. Aliasing individually didn't improve readability; Bevy idiom accepts these.
 
 ---
 

@@ -65,6 +65,7 @@ One-liner list of what Clauvolution does, grouped by area. For the design ration
 - **Pause / speed control** — Space to pause, `[` / `]` to change speed (0.125× to 16×)
 - **Focus on selected (F)** — snap camera to the selected organism's position
 - **Cycle species members (, / .)** — step through living members of the selected organism's species
+- **Random select (R)** — pick any living organism at random
 
 ## User interface (bevy_egui)
 
