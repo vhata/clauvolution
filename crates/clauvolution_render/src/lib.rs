@@ -100,6 +100,9 @@ pub enum MinimapMode {
     #[default]
     Normal,
     Heatmap,
+    /// Fades terrain and organism dots, paints members of the currently
+    /// selected organism's species bright. Reveals where a species lives.
+    Range,
 }
 
 #[derive(Resource)]
@@ -706,7 +709,8 @@ fn toggle_minimap_mode_system(
         // Plain M: cycle minimap mode (normal ↔ heatmap)
         *mode = match *mode {
             MinimapMode::Normal => MinimapMode::Heatmap,
-            MinimapMode::Heatmap => MinimapMode::Normal,
+            MinimapMode::Heatmap => MinimapMode::Range,
+            MinimapMode::Range => MinimapMode::Normal,
         };
     }
 }
@@ -907,7 +911,7 @@ fn update_minimap(
     mut images: ResMut<Assets<Image>>,
     tile_map: Option<Res<TileMap>>,
     config: Res<SimConfig>,
-    organisms: Query<(&Position, &Genome), With<Organism>>,
+    organisms: Query<(&Position, &Genome, &SpeciesId), With<Organism>>,
     camera: Query<(&Transform, &OrthographicProjection), With<MainCamera>>,
     minimap_mode: Res<MinimapMode>,
     selected: Res<SelectedOrganism>,
@@ -930,6 +934,17 @@ fn update_minimap(
         }
         MinimapMode::Heatmap => {
             paint_minimap_heatmap(image, size, world_w, world_h, &organisms);
+        }
+        MinimapMode::Range => {
+            // Resolve which species to highlight — the one the selected
+            // organism belongs to. No selection → fall back to Normal.
+            let focus_species = selected
+                .entity
+                .and_then(|e| organisms.get(e).ok().map(|(_, _, s)| s.0));
+            match focus_species {
+                Some(sp) => paint_minimap_range(image, size, world_w, world_h, &tile_map, &config, &organisms, sp),
+                None => paint_minimap_normal(image, size, world_w, world_h, &tile_map, &config, &organisms),
+            }
         }
     }
 
@@ -971,7 +986,7 @@ fn update_minimap(
     // Plus (crosshair) shape is more legible than a square at 1-2 pixel scale
     // and doesn't obscure the organism dot beneath it.
     if let Some(sel_entity) = selected.entity {
-        if let Ok((pos, _genome)) = organisms.get(sel_entity) {
+        if let Ok((pos, _genome, _species)) = organisms.get(sel_entity) {
             let cx = (pos.0.x / world_w * size as f32) as i32;
             let cy = size as i32 - 1 - (pos.0.y / world_h * size as f32) as i32;
             // Draw plus shape: center + 2 pixels each direction
@@ -999,7 +1014,7 @@ fn paint_minimap_normal(
     world_h: f32,
     tile_map: &TileMap,
     config: &SimConfig,
-    organisms: &Query<(&Position, &Genome), With<Organism>>,
+    organisms: &Query<(&Position, &Genome, &SpeciesId), With<Organism>>,
 ) {
     // Paint terrain
     for py in 0..size {
@@ -1026,7 +1041,7 @@ fn paint_minimap_normal(
     }
 
     // Paint organisms as bright dots
-    for (pos, genome) in organisms {
+    for (pos, genome, _species) in organisms {
         let px = (pos.0.x / world_w * size as f32) as usize;
         let py = size - 1 - (pos.0.y / world_h * size as f32) as usize;
 
@@ -1058,7 +1073,7 @@ fn paint_minimap_heatmap(
     size: usize,
     world_w: f32,
     world_h: f32,
-    organisms: &Query<(&Position, &Genome), With<Organism>>,
+    organisms: &Query<(&Position, &Genome, &SpeciesId), With<Organism>>,
 ) {
     // Grid cells — each cell covers a region of the minimap
     let cell_size = 4usize; // pixels per cell
@@ -1071,7 +1086,7 @@ fn paint_minimap_heatmap(
     let mut predators = vec![0u32; grid_len];
     let mut foragers = vec![0u32; grid_len];
 
-    for (pos, genome) in organisms {
+    for (pos, genome, _species) in organisms {
         let gx = (pos.0.x / world_w * grid_w as f32) as usize;
         let gy = (pos.0.y / world_h * grid_h as f32) as usize;
 
@@ -1131,6 +1146,81 @@ fn paint_minimap_heatmap(
                 image.data[idx + 2] = ((b + forager_white) * 255.0).min(255.0) as u8;
             }
             image.data[idx + 3] = 255;
+        }
+    }
+}
+
+/// Range minimap: faded terrain + only members of `focus_species`
+/// painted bright. Reveals where a species lives at a glance —
+/// shows niche partitioning you can't see from the normal view
+/// where every organism is painted the same brightness.
+fn paint_minimap_range(
+    image: &mut Image,
+    size: usize,
+    world_w: f32,
+    world_h: f32,
+    tile_map: &TileMap,
+    config: &SimConfig,
+    organisms: &Query<(&Position, &Genome, &SpeciesId), With<Organism>>,
+    focus_species: u64,
+) {
+    // Faded terrain (same colours as Normal but dimmed to 35%)
+    for py in 0..size {
+        for px in 0..size {
+            let wx = (px as f32 / size as f32 * world_w) as u32;
+            let wy = ((size - 1 - py) as f32 / size as f32 * world_h) as u32;
+            let tile = tile_map.get(wx.min(config.world_width - 1), wy.min(config.world_height - 1));
+            let (r, g, b) = match tile.terrain {
+                clauvolution_world::TerrainType::DeepWater => (20, 40, 120),
+                clauvolution_world::TerrainType::ShallowWater => (40, 80, 160),
+                clauvolution_world::TerrainType::Sand => (180, 170, 120),
+                clauvolution_world::TerrainType::Grassland => (60, 130, 50),
+                clauvolution_world::TerrainType::Forest => (30, 90, 30),
+                clauvolution_world::TerrainType::Rock => (120, 120, 110),
+            };
+            let idx = (py * size + px) * 4;
+            image.data[idx] = (r as f32 * 0.35) as u8;
+            image.data[idx + 1] = (g as f32 * 0.35) as u8;
+            image.data[idx + 2] = (b as f32 * 0.35) as u8;
+            image.data[idx + 3] = 255;
+        }
+    }
+
+    // Faint grey dots for every other organism so the empty vs.
+    // occupied-by-other-species distinction still reads.
+    for (pos, _genome, species) in organisms {
+        if species.0 == focus_species {
+            continue;
+        }
+        let px = (pos.0.x / world_w * size as f32) as usize;
+        let py = size - 1 - (pos.0.y / world_h * size as f32) as usize;
+        if px < size && py < size {
+            let idx = (py * size + px) * 4;
+            image.data[idx] = 80;
+            image.data[idx + 1] = 80;
+            image.data[idx + 2] = 90;
+        }
+    }
+
+    // Bright highlight for the focus species — paint a 3×3 block so
+    // single organisms are actually visible at low pixel counts.
+    for (pos, _genome, species) in organisms {
+        if species.0 != focus_species {
+            continue;
+        }
+        let cx = (pos.0.x / world_w * size as f32) as i32;
+        let cy = size as i32 - 1 - (pos.0.y / world_h * size as f32) as i32;
+        for dy in -1..=1i32 {
+            for dx in -1..=1i32 {
+                let x = cx + dx;
+                let y = cy + dy;
+                if x >= 0 && (x as usize) < size && y >= 0 && (y as usize) < size {
+                    let idx = (y as usize * size + x as usize) * 4;
+                    image.data[idx] = 255;
+                    image.data[idx + 1] = 240;
+                    image.data[idx + 2] = 90;
+                }
+            }
         }
     }
 }
