@@ -6,7 +6,7 @@ use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPlugin};
 use clauvolution_brain::Brain;
 use clauvolution_core::*;
-use clauvolution_genome::{Genome, NUM_INPUTS, NUM_OUTPUTS};
+use clauvolution_genome::{Genome, SegmentType, Symmetry, NUM_INPUTS, NUM_OUTPUTS};
 use clauvolution_phylogeny::{PhyloTree, PhyloNode, SpeciesStrategy, WorldChronicle};
 use clauvolution_world::TileMap;
 use egui_plot::{Line, Plot, PlotPoints, Legend};
@@ -529,6 +529,11 @@ fn inspect_tab(
     };
 
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        // Portrait first — the reader's eye lands on the creature before
+        // the numbers.
+        draw_creature_portrait(ui, genome, strategy.1, health.0);
+        ui.add_space(4.0);
+
         ui.horizontal(|ui| {
             ui.heading(species_name);
             ui.colored_label(strategy.1, strategy.0);
@@ -709,6 +714,239 @@ fn brain_node_color(activation: f32) -> egui::Color32 {
     } else {
         egui::Color32::from_rgb(base.saturating_add(intensity), base, base.saturating_add(intensity / 3))
     }
+}
+
+/// Big stylised rendering of the selected creature: torso at centre,
+/// each body segment drawn at its attachment angle (mirrored if
+/// bilateral), tinted by species/strategy colour and dimmed by health.
+/// Purely cosmetic — doesn't reflect physics, just anatomy.
+fn draw_creature_portrait(
+    ui: &mut egui::Ui,
+    genome: &Genome,
+    strategy_color: egui::Color32,
+    health: f32,
+) {
+    use egui::{Color32, Pos2, Sense, Stroke, Vec2 as EVec2};
+
+    let width = ui.available_width().clamp(220.0, 380.0);
+    let height = 200.0_f32;
+    let (response, painter) = ui.allocate_painter(EVec2::new(width, height), Sense::hover());
+    let rect = response.rect;
+    let painter = painter.with_clip_rect(rect);
+
+    painter.rect_filled(rect, 6.0, Color32::from_rgb(22, 22, 28));
+
+    let center = rect.center();
+    // Pixels per body-size unit. Tuned so a 1.0-body-size creature fills
+    // most of the canvas without clipping its outermost segments.
+    let scale = 50.0 * genome.body_size.clamp(0.4, 1.8);
+
+    // Torso ellipse — base of the creature. All other segments orbit it.
+    let torso_w = scale * 1.0;
+    let torso_h = scale * 0.75;
+    let torso_color = blend_with_health(tint_by_strategy(strategy_color), health);
+    let torso_outline = darken(torso_color, 0.4);
+
+    // Draw back-layer segments first so front ones overlay correctly.
+    for seg in &genome.body_segments {
+        if matches!(seg.segment_type, SegmentType::ArmorPlate | SegmentType::PhotoSurface | SegmentType::Fin)
+        {
+            draw_segments_at_angle(&painter, center, scale, seg, strategy_color, health);
+        }
+    }
+
+    // Torso on top of back pieces, under front pieces.
+    painter.add(egui::Shape::ellipse_filled(
+        center,
+        EVec2::new(torso_w, torso_h),
+        torso_color,
+    ));
+    painter.add(egui::Shape::ellipse_stroke(
+        center,
+        EVec2::new(torso_w, torso_h),
+        Stroke::new(1.5, torso_outline),
+    ));
+
+    // Front-layer segments — eyes, mouth, claws, limbs.
+    for seg in &genome.body_segments {
+        if !matches!(seg.segment_type, SegmentType::ArmorPlate | SegmentType::PhotoSurface | SegmentType::Fin | SegmentType::Torso)
+        {
+            draw_segments_at_angle(&painter, center, scale, seg, strategy_color, health);
+        }
+    }
+
+    // Label along the bottom
+    painter.text(
+        Pos2::new(rect.center().x, rect.bottom() - 10.0),
+        egui::Align2::CENTER_CENTER,
+        format!(
+            "{} segments · body {:.2}",
+            genome.body_segments.len(),
+            genome.body_size
+        ),
+        egui::FontId::proportional(11.0),
+        Color32::from_rgb(140, 140, 150),
+    );
+}
+
+fn draw_segments_at_angle(
+    painter: &egui::Painter,
+    center: egui::Pos2,
+    scale: f32,
+    seg: &clauvolution_genome::BodySegmentGene,
+    strategy_color: egui::Color32,
+    health: f32,
+) {
+    // Attachment_angle is in radians-ish from the code's convention.
+    // We place the segment at `torso_radius + offset` from centre, in
+    // the direction of attachment_angle. Slot gives a small radial
+    // offset so attachments don't all pile onto one point.
+    let angle = seg.attachment_angle;
+    let slot_jitter = (seg.attachment_slot as f32) * 0.15;
+    let r = scale * (0.75 + slot_jitter.min(0.5));
+    let dx = angle.cos() * r;
+    let dy = angle.sin() * r;
+    let pos = egui::Pos2::new(center.x + dx, center.y + dy);
+
+    draw_segment_shape(painter, pos, angle, seg, strategy_color, health);
+
+    if seg.symmetry == Symmetry::Bilateral {
+        let mirrored = egui::Pos2::new(center.x - dx, center.y + dy);
+        // Flip the shape angle horizontally too so eyes/claws face outward
+        let mirror_angle = std::f32::consts::PI - angle;
+        draw_segment_shape(painter, mirrored, mirror_angle, seg, strategy_color, health);
+    }
+}
+
+fn draw_segment_shape(
+    painter: &egui::Painter,
+    pos: egui::Pos2,
+    angle: f32,
+    seg: &clauvolution_genome::BodySegmentGene,
+    strategy_color: egui::Color32,
+    health: f32,
+) {
+    use egui::{Color32, Pos2, Stroke, Vec2 as EVec2};
+    let s = (seg.size.clamp(0.2, 2.0)) * 10.0; // rough px size
+    let base = blend_with_health(tint_by_strategy(strategy_color), health);
+
+    match seg.segment_type {
+        SegmentType::Torso => {
+            // Extra torso lump — stacked body plan
+            painter.add(egui::Shape::ellipse_filled(
+                pos,
+                EVec2::new(s * 0.9, s * 0.7),
+                base,
+            ));
+        }
+        SegmentType::PhotoSurface => {
+            // Leaf-like green blob
+            let green = Color32::from_rgb(80, 180, 80);
+            let blended = blend_with_health(green, health);
+            painter.add(egui::Shape::ellipse_filled(
+                pos,
+                EVec2::new(s * 1.2, s * 0.7),
+                blended,
+            ));
+            painter.add(egui::Shape::ellipse_stroke(
+                pos,
+                EVec2::new(s * 1.2, s * 0.7),
+                Stroke::new(0.8, darken(blended, 0.4)),
+            ));
+        }
+        SegmentType::Claw => {
+            // Triangle pointing outward
+            let dx = angle.cos();
+            let dy = angle.sin();
+            let tip = Pos2::new(pos.x + dx * s * 1.2, pos.y + dy * s * 1.2);
+            let side_w = 0.5;
+            let left = Pos2::new(pos.x + (-dy) * s * side_w, pos.y + (dx) * s * side_w);
+            let right = Pos2::new(pos.x + (dy) * s * side_w, pos.y + (-dx) * s * side_w);
+            painter.add(egui::Shape::convex_polygon(
+                vec![tip, left, right],
+                Color32::from_rgb(200, 80, 80),
+                Stroke::new(0.8, Color32::from_rgb(100, 30, 30)),
+            ));
+        }
+        SegmentType::Fin => {
+            // Translucent bluish triangle
+            let dx = angle.cos();
+            let dy = angle.sin();
+            let tip = Pos2::new(pos.x + dx * s * 1.4, pos.y + dy * s * 1.4);
+            let side = 0.7;
+            let left = Pos2::new(pos.x + (-dy) * s * side, pos.y + (dx) * s * side);
+            let right = Pos2::new(pos.x + (dy) * s * side, pos.y + (-dx) * s * side);
+            painter.add(egui::Shape::convex_polygon(
+                vec![tip, left, right],
+                Color32::from_rgba_unmultiplied(120, 180, 220, 180),
+                Stroke::new(0.8, Color32::from_rgb(60, 100, 140)),
+            ));
+        }
+        SegmentType::Eye => {
+            let white = Color32::from_rgb(235, 235, 235);
+            let pupil = Color32::BLACK;
+            painter.circle_filled(pos, s * 0.6, white);
+            painter.circle_stroke(pos, s * 0.6, Stroke::new(0.8, Color32::from_rgb(70, 70, 70)));
+            // Pupil offset slightly toward gaze direction
+            let dx = angle.cos();
+            let dy = angle.sin();
+            let pupil_pos = Pos2::new(pos.x + dx * s * 0.2, pos.y + dy * s * 0.2);
+            painter.circle_filled(pupil_pos, s * 0.25, pupil);
+        }
+        SegmentType::Mouth => {
+            // Dark ellipse, oriented along angle
+            let dx = angle.cos();
+            let dy = angle.sin();
+            let mouth_pos = Pos2::new(pos.x + dx * 4.0, pos.y + dy * 4.0);
+            painter.add(egui::Shape::ellipse_filled(
+                mouth_pos,
+                EVec2::new(s * 0.7, s * 0.35),
+                Color32::from_rgb(40, 20, 20),
+            ));
+        }
+        SegmentType::Limb => {
+            // Short thick line from torso outward
+            let dx = angle.cos();
+            let dy = angle.sin();
+            let tip = Pos2::new(pos.x + dx * s * 1.1, pos.y + dy * s * 1.1);
+            painter.line_segment(
+                [pos, tip],
+                Stroke::new(s * 0.45, darken(base, 0.2)),
+            );
+            painter.circle_filled(tip, s * 0.3, darken(base, 0.3));
+        }
+        SegmentType::ArmorPlate => {
+            // Dark plate behind — big ellipse
+            let dark = Color32::from_rgb(80, 80, 90);
+            painter.add(egui::Shape::ellipse_filled(
+                pos,
+                EVec2::new(s * 1.1, s * 0.9),
+                dark,
+            ));
+        }
+    }
+}
+
+fn tint_by_strategy(c: egui::Color32) -> egui::Color32 {
+    c
+}
+
+fn blend_with_health(c: egui::Color32, health: f32) -> egui::Color32 {
+    let h = health.clamp(0.2, 1.0);
+    let r = (c.r() as f32 * h) as u8;
+    let g = (c.g() as f32 * h) as u8;
+    let b = (c.b() as f32 * h) as u8;
+    egui::Color32::from_rgba_unmultiplied(r, g, b, c.a())
+}
+
+fn darken(c: egui::Color32, amount: f32) -> egui::Color32 {
+    let f = (1.0 - amount.clamp(0.0, 1.0)).max(0.0);
+    egui::Color32::from_rgba_unmultiplied(
+        (c.r() as f32 * f) as u8,
+        (c.g() as f32 * f) as u8,
+        (c.b() as f32 * f) as u8,
+        c.a(),
+    )
 }
 
 fn draw_brain_viz(
