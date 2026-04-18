@@ -731,39 +731,30 @@ fn draw_infection_indicators_system(
 fn draw_trails_system(
     mut gizmos: Gizmos,
     trails: Res<TrailsVisible>,
+    selected: Res<SelectedOrganism>,
     organisms: Query<(&Position, &TrailHistory, &SpeciesId), With<Organism>>,
-    camera: Query<(&Transform, &OrthographicProjection), (With<MainCamera>, Without<Organism>, Without<SelectionRing>)>,
     mut species_colors: ResMut<SpeciesColors>,
 ) {
     if !trails.0 {
         return;
     }
 
-    let Ok((cam_t, proj)) = camera.get_single() else { return };
-    let half_w = 960.0 * proj.scale;
-    let half_h = 540.0 * proj.scale;
-    let margin = 40.0 * proj.scale;
-    let cam_left = cam_t.translation.x - half_w - margin;
-    let cam_right = cam_t.translation.x + half_w + margin;
-    let cam_bottom = cam_t.translation.y - half_h - margin;
-    let cam_top = cam_t.translation.y + half_h + margin;
-
-    for (pos, trail, species) in &organisms {
-        if trail.positions.len() < 2 {
-            continue;
-        }
-        // Frustum cull — if the organism is off-screen, skip drawing its trail
-        if pos.0.x < cam_left || pos.0.x > cam_right
-            || pos.0.y < cam_bottom || pos.0.y > cam_top {
-            continue;
-        }
-
-        let base = species_colors.get_or_create(species.0);
-        let rgba = base.to_srgba();
-        let color = Color::srgba(rgba.red, rgba.green, rgba.blue, 0.35);
-
-        gizmos.linestrip_2d(trail.positions.iter().copied(), color);
+    // Only draw the trail of the currently-selected organism. At 2000 organisms,
+    // drawing every trail produced unreadable visual noise; limiting to the
+    // selected one turns the feature into a focused inspection tool.
+    let Some(entity) = selected.entity else { return };
+    let Ok((_pos, trail, species)) = organisms.get(entity) else { return };
+    if trail.positions.len() < 2 {
+        return;
     }
+
+    let base = species_colors.get_or_create(species.0);
+    let rgba = base.to_srgba();
+    // Brighter alpha than the old all-trails mode (0.35) since it's now
+    // a single focused line, not an ambient smear.
+    let color = Color::srgba(rgba.red, rgba.green, rgba.blue, 0.75);
+
+    gizmos.linestrip_2d(trail.positions.iter().copied(), color);
 }
 
 

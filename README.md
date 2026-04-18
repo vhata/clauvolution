@@ -31,7 +31,7 @@ Requires Rust (latest stable) and a GPU with Metal / Vulkan / DX12 support.
 | **Space** | Pause / unpause |
 | **[** / **]** | Slow down / speed up (0.125× to 16×) |
 | **M** | Toggle minimap heatmap |
-| **T** | Toggle organism trails |
+| **T** | Toggle trail for selected organism |
 | **X** / **I** / **V** | Asteroid / Ice age / Volcano |
 | **B** / **N** / **J** | Solar bloom / Nutrient rain / Cambrian spark |
 | **S** | Screenshot |

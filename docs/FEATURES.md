@@ -52,7 +52,7 @@ One-liner list of what Clauvolution does, grouped by area. For the design ration
 - **Photosynthesisers as ground cover** — render behind active organisms without outlines
 - **Action flash** — organisms pulse briefly when eating, attacking, or reproducing
 - **Death markers** — red flash for predation kills, amber for starvation/old age; fades over ~0.5s
-- **Organism trails (T)** — gizmos linestrip behind each organism showing recent movement; frustum culled
+- **Organism trails (T)** — toggle a gizmos linestrip behind the selected organism showing its last ~2 seconds of movement
 - **Initial diversity seeding** — 30% of starting population are photosynthesisers (bootstraps food chain)
 
 ## Navigation & camera

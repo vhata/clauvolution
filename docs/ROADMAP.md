@@ -267,9 +267,6 @@ Small-to-medium features that aren't on the critical path but would be fun. Pick
 ### Symbiosis starter
 Lighter version of full symbiosis — energy transfer between nearby stable pairs, no genome trait yet. See whether the dynamic works at all before investing in evolvability.
 
-### Trails for selected organism only
-Turn trails from "all 2000 organisms = visual noise" into "this organism's last 2 seconds = useful inspection tool". Maybe also its species.
-
 ### Clickable chronicle entries
 Click a chronicle entry → if it's about a species, switch to Phylo tab and highlight that species. If it's about a location, focus camera there.
 

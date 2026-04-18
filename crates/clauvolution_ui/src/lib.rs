@@ -95,7 +95,7 @@ fn help_tab(ui: &mut egui::Ui) {
                 ("Right-drag", "pan camera"),
                 ("WASD", "pan camera"),
                 ("M", "toggle minimap heatmap"),
-                ("T", "toggle organism trails"),
+                ("T", "toggle trail for selected organism"),
                 ("F5", "save world"),
                 ("S", "take screenshot"),
             ] {
