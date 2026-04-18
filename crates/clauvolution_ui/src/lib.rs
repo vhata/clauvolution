@@ -205,8 +205,9 @@ fn right_panel_system(
     chronicle: Res<WorldChronicle>,
     mut event_writer: EventWriter<WorldEventRequest>,
     bloom: Res<BloomEffects>,
-    selected: Res<SelectedOrganism>,
+    mut selected: ResMut<SelectedOrganism>,
     organisms: Query<(&Energy, &Health, &BodySize, &Genome, &SpeciesId, &Position, &Age, &Generation, &Signal, &GroupSize, &ParentInfo, Option<&Infection>), With<Organism>>,
+    species_members: Query<(Entity, &SpeciesId), With<Organism>>,
     tile_map: Option<Res<TileMap>>,
     config: Res<SimConfig>,
     phylo: Res<PhyloTree>,
@@ -236,7 +237,7 @@ fn right_panel_system(
                     inspect_tab(ui, &selected, &organisms, tile_map.as_deref(), &config, &phylo);
                 }
                 RightTab::Phylo => {
-                    phylo_tab(ui, &phylo, tick.0);
+                    phylo_tab(ui, &phylo, tick.0, &mut selected, &species_members);
                 }
                 RightTab::Graphs => {
                     graphs_tab(ui, &history);
@@ -256,12 +257,22 @@ fn right_panel_system(
         });
 }
 
-fn phylo_tab(ui: &mut egui::Ui, phylo: &PhyloTree, current_tick: u64) {
+fn phylo_tab(
+    ui: &mut egui::Ui,
+    phylo: &PhyloTree,
+    current_tick: u64,
+    selected: &mut SelectedOrganism,
+    species_members: &Query<(Entity, &SpeciesId), With<Organism>>,
+) {
     if phylo.nodes.is_empty() {
         ui.heading("Phylogenetic tree");
         ui.label("No species yet.");
         return;
     }
+
+    // If a species name gets clicked below, we'll remember its id and resolve
+    // the first living-member lookup after the tree renders.
+    let mut clicked_species: Option<u64> = None;
 
     let living: Vec<&PhyloNode> = phylo.nodes.values()
         .filter(|n| n.extinct_tick.is_none() && n.current_population > 0)
@@ -321,7 +332,9 @@ fn phylo_tab(ui: &mut egui::Ui, phylo: &PhyloTree, current_tick: u64) {
                 .default_open(true)
                 .show(ui, |ui| {
                     for node in &members {
-                        species_row(ui, node, current_tick);
+                        if species_row(ui, node, current_tick) {
+                            clicked_species = Some(node.species_id);
+                        }
                     }
                 });
         }
@@ -347,9 +360,21 @@ fn phylo_tab(ui: &mut egui::Ui, phylo: &PhyloTree, current_tick: u64) {
             });
         }
     });
+
+    // Resolve a click on a species name into a selection of a living member.
+    // First match wins — arbitrary but deterministic given query ordering.
+    if let Some(sp_id) = clicked_species {
+        for (entity, species) in species_members.iter() {
+            if species.0 == sp_id {
+                selected.entity = Some(entity);
+                break;
+            }
+        }
+    }
 }
 
-fn species_row(ui: &mut egui::Ui, node: &PhyloNode, current_tick: u64) {
+/// Returns true if the species name was clicked (caller resolves the selection).
+fn species_row(ui: &mut egui::Ui, node: &PhyloNode, current_tick: u64) -> bool {
     let age_secs = current_tick.saturating_sub(node.born_tick) / 30;
     let age_str = if age_secs >= 60 {
         format!("{}m{:02}s", age_secs / 60, age_secs % 60)
@@ -365,18 +390,23 @@ fn species_row(ui: &mut egui::Ui, node: &PhyloNode, current_tick: u64) {
 
     let declining = node.current_population < node.peak_population / 2;
 
+    let mut clicked = false;
     ui.horizontal(|ui| {
         ui.colored_label(strategy_badge.1, strategy_badge.0);
-        ui.label(&node.name);
+        // Clickable name — selects a living member of this species
+        if ui.link(&node.name).on_hover_text("Click to select a living member").clicked() {
+            clicked = true;
+        }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if declining {
                 ui.small(egui::RichText::new("↓").color(egui::Color32::LIGHT_RED));
             }
-            ui.small(format!("{}", age_str));
+            ui.small(age_str);
             ui.separator();
             ui.small(format!("pop {}", node.current_population));
         });
     });
+    clicked
 }
 
 fn inspect_tab(
