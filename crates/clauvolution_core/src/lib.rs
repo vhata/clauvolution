@@ -9,10 +9,15 @@ pub struct CorePlugin;
 
 impl Plugin for CorePlugin {
     fn build(&self, app: &mut App) {
-        let session = Session::new();
-        info!("Session: {} ({})", session.name, session.dir.display());
+        // Only create a normal Session if the app hasn't already inserted one.
+        // Headless mode pre-inserts a `Session::new_ephemeral()` so we don't
+        // litter sessions/ with tiny throwaway directories.
+        if !app.world().contains_resource::<Session>() {
+            let session = Session::new();
+            info!("Session: {} ({})", session.name, session.dir.display());
+            app.insert_resource(session);
+        }
         app.add_event::<WorldEventRequest>()
-            .insert_resource(session)
             .insert_resource(SimConfig::default())
             .insert_resource(SimStats::default())
             .insert_resource(TickCounter(0))
@@ -54,6 +59,16 @@ impl Session {
         }
         std::fs::create_dir_all(&dir).expect("Failed to create session directory");
         Self { name, dir }
+    }
+
+    /// A session that doesn't create an on-disk directory. For headless
+    /// runs, tests, or any mode where the cosmic-named sessions/<name>/
+    /// folder would be noise.
+    pub fn new_ephemeral() -> Self {
+        Self {
+            name: format!("ephemeral-{}", Self::generate_name()),
+            dir: PathBuf::from("/dev/null"),
+        }
     }
 
     fn generate_name() -> String {
@@ -544,13 +559,23 @@ impl TrailHistory {
 }
 
 /// The master RNG for all simulation randomness. Seeded at startup from
-/// `SimConfig::terrain_seed`. Same seed → same sim — used for
-/// organism placement, food regen, mutation, disease rolls, reproduction.
+/// `SimConfig::terrain_seed`. Same seed → same early-sim trajectory.
+///
+/// Used for: organism placement, food regen, mutation, disease rolls,
+/// reproduction, asteroid targets etc.
 ///
 /// Safe to take as `ResMut<SimRng>` in any FixedUpdate system because
 /// the sim schedule is strictly `.chain()`-ed (no parallel access).
 /// Interactive randomness (keyboard triggers, R-key random select) uses
 /// thread_rng — not part of the reproducible sim stream.
+///
+/// **Reproducibility limits:** runs with the same seed produce identical
+/// state for the first ~50 ticks, then gradually diverge. Root cause is
+/// Bevy's parallel task pool and archetype-based Query iteration, which
+/// aren't themselves deterministic. Forcing a single-threaded task pool
+/// would recover full determinism at a perf cost — see ROADMAP.
+/// For most "same seed, similar outcome" use cases, what we have is
+/// sufficient.
 #[derive(Resource)]
 pub struct SimRng(pub StdRng);
 

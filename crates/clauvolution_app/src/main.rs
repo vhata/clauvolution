@@ -22,6 +22,15 @@ fn main() {
         .position(|a| a == "--seed")
         .and_then(|i| args.get(i + 1))
         .and_then(|s| s.parse().ok());
+    let headless_ticks: Option<u64> = args.iter()
+        .position(|a| a == "--headless")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|s| s.parse().ok());
+
+    if let Some(ticks) = headless_ticks {
+        run_headless(ticks, seed);
+        return;
+    }
 
     let mut app = App::new();
 
@@ -281,4 +290,116 @@ fn set_window_title(
     if let Ok(mut window) = windows.get_single_mut() {
         window.title = format!("Clauvolution — {}", session.name);
     }
+}
+
+// --- Headless mode ---
+
+fn run_headless(ticks: u64, seed: Option<u64>) {
+    use bevy::app::ScheduleRunnerPlugin;
+
+    let start = std::time::Instant::now();
+    eprintln!("Headless run: {} ticks{}", ticks,
+        seed.map(|s| format!(", seed {}", s)).unwrap_or_default());
+
+    let mut app = App::new();
+
+    // Pre-insert an ephemeral Session so CorePlugin doesn't create a directory.
+    app.insert_resource(Session::new_ephemeral());
+
+    // MinimalPlugins gives us Time + ScheduleRunner. We don't want it to sleep
+    // between frames, so configure run_loop with zero duration.
+    app.add_plugins(
+        MinimalPlugins.set(ScheduleRunnerPlugin::run_loop(std::time::Duration::ZERO)),
+    );
+    // InputPlugin registers ButtonInput<KeyCode> etc. The sim's
+    // keyboard_to_events_system reads it; it'll just be empty in headless
+    // (no keys ever pressed) but the resource has to exist.
+    app.add_plugins(bevy::input::InputPlugin);
+
+    // The sim pipeline (no render, no UI).
+    app.add_plugins(CorePlugin)
+        .add_plugins(WorldPlugin)
+        .add_plugins(BodyPlugin)
+        .add_plugins(SimPlugin)
+        .add_plugins(PhylogenyPlugin)
+        .insert_resource(InnovationCounter(100))
+        .insert_resource(LoadPath(None))
+        .insert_resource(SeedOverride(seed))
+        .add_systems(Startup, (apply_seed_override, startup_system).chain());
+
+    // Counter system that exits after N FixedUpdate ticks.
+    app.insert_resource(HeadlessTickTarget(ticks))
+        .add_systems(FixedUpdate, headless_tick_counter);
+
+    // NB: headless doesn't run "faster than real-time" — the sim is already
+    // CPU-bound at 30Hz with 2000 organisms. Removing rendering only recovers
+    // the modest GPU/UI overhead. For true speedup we need brain-eval
+    // parallelism (Rayon — see ROADMAP Theme 4).
+    //
+    // What headless DOES provide:
+    //   - No GPU / window, so it runs headlessly (CI, ssh, no display)
+    //   - Deterministic with --seed, usable for regression tests
+    //   - Single end-of-run report instead of real-time graphs
+
+    app.run();
+
+    let elapsed = start.elapsed();
+    eprintln!("Headless run complete in {:.2}s", elapsed.as_secs_f64());
+}
+
+#[derive(Resource)]
+struct HeadlessTickTarget(u64);
+
+
+fn headless_tick_counter(
+    target: Res<HeadlessTickTarget>,
+    tick: Res<clauvolution_core::TickCounter>,
+    stats: Res<clauvolution_core::SimStats>,
+    history: Res<clauvolution_core::PopulationHistory>,
+    mut exit: EventWriter<AppExit>,
+    mut done: Local<bool>,
+) {
+    if *done {
+        return;
+    }
+    if tick.0 >= target.0 {
+        print_headless_summary(&stats, &history);
+        exit.send(AppExit::Success);
+        *done = true;
+    }
+}
+
+fn print_headless_summary(
+    stats: &clauvolution_core::SimStats,
+    history: &clauvolution_core::PopulationHistory,
+) {
+    eprintln!();
+    eprintln!("=== Headless summary ===");
+    eprintln!("Total organisms (final): {}", stats.total_organisms);
+    eprintln!("Species (final):         {}", stats.species_count);
+    eprintln!("Max generation:          {}", stats.max_generation);
+    eprintln!("Total births:            {}", stats.total_births);
+    eprintln!("Total deaths:            {}", stats.total_deaths);
+    eprintln!("  by Starvation:         {}", stats.deaths_by_cause[0]);
+    eprintln!("  by Predation:          {}", stats.deaths_by_cause[1]);
+    eprintln!("  by Old age:            {}", stats.deaths_by_cause[2]);
+    eprintln!("  by Disease:            {}", stats.deaths_by_cause[3]);
+    if let Some(latest) = history.snapshots.last() {
+        eprintln!();
+        eprintln!("Final strategy breakdown:");
+        eprintln!("  Plants:              {}", latest.plants);
+        eprintln!("  Foragers:            {}", latest.foragers);
+        eprintln!("  Predators:           {}", latest.predators);
+        eprintln!("  Infected:            {}", latest.infected);
+        eprintln!();
+        eprintln!("Final trait averages:");
+        eprintln!("  Body size:           {:.2}", latest.avg_body_size);
+        eprintln!("  Speed:               {:.2}", latest.avg_speed);
+        eprintln!("  Attack:              {:.2}", latest.avg_attack);
+        eprintln!("  Armor:               {:.2}", latest.avg_armor);
+        eprintln!("  Photosynthesis:      {:.0}%", latest.avg_photo * 100.0);
+        eprintln!("  Disease resistance:  {:.0}%", latest.avg_disease_resistance * 100.0);
+        eprintln!("  Avg lifespan:        {:.0} ticks", latest.avg_lifespan);
+    }
+    eprintln!();
 }
