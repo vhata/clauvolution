@@ -250,7 +250,7 @@ fn right_panel_system(
 
             match ui_state.right_tab {
                 RightTab::Inspect => {
-                    inspect_tab(ui, &selected, &organisms, tile_map.as_deref(), &config, &phylo);
+                    inspect_tab(ui, &mut selected, &organisms, &species_members, tile_map.as_deref(), &config, &phylo);
                 }
                 RightTab::Phylo => {
                     phylo_tab(ui, &phylo, tick.0, &mut selected, &species_members);
@@ -427,8 +427,9 @@ fn species_row(ui: &mut egui::Ui, node: &PhyloNode, current_tick: u64) -> bool {
 
 fn inspect_tab(
     ui: &mut egui::Ui,
-    selected: &SelectedOrganism,
+    selected: &mut SelectedOrganism,
     organisms: &Query<(&Energy, &Health, &BodySize, &Genome, &SpeciesId, &Position, &Age, &Generation, &Signal, &GroupSize, &ParentInfo, Option<&Infection>), With<Organism>>,
+    species_members: &Query<(Entity, &SpeciesId), With<Organism>>,
     tile_map: Option<&TileMap>,
     config: &SimConfig,
     phylo: &PhyloTree,
@@ -479,9 +480,29 @@ fn inspect_tab(
         });
         ui.separator();
 
+        // Parent species clickable if it has living members — lets you walk
+        // a lineage backward by clicking parent → member → parent → member ...
+        let parent_pid = parent_info.parent_species_id;
+        let parent_living_member: Option<Entity> = parent_pid.and_then(|pid| {
+            species_members.iter()
+                .find(|(_, sp)| sp.0 == pid)
+                .map(|(e, _)| e)
+        });
+
         egui::Grid::new("inspect_overview").num_columns(2).striped(true).show(ui, |ui| {
             ui.label("Parent species");
-            ui.label(parent_name);
+            if let Some(pid_entity) = parent_living_member {
+                if ui.link(parent_name)
+                    .on_hover_text("Click to select a living member of the parent species")
+                    .clicked()
+                {
+                    selected.entity = Some(pid_entity);
+                }
+            } else if parent_pid.is_some() {
+                ui.weak(format!("{} (extinct)", parent_name));
+            } else {
+                ui.weak(parent_name);  // "(origin)"
+            }
             ui.end_row();
 
             ui.label("Generation");
