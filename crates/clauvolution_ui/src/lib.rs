@@ -1,3 +1,7 @@
+// Bevy systems have complex Query signatures by design — clippy's
+// type_complexity and too_many_arguments lints misfire constantly here.
+#![allow(clippy::type_complexity, clippy::too_many_arguments)]
+
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPlugin};
 use clauvolution_core::*;

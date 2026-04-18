@@ -1,3 +1,12 @@
+// Bevy system signatures legitimately nest multiple generics (Query with
+// tuple data + tuple filters, etc.). Clippy flags most of them as
+// "very complex type" but there's no meaningful readability win from
+// aliasing each one individually — Bevy idiomatic code accepts this.
+#![allow(clippy::type_complexity)]
+// Similarly, Bevy systems often take >7 params (queries, resources, events);
+// clippy's too_many_arguments lint misfires constantly on system signatures.
+#![allow(clippy::too_many_arguments)]
+
 use bevy::prelude::*;
 use bevy::image::{Image, ImageSampler};
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
