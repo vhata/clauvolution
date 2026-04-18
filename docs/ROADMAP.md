@@ -286,13 +286,23 @@ Lighter version of full symbiosis — energy transfer between nearby stable pair
 ### Clickable chronicle entries
 Click a chronicle entry → if it's about a species, switch to Phylo tab and highlight that species. If it's about a location, focus camera there.
 
+### Prettier creature portrait (v2)
+V1 shipped — literal geometry per segment type (ellipses, triangles, lines). Reads the anatomy but looks rough. Follow-up polish:
+- Curved / jointed limbs instead of single line segments
+- Layered fin art with veins or gradients
+- Shaded torso (subtle radial gradient, not flat fill)
+- Idle breathing animation (slight torso scale oscillation synced to Age)
+- Armor plates that stack/segment visibly for multiple ArmorPlate genes
+- Proper bilateral-pair alignment so mirrored parts line up along a centre axis rather than jittering on attachment_slot offsets
+- See [design doc](design/creature-portrait.md) for the full vision (metaballs, L-systems, etc. are still future / optional)
+
 ---
 
 # Design docs
 
 Larger design pieces that deserve their own document:
 
-- [Creature Portrait — detailed inspect visualization](design/creature-portrait.md) — large, detailed rendering of selected organism with brain DAG
+- [Creature Portrait — detailed inspect visualization](design/creature-portrait.md) — large, detailed rendering of selected organism with brain DAG (v1 shipped — see "Prettier creature portrait" above for v2 follow-ups)
 
 ---
 
