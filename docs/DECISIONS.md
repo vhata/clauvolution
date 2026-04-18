@@ -130,6 +130,19 @@ Not an exhaustive list of every tweak — just the decisions where someone readi
 **Why:** a 4-float-comparison per entity is trivial vs rendering cost for thousands of off-screen organisms. Big win at 2000 organisms.
 **Accepted tradeoff:** a small margin (~20px scaled) is used to prevent entities flickering at the camera edge — means we draw slightly more than strictly necessary.
 
+### Headless mode: same speed as live, not faster
+**Chosen:** `--headless` runs the sim with `MinimalPlugins` at the standard 30Hz FixedUpdate timestep. Same wall-clock speed as live-at-1x.
+**Alternatives considered:** inflating `Time::<Virtual>`'s relative speed (tried — caused runaway catchup), tiny fixed timestep (same runaway), manual schedule invocation (breaks timer-dependent systems like species classification).
+**Why this is where we landed:** at 2000 organisms the sim is CPU-bound — each tick already takes about 1/30s of CPU to compute. Uncapping Bevy's time-gate just means each frame's catchup loop tries to run more ticks than the CPU can handle, which stalls. Rendering removal saves only a few percent of per-frame overhead.
+**What was wrong with the initial assumption:** I pitched headless as "run 10 minutes of sim in seconds." That was wishful — the compute cost doesn't disappear when rendering does.
+**Accepted tradeoff:** headless is still worth having for the non-speed reasons (scriptable, no display, deterministic-ish). For true speedup we need either fewer organisms or more per-tick parallelism (Rayon on more systems, GPU compute for brains). Those are separate projects on the roadmap.
+
+### Rayon parallelism via Bevy `par_iter_mut`, not rayon crate directly
+**Chosen:** Used Bevy's `Query::par_iter_mut` in `sensing_and_brain_system`. Bevy's task pool wraps Rayon under the hood.
+**Alternatives considered:** direct rayon (pull in as dep), manual collect → `par_iter` → apply, custom thread pool.
+**Why:** Bevy's idiomatic parallel iteration is already set up, safe with Bevy's ECS borrow checker, and requires no extra deps or custom thread pools. Writes to per-organism components are conflict-free because each iteration gets its own `Mut<T>`.
+**Accepted tradeoff:** we don't control the pool size; Bevy picks based on cores. Measured ~1.4 effective cores used in practice — less than the 6 available because brain eval isn't the sole per-tick bottleneck. Spatial queries in sensing and the rest of the tick (metabolism, reproduction, disease) also contribute. Further parallelisation of those would pay off; wasn't in scope for v1.
+
 ### Incremental release builds
 **Chosen:** `[profile.release] incremental = true` in Cargo.toml.
 **Alternatives:** default non-incremental release (much slower rebuilds).

@@ -130,9 +130,14 @@ The recent disease-tuning session made the pain clear: eyeballing 2 minutes of s
 ### Headless mode
 ✅ **Shipped (v1).** `--headless <ticks>` CLI flag runs the sim without rendering/UI and prints a final summary. `Session::new_ephemeral()` skips disk directory creation.
 
-Honest caveats:
-- Not faster than real-time at 2000 organisms — the sim is CPU-bound. Removing rendering only recovers modest GPU/UI overhead.
-- For actual speedup: Rayon brain-eval parallelism (below) is the next step.
+**Honest correction to my earlier pitch:** I claimed headless would "run 10 minutes of sim in seconds." Wrong. At 2000 organisms the sim is already CPU-bound at 30Hz — each tick takes ~1/30s of CPU to compute. Removing rendering saves a few percent. Headless is about the same wall-clock speed as live-at-1x for the same tick count.
+
+What headless actually gives us:
+- Runs without a display (ssh, CI, servers)
+- Scriptable (no keyboard/clicks required)
+- Single summary at the end instead of live graphs
+
+For real speedup we need less per-tick compute (more Rayon on other systems, GPU compute for brains, or fewer organisms). Those are separate projects below.
 
 ### Session seeds — full reproducibility
 ⚠️ **Partial (v1).** `--seed <u64>` CLI flag + SimRng resource makes food regen, mutation, disease rolls, reproduction and asteroid targeting all derive from the master seed.

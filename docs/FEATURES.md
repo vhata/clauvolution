@@ -89,7 +89,7 @@ One-liner list of what Clauvolution does, grouped by area. For the design ration
 
 ## Tooling
 
-- **Headless mode** — `--headless N` runs N ticks without rendering/UI, prints end-of-run summary (strategy counts, death cause breakdown, trait averages). Useful for validation without watching.
+- **Headless mode** — `--headless N` runs N ticks without rendering/UI, prints end-of-run summary (strategy counts, death cause breakdown, trait averages). Same wall-clock speed as live at 1x — useful for scripted/server runs and CI, not for "faster" runs (sim is CPU-bound; see DECISIONS.md).
 - **Seeded runs** — `--seed N` seeds all sim randomness. Deterministic for ~50 ticks (Bevy task pool parallelism causes later divergence — not yet fully reproducible).
 - **Save/load** — F5 saves full world state to session directory; `--load sessions/<name>` restores
 - **Named sessions** — each run gets a unique cosmic three-word name; logs + screenshots + saves live in `sessions/<name>/`
