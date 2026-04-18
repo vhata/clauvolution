@@ -219,7 +219,7 @@ Observing the sim trend toward any of these = trigger to tune.
 ## Code health
 
 - Known rough edges tracked in `CLAUDE.md` under "Known Issues / Rough Edges"
-- Big files worth splitting if they grow further: `clauvolution_sim/src/lib.rs` (~1000 lines), `clauvolution_render/src/lib.rs` (~1500), `clauvolution_ui/src/lib.rs` (~800)
+- Big files worth splitting if they grow further: `clauvolution_sim/src/lib.rs` (~1200 lines), `clauvolution_render/src/lib.rs` (~1100), `clauvolution_ui/src/lib.rs` (~830)
 - When a function in one of those crosses 100 lines, it's probably ready to move to its own module
 
 ---
