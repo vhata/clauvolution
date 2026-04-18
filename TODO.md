@@ -241,7 +241,33 @@ Test crate that spawns an app in headless mode, runs N ticks, asserts invariants
 - "After an asteroid event, 60-80% of organisms are gone" — behaviour check
 - "Disease resistance average increases after 2000 ticks with disease enabled" — selection check
 
-Runs as part of `cargo test`. Takes seconds per test. Catches regressions when we tune.
+Runs as part of `cargo test`. Takes seconds per test. Catches regressions when we tune. Depends on session seeds (below) for deterministic assertions.
+
+### Session seeds — full reproducibility
+Currently `terrain_seed` is saved and deterministic, but everything else (initial organism placement, genome randomisation, mutation, food spawning, reproduction) uses `rand::thread_rng()` — non-deterministic. That means two runs with the same terrain seed still diverge almost immediately.
+
+**Goal:** a single `--seed N` makes the entire simulation bit-reproducible. Rerunning the same seed produces the same organism lineages, the same extinctions, the same species names.
+
+**Why it matters:**
+- **Controlled experiments:** "same initial conditions, run with disease on vs off — what differs?" Currently impossible because the two runs diverge from tick 0 regardless of the feature flag.
+- **Reproducible bugs:** "this crash only happens on seed 42 at tick 5000" — debuggable.
+- **Integration tests:** deterministic assertions like "after 1000 ticks, population is within [300, 800]" only make sense with a seeded RNG. Without seeding, tests have to use wide bounds or accept flakiness.
+- **Favourite runs:** "this seed produced a really cool ecosystem, let me replay it."
+
+**Shape of implementation:**
+- New `SimRng(StdRng)` resource in core, seeded from master seed at startup
+- Replace every `rand::thread_rng()` and `rand::random()` in sim/genome/world/body with `sim_rng.0` accessed via `ResMut<SimRng>`
+- CLI flag: `--seed <u64>` overrides the default random seed; default is `rand::random()` (so non-seeded runs still feel organic)
+- Save files persist the seed so load-and-replay is consistent (already true for terrain; extend to master seed)
+
+**Gotchas / edge cases:**
+- **Bevy system parallelism.** Two systems that mutate `SimRng` in parallel would race. All sim systems are already `.chain()`-ed in FixedUpdate, so they're strictly serial — should be safe. Verify before declaring done.
+- **Save/load determinism.** Loading a save mid-run + continuing should still be deterministic if the RNG state is serialised. Optional for v1; note it.
+- **Bevy internal RNG.** `bevy_math`, particle systems, etc. may have their own RNG. For sim determinism we only care about gameplay-affecting RNG, not rendering jitter. Worth checking bevy's random rolls don't affect outcomes.
+- **User-triggered events.** Asteroid-impact kills 70% randomly — the random selection must use SimRng so events are reproducible too.
+
+**Nice-to-have after v1:**
+- `--compare-seed N --feature-a disease_on --feature-b disease_off` — runs two sims with same seed but one feature toggled, outputs a diff of outcomes. This is where the reproducibility payoff really shines.
 
 ---
 
