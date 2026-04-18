@@ -1,3 +1,4 @@
+use bevy::core::{TaskPoolOptions, TaskPoolPlugin, TaskPoolThreadAssignmentPolicy};
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{save_to_disk, Screenshot};
 use clauvolution_body::BodyPlugin;
@@ -11,6 +12,32 @@ use clauvolution_sim::SimPlugin;
 use clauvolution_ui::UiPlugin;
 use clauvolution_world::{self, TileMap, WorldPlugin};
 use rand::SeedableRng;
+
+/// Default cap on Bevy's compute task pool workers — leaves cores free for
+/// the rest of the OS so running this sim doesn't spin up the fans and
+/// bog everything else down. Override with the `CLAU_WORKERS` env var.
+const DEFAULT_WORKER_CAP: usize = 6;
+
+fn compute_worker_cap() -> usize {
+    std::env::var("CLAU_WORKERS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .filter(|&n: &usize| n >= 1)
+        .unwrap_or(DEFAULT_WORKER_CAP)
+}
+
+fn task_pool_plugin(worker_cap: usize) -> TaskPoolPlugin {
+    TaskPoolPlugin {
+        task_pool_options: TaskPoolOptions {
+            compute: TaskPoolThreadAssignmentPolicy {
+                min_threads: 1,
+                max_threads: worker_cap,
+                percent: 1.0,
+            },
+            ..TaskPoolOptions::default()
+        },
+    }
+}
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -27,21 +54,26 @@ fn main() {
         .and_then(|i| args.get(i + 1))
         .and_then(|s| s.parse().ok());
 
+    let worker_cap = compute_worker_cap();
+    eprintln!("Compute pool capped at {} workers (set CLAU_WORKERS to override)", worker_cap);
+
     if let Some(ticks) = headless_ticks {
-        run_headless(ticks, seed);
+        run_headless(ticks, seed, worker_cap);
         return;
     }
 
     let mut app = App::new();
 
-    app.add_plugins(DefaultPlugins.set(WindowPlugin {
-        primary_window: Some(Window {
-            title: "Clauvolution".to_string(),
-            resolution: (1920.0, 1080.0).into(),
+    app.add_plugins(DefaultPlugins
+        .set(WindowPlugin {
+            primary_window: Some(Window {
+                title: "Clauvolution".to_string(),
+                resolution: (1920.0, 1080.0).into(),
+                ..default()
+            }),
             ..default()
-        }),
-        ..default()
-    }))
+        })
+        .set(task_pool_plugin(worker_cap)))
     .add_plugins(CorePlugin)
     .add_plugins(WorldPlugin)
     .add_plugins(BodyPlugin)
@@ -294,7 +326,7 @@ fn set_window_title(
 
 // --- Headless mode ---
 
-fn run_headless(ticks: u64, seed: Option<u64>) {
+fn run_headless(ticks: u64, seed: Option<u64>, worker_cap: usize) {
     use bevy::app::ScheduleRunnerPlugin;
 
     let start = std::time::Instant::now();
@@ -308,8 +340,11 @@ fn run_headless(ticks: u64, seed: Option<u64>) {
 
     // MinimalPlugins gives us Time + ScheduleRunner. We don't want it to sleep
     // between frames, so configure run_loop with zero duration.
+    // Apply the same worker cap as the main app so headless also behaves.
     app.add_plugins(
-        MinimalPlugins.set(ScheduleRunnerPlugin::run_loop(std::time::Duration::ZERO)),
+        MinimalPlugins
+            .set(ScheduleRunnerPlugin::run_loop(std::time::Duration::ZERO))
+            .set(task_pool_plugin(worker_cap)),
     );
     // InputPlugin registers ButtonInput<KeyCode> etc. The sim's
     // keyboard_to_events_system reads it; it'll just be empty in headless

@@ -665,7 +665,10 @@ fn photosynthesis_system(
     //   5 plants:      0.56
     //   10 plants:     0.36
     //   20 plants:     0.21
-    for (pos, mut energy, genome) in &mut organisms {
+    //
+    // Parallelised: the HashMap is read-only in this pass (first pass is
+    // done). Each organism only writes its own Energy. Safe for par_iter_mut.
+    organisms.par_iter_mut().for_each(|(pos, mut energy, genome)| {
         if genome.photosynthesis_rate > 0.01 && genome.has_photo_surface() {
             let tile = tile_map.tile_at_pos(pos.0);
             let photo_area = genome.total_photo_surface_area();
@@ -679,7 +682,7 @@ fn photosynthesis_system(
             let gained = genome.photosynthesis_rate * photo_area * tile.light_level * light_mult * density_factor * PHOTO_OUTPUT_MULTIPLIER;
             energy.0 = (energy.0 + gained).min(config.max_organism_energy);
         }
-    }
+    });
 }
 
 /// Niche construction: organisms modify the tiles they're on
@@ -804,7 +807,11 @@ fn metabolism_system(
     config: Res<SimConfig>,
     mut organisms: Query<(&mut Energy, &mut Health, &mut Age, &BodySize, &Genome, &GroupSize), With<Organism>>,
 ) {
-    for (mut energy, mut health, mut age, body_size, genome, group_size) in &mut organisms {
+    // Parallelised: per-organism reads+writes only, no cross-organism data
+    // dependency, no shared mutable state. Bevy's task pool (capped via
+    // CLAU_WORKERS) does the fan-out. Same safety reasoning as
+    // sensing_and_brain_system — each iteration gets its own Mut<T>.
+    organisms.par_iter_mut().for_each(|(mut energy, mut health, mut age, body_size, genome, group_size)| {
         age.0 += 1;
 
         // Body size costs quadratically — being big is VERY expensive
@@ -854,7 +861,7 @@ fn metabolism_system(
                 energy.0 = 0.0; // triggers death
             }
         }
-    }
+    });
 }
 
 fn death_system(

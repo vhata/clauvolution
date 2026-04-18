@@ -299,12 +299,12 @@ Items that don't directly serve the joy-of-watching motivation. Here for complet
 Three complementary approaches, roughly in order of bang-for-buck:
 
 ### Rayon parallelization for brain evaluation
-⚠️ **Partial (v1).** `sensing_and_brain_system` now uses Bevy's `Query::par_iter_mut` to spread the work across cores (Bevy's task pool is a Rayon wrapper). Each organism's sensing + brain eval is independent.
+⚠️ **Partial (v2).** `sensing_and_brain_system`, `metabolism_system`, and the photosynthesis second pass all use `Query::par_iter_mut` now. Compute pool capped at 6 workers by default (overridable via `CLAU_WORKERS` env var) — leaves cores free for other OS tasks so the sim doesn't peg the laptop.
 
-Measured speedup: ~8-15% at 2000 organisms. Modest because brain eval isn't actually the sole bottleneck — spatial queries in sensing and per-organism metabolism/reproduction overhead all contribute.
+**Caveat on benchmarking:** headless runs at a 30Hz fixed timestep paced by virtual time, so 1500 ticks always take ~50s regardless of per-tick cost. Real speedup shows at fast sim speeds (`]` key, up to 16x) where each real-time second has to accommodate more ticks — that's where the extra Rayon headroom matters.
 
-**Follow-ups for real speedup:**
-- Parallelise other O(n) systems: predation, metabolism, niche construction
+**Follow-ups for further speedup:**
+- Parallelise remaining O(n) systems: predation, disease effects, niche construction (the last two currently share `SimRng` / `Commands`, need refactoring)
 - Cache or batch spatial hash queries (currently ~2000 radius queries per tick)
 - GPU compute shader for brain eval (below) for big wins at 10k+ organisms
 
