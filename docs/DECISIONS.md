@@ -1,0 +1,143 @@
+# Design decisions
+
+This is the "why did we do that?" document. Each entry records a non-obvious choice, the alternatives considered, and the tradeoff we accepted. New entries should follow the same shape.
+
+Not an exhaustive list of every tweak — just the decisions where someone reading the code might reasonably wonder "why this way and not another?"
+
+---
+
+## Simulation biology
+
+### Energy pyramid — predators get 10% of prey's stored energy
+**Chosen:** when a predator kills prey, it receives `prey_energy × 0.1`.
+**Alternatives:** full energy transfer (100%), half (50%), fixed constant.
+**Why:** thermodynamically honest — most energy is lost as heat in real ecosystems. Also functions as a balance mechanism: predators can't sustain themselves indefinitely on abundant prey, preventing predator-dominated attractors.
+**Accepted tradeoff:** predators need dense prey to thrive; in sparse populations they struggle. This is realistic but can mean predator lineages fail on some seeds.
+
+### Quadratic costs for body, armor, claws, speed
+**Chosen:** metabolism cost scales as `trait²` for these four traits.
+**Alternatives:** linear costs, tiered cliffs, no extra cost.
+**Why:** prevents "stack everything" meta. If costs were linear, evolution would converge on maxed-out big armored fast predators. Quadratic costs force trade-offs — you can be fast *or* armored *or* big, but not all three cheaply.
+**Accepted tradeoff:** organisms might never evolve extreme traits because the marginal cost becomes prohibitive. If we see everyone converging to tiny low-trait organisms, that's the sign we've overtuned it.
+
+### Plant density competition — `yield × 1/(1 + others_on_tile × 0.2)`
+**Chosen:** photosynthesis yield drops inversely with the number of other plants on the same tile.
+**Alternatives:** no competition (resulted in 100% plant worlds), linear penalty (too harsh — nobody survives clustering), carrying-capacity cliff (abrupt and unfair).
+**Why:** biologically honest (real plants shade each other) and naturally caps monocultures without banning clustering. Smooth diminishing returns mean plants are always better off clustering than dying alone; just not unboundedly so.
+**Accepted tradeoff:** current coefficient (0.2) may not be steep enough — plant-dominated worlds still happen. Tuning candidate to bump to 0.4.
+
+### Disease: direct mortality + energy drain, not drain alone
+**Chosen:** infected organisms suffer both a per-tick energy drain AND a small per-tick chance of direct death (scaled by severity × (1-resistance)).
+**Alternatives:** drain only (first implementation), direct mortality only.
+**Why:** drain-only failed on photosynthesisers. Plants refill energy from sunlight faster than disease drained it, so they were immune in practice. Adding direct mortality that ignores energy reserves ensures disease can't be "sun-bathed" through.
+**Accepted tradeoff:** slightly less intuitive than a pure energy model. The direct-mortality path only zeroes `energy` (not `health`) so `death_system` correctly attributes the death to Disease rather than Predation.
+
+### Social sensing: metabolic discount, not behaviour reward
+**Chosen:** organisms near same-species kin get a small (~5%) metabolic discount via formula `1 - (count/(count+5)) × 0.05`.
+**Alternatives:** direct "reward for clustering" bonus (rejected as intellectually dishonest), no discount (rejected as not producing visible social behaviour).
+**Why:** biologically justified as "reduced vigilance cost" — real animals in groups spend less energy watching for predators. Diminishing returns so infinite clustering isn't useful. This is a selection pressure gradient, not a behaviour prescription. Evolution decides whether to exploit grouping, ignore it, or find something better.
+**Accepted tradeoff:** this is still a "thumb on the scale" — without it, social behaviour wouldn't emerge because the sim doesn't have enough latent group benefits (dilution of predation, etc. are too weak). We accept that a gentle nudge is the cost of seeing emergent sociality in reasonable time.
+
+### Component presence for boolean state (Infection)
+**Chosen:** `Infection` is a component; its presence means the organism is sick, its absence means healthy.
+**Alternatives:** `Infection { is_infected: bool }` field, an `Option<Infection>` on a health struct.
+**Why:** Bevy-idiomatic. Queries like `Query<..., Without<Infection>>` and `With<Infection>` read naturally and the ECS can skip healthy organisms entirely. Adding `Infection` to an entity is an actual state change, not a flag flip on an always-present blob.
+**Accepted tradeoff:** adding/removing a component has slight overhead vs flipping a bool, but at 2000 organisms it's negligible.
+
+## Brains & evolution
+
+### NEAT with 22 inputs / 9 outputs (no hard-coded behaviour)
+**Chosen:** each organism has a per-organism neural network with specific labelled inputs and outputs, but no behaviour is pre-programmed.
+**Alternatives:** scripted behaviour trees, finite state machines, heuristic AI.
+**Why:** the core goal of the project — watch evolution discover behaviour. Scripted behaviour wouldn't be evolution, it'd be a game.
+**Accepted tradeoff:** early-generation organisms behave poorly until selection produces useful circuits. Initial-diversity seeding (30% photosynthesisers) compensates by guaranteeing *some* strategy works out of the gate.
+
+### Species classification threshold 2.0 with 1.3× hysteresis
+**Chosen:** organisms classified by NEAT compatibility distance, threshold 2.0 to join a species, 2.6 (1.3×) to stay in it. Runs every 5 seconds.
+**Alternatives:** strict threshold (lots of flip-flopping), no speciation (one species forever), per-generation classification.
+**Why:** species should be stable enough to track over time but responsive enough that genuine divergence produces a new species. The 1.3× hysteresis prevents classification flip-flopping.
+**Accepted tradeoff:** species names can feel slightly "sticky" — a lineage that drifts gradually won't speciate as often as it might in a stricter system.
+
+### Species naming — habitat + descriptor + strategy, children inherit two of three
+**Chosen:** three-word names like "Swamp Dwarf Moss" (habitat = Swamp, descriptor = Dwarf, strategy noun = Moss). Child species inherit their parent's habitat and strategy noun, only varying the descriptor.
+**Alternatives:** random names, Latin binomial generation, ID numbers.
+**Why:** evolutionary trees are more readable when related species have related names. Three-word structure mimics real taxonomy enough to be legible.
+**Accepted tradeoff:** word-list approach means occasional collisions — two unrelated lineages might happen to share a name by virtue of similar traits and modular arithmetic on species ID.
+
+## World & environment
+
+### Seasons: 60-second year, sinusoidal light & food regen
+**Chosen:** a full spring/summer/autumn/winter cycle every 60 real-time seconds.
+**Alternatives:** longer cycles (more realistic but slow to watch), no seasons, seasonal on/off only.
+**Why:** creates regular environmental pressure on a timescale where you can actually observe adaptation within one viewing session. 60 seconds is short enough that you'll see winter affect populations multiple times in a run.
+**Accepted tradeoff:** not a lifetime pressure — organisms can't "adapt" within one season. Multi-generational pressure needs long-term climate shift (which is on the roadmap).
+
+### Deep water 10× movement cost
+**Chosen:** land organisms crossing deep water pay 10× energy cost per step.
+**Alternatives:** soft gradient, impassable barrier, no penalty.
+**Why:** creates real geographic isolation between landmasses so allopatric speciation actually happens. A soft gradient wouldn't reliably isolate populations; a hard barrier would feel like a wall.
+**Accepted tradeoff:** some aquatic-adapted organisms cross freely which can feel odd — but that's the selection pressure the trait exists to respond to.
+
+## UI & rendering
+
+### Single tabbed right panel vs multiple always-visible panels
+**Chosen:** one right-side panel with tabs (Inspect / Phylo / Graphs / Chronicle / Events / Help). You see one tab's content at a time.
+**Alternatives:** multiple fixed panels (original layout, plus the bevy_egui migration initially), floating windows, dockable panels.
+**Why:** the world view is the primary content — maximise its screen area. Related info is usually consulted separately (graphs for trends, chronicle for events, phylo for species). Rarely needed simultaneously. Simpler to build and tune across window sizes.
+**Accepted tradeoff:** can't see graphs AND chronicle at the same time. We can add an "eject to window" button later if that becomes a real need. It hasn't.
+
+### egui_plot for charts instead of ASCII sparklines
+**Chosen:** real line charts via `egui_plot` with pan/zoom/legend.
+**Alternatives:** keep ASCII sparklines, roll our own chart rendering.
+**Why:** egui_plot is built for this exact use case, gives us multi-series charts, interactive zoom, tooltip values for free. Sparklines were cute but couldn't show per-cause-death breakdowns usefully.
+**Accepted tradeoff:** pulls in another dependency version-locked to bevy_egui.
+
+### egui pointer-capture check in PreUpdate
+**Chosen:** `UiInputState.pointer_over_ui` is populated in PreUpdate by querying egui's `ctx.is_pointer_over_area()`.
+**Alternatives:** check in the same system that runs the panel (too early — side panel not drawn yet that frame), check in PostUpdate (too late — Update systems already consumed inputs).
+**Why:** egui retains layout state across frames. At the start of a frame, egui still knows where its panels were drawn *last* frame. For cursor-based gating that's accurate enough — the user moves the cursor 1 frame before they click/scroll.
+**Accepted tradeoff:** 1-frame lag on pointer-over-UI detection. At 60fps that's 16ms — imperceptible.
+
+### Bevy gizmos for trails and infection halos
+**Chosen:** use `gizmos.linestrip_2d()` / `gizmos.circle_2d()` for visual overlays.
+**Alternatives:** per-segment entities, per-organism child meshes, custom shader.
+**Why:** gizmos batch into a single draw call automatically. For 2000 potential trails and N infected organisms, gizmos are essentially free to render. Per-entity approaches would create entity-management headaches (spawn on infect, despawn on recover, sync per tick).
+**Accepted tradeoff:** gizmos are "for debug" in Bevy's docs and have simple visual options. For our case (faint lines, simple circles) that's fine.
+
+### Photosynthesisers render at z=0.3, active organisms at z=1.0
+**Chosen:** plants render behind active organisms, no outline. Actives render with outline.
+**Alternatives:** all at same z, all with outlines, all without outlines.
+**Why:** visual clarity. When you're watching the sim, plants are "ground cover" and actives are "the things moving around". Separating z-orders makes the screen parseable.
+**Accepted tradeoff:** in a plant-heavy world the active organisms can get obscured if they walk into dense foliage — but that matches the biology.
+
+## Architecture & performance
+
+### Unified event bus (WorldEventRequest) for keyboard + UI
+**Chosen:** both hotkeys and UI buttons emit the same `WorldEventRequest` event; one system consumes.
+**Alternatives:** duplicate the effect logic for keyboard vs UI, shared resource flags instead of events.
+**Why:** one code path means one place for cooldown logic, chronicle logging, and effect application. Adding a new triggering mechanism (e.g. REST API, scheduled events) just means another event source — no logic duplication.
+**Accepted tradeoff:** requires slightly more plumbing (defining events, reading events) than direct function calls. Worth it for the symmetry.
+
+### Virtual time pause instead of near-zero timestep for pausing
+**Chosen:** pausing the sim calls `Time::<Virtual>::pause()`. Unpausing calls `unpause()`.
+**Alternatives:** set `Time::<Fixed>` timestep to something huge so no ticks fire (what we had first — broken).
+**Why:** the original approach let virtual time keep accumulating while paused, which filled the fixed timestep accumulator. On unpause, Bevy tried to "catch up" by running thousands of ticks, freezing the app. Pausing virtual time halts accumulation entirely.
+**Accepted tradeoff:** none worth noting — this is just the right way to do it in Bevy.
+
+### Frustum culling in the render systems, not by Bevy's built-in
+**Chosen:** in `sync_organism_transforms` and `sync_food_transforms`, check each entity's position against the camera viewport and set `Visibility::Hidden` if off-screen. Margin-padded to prevent pop-in.
+**Alternatives:** rely on Bevy's built-in visibility culling (doesn't apply to 2D Mesh2d entities by default), render everything (wasted GPU), draw order spatial partition.
+**Why:** a 4-float-comparison per entity is trivial vs rendering cost for thousands of off-screen organisms. Big win at 2000 organisms.
+**Accepted tradeoff:** a small margin (~20px scaled) is used to prevent entities flickering at the camera edge — means we draw slightly more than strictly necessary.
+
+### Incremental release builds
+**Chosen:** `[profile.release] incremental = true` in Cargo.toml.
+**Alternatives:** default non-incremental release (much slower rebuilds).
+**Why:** during active development, rebuild times matter. After first build, single-file changes rebuild in seconds rather than minutes.
+**Accepted tradeoff:** slightly larger release artifacts, potentially slightly worse runtime perf. For this project we don't care — there's no "distribution" binary.
+
+### 10 workspace crates, one per domain
+**Chosen:** sim/world/genome/brain/body/phylogeny/render/ui/core/app as separate crates.
+**Alternatives:** one big crate with modules, three crates (sim / render / app), two crates (headless + app).
+**Why:** enforces that sim crates can't import from render or ui. Compile parallelism when only one crate changes. Clear ownership — a bug in rendering lives in one place, a bug in genetics lives in another.
+**Accepted tradeoff:** extra Cargo.toml files, slight compile-time overhead for workspace resolution, component/resource types have to live in `core` to be shared.
