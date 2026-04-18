@@ -14,55 +14,53 @@ pub struct SpeciesTraits {
     pub has_armor_plates: bool,
 }
 
-/// Generate a species name from its traits
-fn body_descriptor(traits: &SpeciesTraits, id: usize) -> &'static str {
-    macro_rules! pick { ($arr:expr) => { $arr[id % $arr.len()] } }
+/// Deterministically pick one entry from a word list using the species ID
+fn pick<'a>(words: &[&'a str], id: usize) -> &'a str {
+    words[id % words.len()]
+}
 
+fn body_descriptor(traits: &SpeciesTraits, id: usize) -> &'static str {
     if traits.has_armor_plates && traits.armor > 0.5 {
-        pick!(["Plated", "Armored", "Shelled", "Ironclad", "Crusted"])
+        pick(&["Plated", "Armored", "Shelled", "Ironclad", "Crusted"], id)
     } else if traits.has_claws {
-        pick!(["Clawed", "Hooked", "Barbed", "Serrated", "Fanged"])
+        pick(&["Clawed", "Hooked", "Barbed", "Serrated", "Fanged"], id)
     } else if traits.has_eyes {
-        pick!(["Keen", "Sharp-eyed", "Watchful", "Bright", "Alert"])
+        pick(&["Keen", "Sharp-eyed", "Watchful", "Bright", "Alert"], id)
     } else if traits.body_size > 1.3 {
-        pick!(["Greater", "Giant", "Massive", "Hulking", "Towering"])
+        pick(&["Greater", "Giant", "Massive", "Hulking", "Towering"], id)
     } else if traits.body_size < 0.5 {
-        pick!(["Lesser", "Dwarf", "Tiny", "Minute", "Pygmy"])
+        pick(&["Lesser", "Dwarf", "Tiny", "Minute", "Pygmy"], id)
     } else if traits.speed > 1.2 {
-        pick!(["Swift", "Fleet", "Darting", "Quick", "Racing"])
+        pick(&["Swift", "Fleet", "Darting", "Quick", "Racing"], id)
     } else {
-        pick!(["Common", "Spotted", "Banded", "Pale", "Dusky"])
+        pick(&["Common", "Spotted", "Banded", "Pale", "Dusky"], id)
     }
 }
 
 fn habitat_word(traits: &SpeciesTraits, id: usize) -> &'static str {
-    macro_rules! pick { ($arr:expr) => { $arr[id % $arr.len()] } }
-
     if traits.aquatic > 0.5 {
-        if traits.has_fins { pick!(["Reef", "Deep", "Tidal", "Pelagic", "Abyssal"]) }
-        else { pick!(["Shore", "Marsh", "Coastal", "Brackish", "Littoral"]) }
+        if traits.has_fins { pick(&["Reef", "Deep", "Tidal", "Pelagic", "Abyssal"], id) }
+        else { pick(&["Shore", "Marsh", "Coastal", "Brackish", "Littoral"], id) }
     } else if traits.aquatic > 0.2 {
-        pick!(["Riparian", "Swamp", "Estuary", "Delta", "Wetland"])
+        pick(&["Riparian", "Swamp", "Estuary", "Delta", "Wetland"], id)
     } else {
-        pick!(["Plains", "Ridge", "Upland", "Steppe", "Highland"])
+        pick(&["Plains", "Ridge", "Upland", "Steppe", "Highland"], id)
     }
 }
 
 fn strategy_noun(traits: &SpeciesTraits, id: usize) -> &'static str {
-    macro_rules! pick { ($arr:expr) => { $arr[id % $arr.len()] } }
-
     match traits.strategy {
         SpeciesStrategy::Photosynthesizer => {
-            if traits.aquatic > 0.5 { pick!(["Kelp", "Algae", "Seagrass", "Coral", "Lichen"]) }
-            else { pick!(["Fern", "Moss", "Vine", "Shrub", "Bloom"]) }
+            if traits.aquatic > 0.5 { pick(&["Kelp", "Algae", "Seagrass", "Coral", "Lichen"], id) }
+            else { pick(&["Fern", "Moss", "Vine", "Shrub", "Bloom"], id) }
         }
         SpeciesStrategy::Predator => {
-            if traits.aquatic > 0.5 { pick!(["Shark", "Eel", "Hunter", "Stalker", "Lurker"]) }
-            else { pick!(["Raptor", "Prowler", "Striker", "Ambusher", "Mauler"]) }
+            if traits.aquatic > 0.5 { pick(&["Shark", "Eel", "Hunter", "Stalker", "Lurker"], id) }
+            else { pick(&["Raptor", "Prowler", "Striker", "Ambusher", "Mauler"], id) }
         }
         SpeciesStrategy::Forager => {
-            if traits.aquatic > 0.5 { pick!(["Drifter", "Grazer", "Filter", "Crawler", "Scavenger"]) }
-            else { pick!(["Forager", "Browser", "Gleaner", "Rooter", "Wanderer"]) }
+            if traits.aquatic > 0.5 { pick(&["Drifter", "Grazer", "Filter", "Crawler", "Scavenger"], id) }
+            else { pick(&["Forager", "Browser", "Gleaner", "Rooter", "Wanderer"], id) }
         }
     }
 }
