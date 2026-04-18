@@ -92,6 +92,7 @@ fn help_tab(ui: &mut egui::Ui) {
                 ("[  ]", "slow down / speed up"),
                 ("Scroll", "zoom in / out"),
                 ("Click", "inspect organism"),
+                ("F", "focus camera on selected organism"),
                 ("Right-drag", "pan camera"),
                 ("WASD", "pan camera"),
                 ("M", "toggle minimap heatmap"),
@@ -162,6 +163,16 @@ fn header_bar_system(
                 ui.label(format!("Gen: {}", stats.max_generation));
                 ui.separator();
                 ui.label(format!("Speed: {}", speed_str));
+
+                // Infection count — only shown when disease is circulating, coloured to match halos.
+                let infection_count = infected.iter().count();
+                if infection_count > 0 {
+                    ui.separator();
+                    ui.colored_label(
+                        egui::Color32::from_rgb(200, 120, 230),
+                        format!("⚠ {} sick", infection_count),
+                    );
+                }
 
                 // Active bloom effects — coloured so they stand out, showing seconds remaining.
                 // Only appear while ticking down, never intrude when nothing's active.
