@@ -216,6 +216,7 @@ fn mass_extinction_input_system(
     mut chronicle: ResMut<WorldChronicle>,
     config: Res<SimConfig>,
     mut bloom: ResMut<BloomEffects>,
+    mut sim_rng: ResMut<SimRng>,
 ) {
     cooldown.0.tick(time.delta());
 
@@ -230,7 +231,7 @@ fn mass_extinction_input_system(
     let Some(req) = req else { return };
 
     let mut triggered = false;
-    let mut rng = rand::thread_rng();
+    let rng = &mut sim_rng.0;
 
     // Asteroid (kill 70% randomly)
     if matches!(req, WorldEventRequest::Asteroid) {
@@ -305,7 +306,6 @@ fn mass_extinction_input_system(
     // Nutrient rain (massive food burst)
     if matches!(req, WorldEventRequest::NutrientRain) {
         info!("BLOOM: Nutrient rain!");
-        let mut rng = rand::thread_rng();
         let food_count = (config.world_width as f32 * config.world_height as f32 * NUTRIENT_RAIN_DENSITY) as u32;
         for _ in 0..food_count {
             let x = rng.gen_range(0.0..config.world_width as f32);
@@ -673,8 +673,9 @@ fn disease_transmission_system(
     healthy: Query<(Entity, &Position, &Genome), (With<Organism>, Without<Infection>)>,
     infected: Query<(&Position, &Infection), With<Organism>>,
     tick: Res<TickCounter>,
+    mut sim_rng: ResMut<SimRng>,
 ) {
-    let mut rng = rand::thread_rng();
+    let rng = &mut sim_rng.0;
 
     // 1. Background spontaneous infection — keeps disease present even when
     // populations would otherwise clear all pathogens.
@@ -734,8 +735,9 @@ fn disease_effects_system(
     mut commands: Commands,
     mut infected: Query<(Entity, &mut Energy, &mut Infection, &Genome), With<Organism>>,
     config: Res<SimConfig>,
+    mut sim_rng: ResMut<SimRng>,
 ) {
-    let mut rng = rand::thread_rng();
+    let rng = &mut sim_rng.0;
     for (entity, mut energy, mut infection, genome) in &mut infected {
         // Resistance cushions the drain; multiplier cranked above 1.0 so
         // photosynthesisers can't trivially out-absorb the cost from sunlight.
@@ -867,8 +869,9 @@ fn reproduction_system(
     >,
     mut stats: ResMut<SimStats>,
     bloom: Res<BloomEffects>,
+    mut sim_rng: ResMut<SimRng>,
 ) {
-    let mut rng = rand::thread_rng();
+    let mut rng = &mut sim_rng.0;
 
     // Collect potential mate data upfront to avoid query conflicts
     let mate_candidates: Vec<(Entity, Vec2, f32, Genome, u64)> = organisms

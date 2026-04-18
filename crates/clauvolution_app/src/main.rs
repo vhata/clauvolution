@@ -13,10 +13,15 @@ use clauvolution_world::{self, TileMap, WorldPlugin};
 use rand::SeedableRng;
 
 fn main() {
-    let screenshot_mode = std::env::args().any(|a| a == "--screenshot");
-    let load_path = std::env::args()
+    let args: Vec<String> = std::env::args().collect();
+    let screenshot_mode = args.iter().any(|a| a == "--screenshot");
+    let load_path = args.iter()
         .position(|a| a == "--load")
-        .and_then(|i| std::env::args().nth(i + 1));
+        .and_then(|i| args.get(i + 1).cloned());
+    let seed: Option<u64> = args.iter()
+        .position(|a| a == "--seed")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|s| s.parse().ok());
 
     let mut app = App::new();
 
@@ -37,7 +42,8 @@ fn main() {
     .add_plugins(UiPlugin)
     .insert_resource(InnovationCounter(100))
     .insert_resource(LoadPath(load_path))
-    .add_systems(Startup, (startup_system, set_window_title));
+    .insert_resource(SeedOverride(seed))
+    .add_systems(Startup, (apply_seed_override, startup_system, set_window_title).chain());
 
     if screenshot_mode {
         app.insert_resource(ScreenshotSchedule::new())
@@ -45,6 +51,22 @@ fn main() {
     }
 
     app.run();
+}
+
+#[derive(Resource)]
+struct SeedOverride(Option<u64>);
+
+/// If --seed N was passed on the command line, stamp it into SimConfig before
+/// startup_system reads it to seed the terrain and SimRng. Otherwise the
+/// default random seed from SimConfig::default() stands.
+fn apply_seed_override(
+    seed_override: Res<SeedOverride>,
+    mut config: ResMut<SimConfig>,
+) {
+    if let Some(seed) = seed_override.0 {
+        config.terrain_seed = seed;
+        info!("Using seed from CLI: {}", seed);
+    }
 }
 
 #[derive(Resource)]
@@ -105,6 +127,11 @@ fn load_saved_world(
     let tile_map = clauvolution_world::TileMap::generate(config.world_width, config.world_height, &mut rng);
     commands.insert_resource(tile_map);
 
+    // Reseed SimRng from the saved seed. (Mid-run save/load diverges from
+    // the original trajectory at this point — the RNG state history isn't
+    // serialised; same-seed runs from tick 0 still match.)
+    commands.insert_resource(SimRng::from_seed(config.terrain_seed));
+
     // Restore organisms and food
     save::spawn_saved_organisms(&mut commands, &state.organisms);
     save::spawn_saved_food(&mut commands, &state.food);
@@ -132,20 +159,23 @@ fn setup_world(
     mut innovation: ResMut<InnovationCounter>,
     mut stats: ResMut<SimStats>,
 ) {
-    // Use seed for deterministic terrain
-    let mut rng = rand::rngs::StdRng::seed_from_u64(config.terrain_seed);
-    let tile_map = TileMap::generate(config.world_width, config.world_height, &mut rng);
-    // Switch to thread_rng for non-deterministic organism placement
-    let mut rng = rand::thread_rng();
-    clauvolution_world::spawn_initial_food(&mut commands, &config, &tile_map, &mut rng);
-    clauvolution_sim::spawn_initial_population(&mut commands, &config, &mut innovation, &mut rng);
+    // Seed deterministic terrain generation
+    let mut terrain_rng = rand::rngs::StdRng::seed_from_u64(config.terrain_seed);
+    let tile_map = TileMap::generate(config.world_width, config.world_height, &mut terrain_rng);
+
+    // Seed the sim-wide RNG used by food regen, disease, reproduction, etc.
+    // Same seed → same simulation trajectory.
+    let mut sim_rng = SimRng::from_seed(config.terrain_seed);
+    clauvolution_world::spawn_initial_food(&mut commands, &config, &tile_map, &mut sim_rng.0);
+    clauvolution_sim::spawn_initial_population(&mut commands, &config, &mut innovation, &mut sim_rng.0);
     commands.insert_resource(tile_map);
+    commands.insert_resource(sim_rng);
 
     stats.total_organisms = config.initial_population;
 
     info!(
-        "Clauvolution initialized: {} organisms, world {}x{} with biomes",
-        config.initial_population, config.world_width, config.world_height
+        "Clauvolution initialized: {} organisms, world {}x{} with biomes (seed {})",
+        config.initial_population, config.world_width, config.world_height, config.terrain_seed
     );
 }
 

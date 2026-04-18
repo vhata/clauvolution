@@ -1,5 +1,7 @@
 use bevy::prelude::*;
 use rand::Rng;
+use rand::rngs::StdRng;
+use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -538,6 +540,23 @@ impl TrailHistory {
             self.positions.pop_front();
         }
         self.positions.push_back(pos);
+    }
+}
+
+/// The master RNG for all simulation randomness. Seeded at startup from
+/// `SimConfig::terrain_seed`. Same seed → same sim — used for
+/// organism placement, food regen, mutation, disease rolls, reproduction.
+///
+/// Safe to take as `ResMut<SimRng>` in any FixedUpdate system because
+/// the sim schedule is strictly `.chain()`-ed (no parallel access).
+/// Interactive randomness (keyboard triggers, R-key random select) uses
+/// thread_rng — not part of the reproducible sim stream.
+#[derive(Resource)]
+pub struct SimRng(pub StdRng);
+
+impl SimRng {
+    pub fn from_seed(seed: u64) -> Self {
+        Self(StdRng::seed_from_u64(seed))
     }
 }
 
