@@ -539,6 +539,8 @@ fn print_headless_summary(
         eprintln!("  Armor:               {:.2}", latest.avg_armor);
         eprintln!("  Photosynthesis:      {:.0}%", latest.avg_photo * 100.0);
         eprintln!("  Disease resistance:  {:.0}%", latest.avg_disease_resistance * 100.0);
+        eprintln!("  Symbiosis rate:      {:+.2}", latest.avg_symbiosis_rate);
+        eprintln!("  Symbiotic pairs:     {}", latest.symbiotic_pairs);
         eprintln!("  Avg lifespan:        {:.0} ticks", latest.avg_lifespan);
     }
     eprintln!();

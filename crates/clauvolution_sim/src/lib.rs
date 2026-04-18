@@ -99,6 +99,15 @@ const POP_HISTORY_SAMPLE_SECS: f32 = 1.0;
 /// is within this multiple of the compatibility threshold. Prevents flip-flopping.
 const SPECIES_HYSTERESIS_FACTOR: f32 = 1.3;
 
+/// Max distance at which two organisms are considered "in contact" for
+/// the purposes of forming a symbiotic link.
+const SYMBIOSIS_RANGE: f32 = 6.0;
+
+/// Per-tick energy a partner gives up at `symbiosis_rate = 1.0`. Negative
+/// rates drain from the partner at the same scale. Tuned conservatively;
+/// expect to revisit after first live runs.
+const SYMBIOSIS_TRANSFER_RATE: f32 = 0.05;
+
 pub struct SimPlugin;
 
 impl Plugin for SimPlugin {
@@ -116,6 +125,8 @@ impl Plugin for SimPlugin {
                     niche_construction_system,
                     disease_transmission_system,
                     disease_effects_system,
+                    symbiosis_tracking_system,
+                    symbiosis_transfer_system,
                     metabolism_system,
                     death_system,
                     reproduction_system,
@@ -803,6 +814,97 @@ fn disease_effects_system(
     }
 }
 
+/// Per organism, find the nearest same-tick neighbour within
+/// `SYMBIOSIS_RANGE` and update its `Symbiosis` tracking. If the current
+/// nearest matches the stored `link_target`, increment the streak;
+/// otherwise replace the target and reset the streak. The transfer
+/// system downstream turns a long-enough mutual streak into an actual
+/// energy exchange.
+fn symbiosis_tracking_system(
+    spatial_hash: Res<SpatialHash>,
+    mut organisms: Query<(Entity, &Position, &mut Symbiosis), With<Organism>>,
+    all_positions: Query<&Position, With<Organism>>,
+) {
+    organisms
+        .par_iter_mut()
+        .for_each(|(entity, pos, mut symbiosis)| {
+            let nearby = spatial_hash.query_radius(pos.0, SYMBIOSIS_RANGE);
+            let mut best: Option<(Entity, f32)> = None;
+            for &other in &nearby {
+                if other == entity {
+                    continue;
+                }
+                if let Ok(other_pos) = all_positions.get(other) {
+                    let dist2 = (other_pos.0 - pos.0).length_squared();
+                    if best.map_or(true, |(_, d)| dist2 < d) {
+                        best = Some((other, dist2));
+                    }
+                }
+            }
+            let current = best.map(|(e, _)| e);
+            if current.is_some() && current == symbiosis.link_target {
+                symbiosis.link_ticks = symbiosis.link_ticks.saturating_add(1);
+            } else {
+                symbiosis.link_target = current;
+                symbiosis.link_ticks = if current.is_some() { 1 } else { 0 };
+            }
+        });
+}
+
+/// Walk linked pairs — entities where both sides have each other as
+/// their `link_target` with streaks past the threshold — and exchange
+/// energy according to both parties' `symbiosis_rate`. Each organism
+/// transfers `rate * SYMBIOSIS_TRANSFER_RATE` from itself to its partner
+/// each tick; negative rates reverse the flow. Net effect on A per
+/// tick is `(rate_b - rate_a) * SYMBIOSIS_TRANSFER_RATE`.
+fn symbiosis_transfer_system(
+    organisms: Query<(Entity, &Genome, &Symbiosis), With<Organism>>,
+    mut energies: Query<&mut Energy, With<Organism>>,
+    config: Res<SimConfig>,
+) {
+    let mut pairs: Vec<(Entity, Entity, f32, f32)> = Vec::new();
+    let mut handled: std::collections::HashSet<Entity> = std::collections::HashSet::new();
+
+    for (a_entity, a_genome, a_sym) in organisms.iter() {
+        if handled.contains(&a_entity) {
+            continue;
+        }
+        if a_sym.link_ticks < SYMBIOSIS_LINK_THRESHOLD {
+            continue;
+        }
+        let Some(b_entity) = a_sym.link_target else {
+            continue;
+        };
+        let Ok((_, b_genome, b_sym)) = organisms.get(b_entity) else {
+            continue;
+        };
+        if b_sym.link_ticks < SYMBIOSIS_LINK_THRESHOLD {
+            continue;
+        }
+        if b_sym.link_target != Some(a_entity) {
+            continue;
+        }
+        handled.insert(a_entity);
+        handled.insert(b_entity);
+        pairs.push((
+            a_entity,
+            b_entity,
+            a_genome.symbiosis_rate,
+            b_genome.symbiosis_rate,
+        ));
+    }
+
+    for (a, b, rate_a, rate_b) in pairs {
+        let net_a = (rate_b - rate_a) * SYMBIOSIS_TRANSFER_RATE;
+        if let Ok(mut e) = energies.get_mut(a) {
+            e.0 = (e.0 + net_a).clamp(0.0, config.max_organism_energy);
+        }
+        if let Ok(mut e) = energies.get_mut(b) {
+            e.0 = (e.0 - net_a).clamp(0.0, config.max_organism_energy);
+        }
+    }
+}
+
 fn metabolism_system(
     config: Res<SimConfig>,
     mut organisms: Query<(&mut Energy, &mut Health, &mut Age, &BodySize, &Genome, &GroupSize), With<Organism>>,
@@ -1016,7 +1118,7 @@ fn reproduction_system(
             Signal::default(),
             GroupSize::default(),
             ParentInfo { parent_species_id: Some(parent_species) },
-        )).insert((brain, child_genome, TrailHistory::default(), BrainActivations::default()));
+        )).insert((brain, child_genome, TrailHistory::default(), BrainActivations::default(), Symbiosis::default()));
 
         stats.total_births += 1;
         if child_gen > stats.max_generation {
@@ -1195,7 +1297,7 @@ fn record_population_history(
     time: Res<Time>,
     mut timer: ResMut<PopHistoryTimer>,
     stats: Res<SimStats>,
-    organisms: Query<(&Genome, Option<&Infection>), With<Organism>>,
+    organisms: Query<(Entity, &Genome, &Symbiosis, Option<&Infection>), With<Organism>>,
     food: Query<&Food>,
     mut history: ResMut<PopulationHistory>,
     fitness: Res<FitnessTracker>,
@@ -1217,9 +1319,15 @@ fn record_population_history(
     let mut sum_armor = 0.0f32;
     let mut sum_attack = 0.0f32;
     let mut sum_photo = 0.0f32;
+    let mut sum_symbiosis = 0.0f32;
     let mut n = 0u32;
 
-    for (genome, inf) in &organisms {
+    // For counting mutual symbiotic pairs we need to look each partner up.
+    // Build a small map once, then walk the ones that claim a link.
+    let mut sym_by_entity: std::collections::HashMap<Entity, (Option<Entity>, u32)> =
+        std::collections::HashMap::with_capacity(organisms.iter().len());
+
+    for (entity, genome, symbiosis, inf) in &organisms {
         if genome.photosynthesis_rate > 0.2 && genome.has_photo_surface() {
             plants += 1;
         } else if genome.claw_power() > 0.5 {
@@ -1236,7 +1344,32 @@ fn record_population_history(
         sum_armor += genome.armor_value();
         sum_attack += genome.claw_power();
         sum_photo += genome.photosynthesis_rate;
+        sum_symbiosis += genome.symbiosis_rate;
         n += 1;
+
+        sym_by_entity.insert(entity, (symbiosis.link_target, symbiosis.link_ticks));
+    }
+
+    // Count mutual linked pairs (each pair once)
+    let mut symbiotic_pairs = 0u32;
+    let mut seen: std::collections::HashSet<Entity> = std::collections::HashSet::new();
+    for (&entity, &(target, ticks)) in &sym_by_entity {
+        if seen.contains(&entity) {
+            continue;
+        }
+        if ticks < SYMBIOSIS_LINK_THRESHOLD {
+            continue;
+        }
+        let Some(partner) = target else { continue };
+        let Some(&(partner_target, partner_ticks)) = sym_by_entity.get(&partner) else {
+            continue;
+        };
+        if partner_ticks < SYMBIOSIS_LINK_THRESHOLD || partner_target != Some(entity) {
+            continue;
+        }
+        seen.insert(entity);
+        seen.insert(partner);
+        symbiotic_pairs += 1;
     }
 
     let div = n.max(1) as f32;
@@ -1257,6 +1390,8 @@ fn record_population_history(
         avg_armor: sum_armor / div,
         avg_attack: sum_attack / div,
         avg_photo: sum_photo / div,
+        symbiotic_pairs,
+        avg_symbiosis_rate: sum_symbiosis / div,
     });
 }
 
@@ -1316,7 +1451,7 @@ pub fn spawn_initial_population(
             Signal::default(),
             GroupSize::default(),
             ParentInfo::default(),
-        )).insert((brain, genome, TrailHistory::default(), BrainActivations::default()));
+        )).insert((brain, genome, TrailHistory::default(), BrainActivations::default(), Symbiosis::default()));
     }
 }
 

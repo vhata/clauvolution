@@ -201,6 +201,10 @@ pub struct Genome {
     pub armor: f32,
     pub attack_power: f32,
     pub disease_resistance: f32, // 0.0 = vulnerable, 1.0 = fully resistant
+    /// Behaviour toward a stable symbiotic partner. -1.0 = full parasite
+    /// (drain energy from partner), 0.0 = neutral (no transfer), +1.0 =
+    /// full donor (gift energy to partner). Evolution decides what works.
+    pub symbiosis_rate: f32,
 }
 
 impl Genome {
@@ -271,6 +275,9 @@ impl Genome {
             armor: rng.gen_range(0.0..0.1),
             attack_power: rng.gen_range(0.0..0.1),
             disease_resistance: rng.gen_range(0.0..0.2),
+            // Start near-neutral; selection decides whether parasitism or
+            // mutualism pays off in this world.
+            symbiosis_rate: rng.gen_range(-0.2..0.2),
         }
     }
 
@@ -461,6 +468,10 @@ impl Genome {
             self.disease_resistance += normal.sample(rng) as f32 * 0.05;
             self.disease_resistance = self.disease_resistance.clamp(0.0, 1.0);
         }
+        if rng.gen::<f32>() < rate {
+            self.symbiosis_rate += normal.sample(rng) as f32 * 0.1;
+            self.symbiosis_rate = self.symbiosis_rate.clamp(-1.0, 1.0);
+        }
 
         // Mutate existing body segments
         for seg in &mut self.body_segments {
@@ -636,6 +647,7 @@ impl Genome {
             armor: self.armor * t + other.armor * (1.0 - t),
             attack_power: self.attack_power * t + other.attack_power * (1.0 - t),
             disease_resistance: self.disease_resistance * t + other.disease_resistance * (1.0 - t),
+            symbiosis_rate: self.symbiosis_rate * t + other.symbiosis_rate * (1.0 - t),
         }
     }
 
@@ -682,7 +694,8 @@ impl Genome {
             + (self.photosynthesis_rate - other.photosynthesis_rate).abs()
             + (self.armor - other.armor).abs()
             + (self.attack_power - other.attack_power).abs()
-            + (self.disease_resistance - other.disease_resistance).abs() * 0.5;
+            + (self.disease_resistance - other.disease_resistance).abs() * 0.5
+            + (self.symbiosis_rate - other.symbiosis_rate).abs() * 0.3;
 
         (c1 * excess as f32 / n) + (c2 * disjoint as f32 / n) + (c3 * avg_weight_diff) + body_diff * 0.5
     }

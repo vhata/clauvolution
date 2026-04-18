@@ -54,6 +54,8 @@ pub struct SaveGenome {
     pub attack_power: f32,
     #[serde(default)]
     pub disease_resistance: f32,
+    #[serde(default)]
+    pub symbiosis_rate: f32,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -155,6 +157,7 @@ fn genome_to_save(g: &Genome) -> SaveGenome {
         armor: g.armor,
         attack_power: g.attack_power,
         disease_resistance: g.disease_resistance,
+        symbiosis_rate: g.symbiosis_rate,
     }
 }
 
@@ -206,6 +209,7 @@ fn save_to_genome(s: &SaveGenome) -> Genome {
         armor: s.armor,
         attack_power: s.attack_power,
         disease_resistance: s.disease_resistance,
+        symbiosis_rate: s.symbiosis_rate,
     }
 }
 
@@ -359,7 +363,7 @@ pub fn spawn_saved_organisms(
             Signal(org.signal),
             GroupSize::default(),
             ParentInfo::default(), // parent info not preserved in saves
-        )).insert((brain, genome, TrailHistory::default(), BrainActivations::default()));
+        )).insert((brain, genome, TrailHistory::default(), BrainActivations::default(), Symbiosis::default()));
     }
 }
 

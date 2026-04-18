@@ -284,7 +284,7 @@ fn right_panel_system(
     mut event_writer: EventWriter<WorldEventRequest>,
     bloom: Res<BloomEffects>,
     mut selected: ResMut<SelectedOrganism>,
-    organisms: Query<(&Energy, &Health, &BodySize, &Genome, &SpeciesId, &Position, &Age, &Generation, &Signal, &GroupSize, &ParentInfo, Option<&Infection>, &Brain, &BrainActivations), With<Organism>>,
+    organisms: Query<(&Energy, &Health, &BodySize, &Genome, &SpeciesId, &Position, &Age, &Generation, &Signal, &GroupSize, &ParentInfo, Option<&Infection>, &Brain, &BrainActivations, &Symbiosis), With<Organism>>,
     species_members: Query<(Entity, &SpeciesId), With<Organism>>,
     tile_map: Option<Res<TileMap>>,
     config: Res<SimConfig>,
@@ -490,7 +490,7 @@ fn species_row(ui: &mut egui::Ui, node: &PhyloNode, current_tick: u64) -> bool {
 fn inspect_tab(
     ui: &mut egui::Ui,
     selected: &mut SelectedOrganism,
-    organisms: &Query<(&Energy, &Health, &BodySize, &Genome, &SpeciesId, &Position, &Age, &Generation, &Signal, &GroupSize, &ParentInfo, Option<&Infection>, &Brain, &BrainActivations), With<Organism>>,
+    organisms: &Query<(&Energy, &Health, &BodySize, &Genome, &SpeciesId, &Position, &Age, &Generation, &Signal, &GroupSize, &ParentInfo, Option<&Infection>, &Brain, &BrainActivations, &Symbiosis), With<Organism>>,
     species_members: &Query<(Entity, &SpeciesId), With<Organism>>,
     tile_map: Option<&TileMap>,
     config: &SimConfig,
@@ -502,7 +502,7 @@ fn inspect_tab(
         return;
     };
 
-    let Ok((energy, health, body_size, genome, species, pos, age, generation, signal, group_size, parent_info, infection, brain, activations)) = organisms.get(entity) else {
+    let Ok((energy, health, body_size, genome, species, pos, age, generation, signal, group_size, parent_info, infection, brain, activations, symbiosis)) = organisms.get(entity) else {
         ui.heading("Inspect");
         ui.colored_label(egui::Color32::LIGHT_RED, "Selected organism died.");
         return;
@@ -634,10 +634,31 @@ fn inspect_tab(
                 ui.label(format!("{:.0}%", genome.disease_resistance * 100.0));
                 ui.end_row();
 
+                ui.label("Symbiosis rate");
+                let label_text = if genome.symbiosis_rate > 0.1 {
+                    format!("{:+.2} (donor)", genome.symbiosis_rate)
+                } else if genome.symbiosis_rate < -0.1 {
+                    format!("{:+.2} (parasite)", genome.symbiosis_rate)
+                } else {
+                    format!("{:+.2} (neutral)", genome.symbiosis_rate)
+                };
+                ui.label(label_text);
+                ui.end_row();
+
                 ui.label("Signal");
                 ui.label(format!("{:.2}", signal.0));
                 ui.end_row();
             });
+        });
+
+        egui::CollapsingHeader::new("Symbiosis link").default_open(true).show(ui, |ui| {
+            if symbiosis.link_ticks >= SYMBIOSIS_LINK_THRESHOLD && symbiosis.link_target.is_some() {
+                ui.label(format!("Tracking partner for {} ticks", symbiosis.link_ticks));
+            } else if let Some(_) = symbiosis.link_target {
+                ui.label(format!("Courting ({} / {} ticks)", symbiosis.link_ticks, SYMBIOSIS_LINK_THRESHOLD));
+            } else {
+                ui.label("No nearby partner");
+            }
         });
 
         egui::CollapsingHeader::new("Body segments").show(ui, |ui| {
@@ -870,6 +891,12 @@ fn graphs_tab(ui: &mut egui::Ui, history: &PopulationHistory) {
         ui.label("Infected");
         ui.monospace(format!("{:>3} ({:>2.0}%)", latest.infected, infected_pct));
         ui.end_row();
+
+        ui.label("Sym pairs");
+        ui.monospace(format!("{:>4}", latest.symbiotic_pairs));
+        ui.label("Sym rate");
+        ui.monospace(format!("{:>+5.2}", latest.avg_symbiosis_rate));
+        ui.end_row();
     });
 
     ui.add_space(6.0);
@@ -1044,6 +1071,25 @@ fn graphs_tab(ui: &mut egui::Ui, history: &PopulationHistory) {
                     .color(egui::Color32::from_rgb(90, 200, 90)).name("Photo ×100"));
                 plot_ui.line(Line::new(t_body)
                     .color(egui::Color32::from_rgb(200, 170, 230)).name("Body size ×100"));
+            });
+
+        ui.add_space(4.0);
+
+        // Symbiosis — linked-pair count and evolved average rate
+        ui.label("Symbiosis (pairs + avg rate)");
+        let sym_pairs: PlotPoints = snaps.iter().enumerate()
+            .map(|(i, s)| [i as f64, s.symbiotic_pairs as f64]).collect();
+        let sym_rate: PlotPoints = snaps.iter().enumerate()
+            .map(|(i, s)| [i as f64, (s.avg_symbiosis_rate * 100.0) as f64]).collect();
+
+        Plot::new("symbiosis_trend")
+            .height(110.0)
+            .legend(Legend::default().position(egui_plot::Corner::LeftTop))
+            .show(ui, |plot_ui| {
+                plot_ui.line(Line::new(sym_pairs)
+                    .color(egui::Color32::from_rgb(150, 220, 255)).name("Linked pairs"));
+                plot_ui.line(Line::new(sym_rate)
+                    .color(egui::Color32::from_rgb(255, 180, 140)).name("Avg rate ×100 (−100 parasite, +100 donor)"));
             });
 
         ui.add_space(4.0);

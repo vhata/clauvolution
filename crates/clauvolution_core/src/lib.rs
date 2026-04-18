@@ -314,6 +314,9 @@ pub struct PopSnapshot {
     pub avg_armor: f32,
     pub avg_attack: f32,
     pub avg_photo: f32,
+    // Symbiosis metrics
+    pub symbiotic_pairs: u32,
+    pub avg_symbiosis_rate: f32,
 }
 
 /// Tracks organism lifespans for fitness measurement
@@ -383,6 +386,8 @@ impl PopulationHistory {
             avg_armor: snapshot.avg_armor,
             avg_attack: snapshot.avg_attack,
             avg_photo: snapshot.avg_photo,
+            symbiotic_pairs: snapshot.symbiotic_pairs,
+            avg_symbiosis_rate: snapshot.avg_symbiosis_rate,
         });
 
         if self.snapshots.len() > self.max_entries {
@@ -407,6 +412,8 @@ pub struct PopSnapshotInput {
     pub avg_armor: f32,
     pub avg_attack: f32,
     pub avg_photo: f32,
+    pub symbiotic_pairs: u32,
+    pub avg_symbiosis_rate: f32,
 }
 
 /// Tracks whether egui is currently capturing mouse/keyboard input
@@ -522,6 +529,22 @@ pub struct BrainMemory(pub [f32; 3]);
 pub struct BrainActivations {
     pub values: std::collections::HashMap<u64, f32>,
 }
+
+/// Tracks a potential or confirmed symbiotic link to another organism.
+/// Updated every tick by the symbiosis tracker — when `link_target` has
+/// been the same entity for at least `SYMBIOSIS_LINK_THRESHOLD` consecutive
+/// ticks AND the target reciprocates, the pair is considered "linked" and
+/// exchanges energy per the `symbiosis_rate` genome trait.
+#[derive(Component, Clone, Default, Debug)]
+pub struct Symbiosis {
+    pub link_target: Option<Entity>,
+    pub link_ticks: u32,
+}
+
+/// Shared between sim (link activation) and UI (display): number of
+/// consecutive ticks a mutual-nearest pair must hold before the link is
+/// considered active and energy transfer kicks in.
+pub const SYMBIOSIS_LINK_THRESHOLD: u32 = 30;
 
 /// Chemical signal emitted by an organism — sensed by nearby organisms
 #[derive(Component, Clone, Default)]
