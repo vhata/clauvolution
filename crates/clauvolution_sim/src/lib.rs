@@ -1218,7 +1218,4 @@ fn save_system(
 
     let save_path = session.dir.join("save.json");
     save::save_world(&save_path, &tick, &season, &stats, &innovation, &config, &org_data, &food_data, &phylo, &chronicle);
-    chronicle.entries.last().map(|_| {
-        info!("World saved to {}", save_path.display());
-    });
 }
