@@ -355,8 +355,14 @@ fn sensing_and_brain_system(
     food_snapshot: Res<FoodSnapshot>,
     all_org_data: Query<(&Position, &BodySize, &SpeciesId, &Genome, &Signal), (With<Organism>, Without<Food>)>,
 ) {
-
-    for (entity, pos, energy, health, genome, brain, body_size, species_id, memory, mut output, mut group_size) in &mut organisms {
+    // Parallelised across organisms. Each iteration only reads from shared
+    // Res/Query (spatial_hash, food_snapshot, all_org_data — all Sync) and
+    // writes to its own BrainOutput + GroupSize via the per-iter Mut guard,
+    // so there's no cross-organism data dependency.
+    //
+    // Brain eval dominates the per-tick cost at 2000 organisms. Rayon
+    // (via Bevy's TaskPool) spreads it across cores.
+    organisms.par_iter_mut().for_each(|(entity, pos, energy, health, genome, brain, body_size, species_id, memory, mut output, mut group_size)| {
         let mut inputs = [0.0f32; NUM_INPUTS];
 
         inputs[0] = energy.0 / config.max_organism_energy;
@@ -456,7 +462,7 @@ fn sensing_and_brain_system(
         output.attack = brain_out[4];
         output.signal = brain_out[5];
         output.memory_out = [brain_out[6], brain_out[7], brain_out[8]];
-    }
+    });
 }
 
 fn action_system(
