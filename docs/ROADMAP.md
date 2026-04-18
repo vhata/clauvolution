@@ -292,12 +292,14 @@ Items that don't directly serve the joy-of-watching motivation. Here for complet
 Three complementary approaches, roughly in order of bang-for-buck:
 
 ### Rayon parallelization for brain evaluation
-The `sensing_and_brain_system` iterates organisms sequentially, but brain evaluation is pure computation with no side effects — textbook `par_iter`. Could halve simulation cost on multi-core machines.
+⚠️ **Partial (v1).** `sensing_and_brain_system` now uses Bevy's `Query::par_iter_mut` to spread the work across cores (Bevy's task pool is a Rayon wrapper). Each organism's sensing + brain eval is independent.
 
-```rust
-// Conceptual
-inputs.par_iter().map(|i| brain.evaluate(i)).collect()
-```
+Measured speedup: ~8-15% at 2000 organisms. Modest because brain eval isn't actually the sole bottleneck — spatial queries in sensing and per-organism metabolism/reproduction overhead all contribute.
+
+**Follow-ups for real speedup:**
+- Parallelise other O(n) systems: predation, metabolism, niche construction
+- Cache or batch spatial hash queries (currently ~2000 radius queries per tick)
+- GPU compute shader for brain eval (below) for big wins at 10k+ organisms
 
 ### GPU instanced rendering
 Currently each organism gets its own `ColorMaterial`. True instanced rendering would pack per-instance data into a single buffer and draw all organisms in one draw call. Bitmask shader trick: each instance carries a feature bitmask, shader scales absent parts to zero — no entity churn for LOD changes.
