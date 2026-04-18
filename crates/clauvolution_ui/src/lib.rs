@@ -924,6 +924,15 @@ fn graphs_tab(ui: &mut egui::Ui, history: &PopulationHistory) {
     ui.separator();
 
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        // Scale the plot-heavy region back to egui's default font size.
+        // `egui_plot`'s legends and axis numbers inherit from the UI's
+        // TextStyle::Body, and at our global 16px scale they overlap the
+        // chart lines. This undoes the global UI_SCALE for this scroll
+        // area only; the stats grid above stays at 16px.
+        for (_, font_id) in ui.style_mut().text_styles.iter_mut() {
+            font_id.size /= UI_SCALE;
+        }
+
         // Population by strategy
         ui.label("Population by strategy");
         let plants: PlotPoints = snaps.iter().enumerate()
