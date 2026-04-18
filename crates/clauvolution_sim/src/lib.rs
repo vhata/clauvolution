@@ -101,12 +101,26 @@ const SPECIES_HYSTERESIS_FACTOR: f32 = 1.3;
 
 /// Max distance at which two organisms are considered "in contact" for
 /// the purposes of forming a symbiotic link.
+/// Tuning history:
+///   6.0  — initial. 3–35 pairs across seeds, rate near 0.
+///   12.0 — wider made it WORSE (3–4 pairs): more candidates compete
+///          for "nearest" status, streak resets when rankings swap.
+///   6.0  — (current) reverted. Narrow range + loose streak works
+///          better than wide range + strict streak.
 const SYMBIOSIS_RANGE: f32 = 6.0;
 
 /// Per-tick energy a partner gives up at `symbiosis_rate = 1.0`. Negative
-/// rates drain from the partner at the same scale. Tuned conservatively;
-/// expect to revisit after first live runs.
-const SYMBIOSIS_TRANSFER_RATE: f32 = 0.05;
+/// rates drain from the partner at the same scale.
+/// Tuning history:
+///   0.05 — initial. Too weak: at full |rate|, an organism loses/gains
+///          1–2 energy over a typical 30-tick link lifetime — noise vs
+///          the ~50-unit energy pool, so selection couldn't distinguish.
+///   0.15 — tripled; pair count jumped with short threshold but avg
+///          rate still indistinguishable from drift (+0.03 to +0.12).
+///   0.30 — doubled further, no stronger selection signal — something
+///          other than transfer magnitude is keeping rate near zero.
+///   0.15 — (current) reverted. No point in the extra magnitude.
+const SYMBIOSIS_TRANSFER_RATE: f32 = 0.15;
 
 pub struct SimPlugin;
 

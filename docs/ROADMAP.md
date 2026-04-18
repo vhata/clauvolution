@@ -68,7 +68,9 @@ More kinds of evolution to watch unfold. Each adds a qualitatively new pressure.
 ✅ **Shipped (v1).** Genome gets a `symbiosis_rate` trait in [-1.0, +1.0]. Proximity tracker looks for a mutual-nearest neighbour held for 30+ consecutive ticks within 6 world units; once locked, each party transfers `rate * 0.05` energy to its partner per tick (negative rate drains). Graphs tab shows mutual-pair count + avg evolved rate. Inspect tab labels each organism parasite/neutral/donor.
 
 **Follow-ups / known roughness:**
-- Dynamic barely bites at v1 numbers. 3000-tick headless runs show only ~26 mutual pairs across ~2000 orgs and the rate doesn't drift much — budget a tuning pass. Candidates: relax the 30-tick streak, widen the 6-unit contact range, bump the 0.05 transfer rate, or give linked pairs a metabolic discount so mutualists have a reason to stay.
+- ~~Dynamic barely bites at v1 numbers.~~ First tuning pass (see DECISIONS.md) shortened the streak threshold 30→10 and tripled transfer rate 0.05→0.15. Pair count now 66–124 per 6000-tick run across three seeds. But:
+- **Avg rate still near zero** — no population-level drift toward parasitism or donation after 6000 ticks. The math predicts parasitism should win; the observed data says it isn't happening on this timescale. Probably a combination of (a) most active pairs being between similar-rate organisms so no asymmetric exchange happens, (b) selection vs mutation noise too close. Worth a longer-horizon run (20k+ ticks) and/or a histogram instrumentation to see what rates linked organisms actually have.
+- **Metabolic discount for linked organisms** is the most likely unlock if we decide mutualism is worth engineering into existence. Modelled on the existing social-sensing discount. Explicit "thumb on the scale" per DECISIONS.md convention, and needs the same honest framing.
 - Visual feedback is text-only in Inspect; a gizmos line between linked pairs would make the dynamic visible in the main view.
 - No brain input yet — organisms can't sense "am I linked?" or "what's my partner doing?" Worth adding if we want behavioural co-adaptation.
 

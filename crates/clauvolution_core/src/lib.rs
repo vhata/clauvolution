@@ -544,7 +544,12 @@ pub struct Symbiosis {
 /// Shared between sim (link activation) and UI (display): number of
 /// consecutive ticks a mutual-nearest pair must hold before the link is
 /// considered active and energy transfer kicks in.
-pub const SYMBIOSIS_LINK_THRESHOLD: u32 = 30;
+/// Tuning history:
+///   30 (~1s) — initial. Too strict; orgs move enough that 30 straight
+///              ticks as each other's nearest is rare (3–35 pairs max).
+///   10 (~0.3s) — (current) short enough that incidental closeness
+///              forms a link; long enough that pure flybys don't.
+pub const SYMBIOSIS_LINK_THRESHOLD: u32 = 10;
 
 /// Chemical signal emitted by an organism — sensed by nearby organisms
 #[derive(Component, Clone, Default)]
