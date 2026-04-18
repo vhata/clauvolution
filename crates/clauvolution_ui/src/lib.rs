@@ -93,6 +93,7 @@ fn help_tab(ui: &mut egui::Ui) {
                 ("Scroll", "zoom in / out"),
                 ("Click", "inspect organism"),
                 ("F", "focus camera on selected organism"),
+                (", / .", "prev / next living member of same species"),
                 ("Right-drag", "pan camera"),
                 ("WASD", "pan camera"),
                 ("M", "toggle minimap heatmap"),

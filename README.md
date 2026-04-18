@@ -29,6 +29,7 @@ Requires Rust (latest stable) and a GPU with Metal / Vulkan / DX12 support.
 | **Right-click drag** | Pan camera |
 | **Left click** | Select organism (inspect panel) |
 | **F** | Focus camera on selected organism |
+| **,** / **.** | Cycle through living members of the selected organism's species |
 | **Space** | Pause / unpause |
 | **[** / **]** | Slow down / speed up (0.125× to 16×) |
 | **M** | Toggle minimap heatmap |

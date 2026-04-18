@@ -19,7 +19,16 @@ impl Plugin for RenderPlugin {
             .add_systems(Startup, (setup_camera, setup_shared_meshes, setup_minimap))
             .add_systems(
                 Update,
-                (speed_control_system, click_select_system, toggle_minimap_mode_system, toggle_trails_system, lod_change_system, manual_screenshot_system, minimap_click_system),
+                (
+                    speed_control_system,
+                    click_select_system,
+                    toggle_minimap_mode_system,
+                    toggle_trails_system,
+                    lod_change_system,
+                    manual_screenshot_system,
+                    minimap_click_system,
+                    cycle_species_member_system,
+                ),
             )
             .add_systems(
                 PostUpdate,
@@ -1148,4 +1157,48 @@ fn minimap_click_system(
         cam_transform.translation.x = world_x;
         cam_transform.translation.y = world_y;
     }
+}
+
+/// , / . — cycle backward/forward through living members of the selected
+/// organism's species. Lets you browse siblings of an interesting specimen
+/// without having to click each dot on the map. Complements F (focus camera).
+fn cycle_species_member_system(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut selected: ResMut<SelectedOrganism>,
+    species_query: Query<(Entity, &SpeciesId), With<Organism>>,
+    ui_input: Res<UiInputState>,
+) {
+    if ui_input.wants_keyboard {
+        return;
+    }
+    let next = keys.just_pressed(KeyCode::Period);
+    let prev = keys.just_pressed(KeyCode::Comma);
+    if !next && !prev {
+        return;
+    }
+
+    let Some(cur_entity) = selected.entity else { return };
+    let Ok((_, cur_species)) = species_query.get(cur_entity) else {
+        // selected organism died; nothing sensible to cycle within
+        return;
+    };
+
+    // Collect members of the current species; sort by Entity for a stable order
+    let mut members: Vec<Entity> = species_query
+        .iter()
+        .filter(|(_, sp)| sp.0 == cur_species.0)
+        .map(|(e, _)| e)
+        .collect();
+    if members.len() < 2 {
+        return;
+    }
+    members.sort();
+
+    let cur_idx = members.iter().position(|&e| e == cur_entity).unwrap_or(0);
+    let new_idx = if next {
+        (cur_idx + 1) % members.len()
+    } else {
+        (cur_idx + members.len() - 1) % members.len()
+    };
+    selected.entity = Some(members[new_idx]);
 }
