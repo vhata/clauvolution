@@ -39,16 +39,24 @@ fn compute_worker_cap() -> usize {
 /// `.app`), the working directory is `/`, which is read-only on macOS.
 /// Session::new tries to create `sessions/<name>/` in cwd and panics.
 ///
-/// Detect that case and hop to `~/Clauvolution/` instead. No-op when
-/// launched from a terminal (the usual `cargo run` path) because cwd
-/// is the project root there, not `/`.
+/// Detect that case and hop to `~/Documents/Clauvolution/`. Documents
+/// (rather than Application Support) because the contents — screenshots,
+/// save-world files, chronicle logs — are user-facing artefacts the
+/// user may want to browse, share, or delete in Finder. Application
+/// Support is for app-internal state (preferences, caches), which
+/// isn't what our `sessions/` dir contains.
+///
+/// No-op when launched from a terminal (the usual `cargo run` path)
+/// because cwd is the project root there, not `/`.
 fn chdir_to_writable_if_bundled() {
     let Ok(cwd) = std::env::current_dir() else { return };
     if cwd != std::path::Path::new("/") {
         return;
     }
     let Ok(home) = std::env::var("HOME") else { return };
-    let dir = std::path::PathBuf::from(home).join("Clauvolution");
+    let dir = std::path::PathBuf::from(home)
+        .join("Documents")
+        .join("Clauvolution");
     if std::fs::create_dir_all(&dir).is_err() {
         return;
     }
