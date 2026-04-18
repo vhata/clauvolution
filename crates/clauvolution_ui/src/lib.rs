@@ -127,6 +127,7 @@ fn header_bar_system(
     speed: Res<SimSpeed>,
     mut ui_state: ResMut<UiState>,
     bloom: Res<BloomEffects>,
+    infected: Query<(), (With<Organism>, With<Infection>)>,
 ) {
     let ctx = contexts.ctx_mut();
 

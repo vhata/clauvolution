@@ -28,6 +28,7 @@ Requires Rust (latest stable) and a GPU with Metal / Vulkan / DX12 support.
 | **Q / E** or **- / +** or **Scroll** | Zoom |
 | **Right-click drag** | Pan camera |
 | **Left click** | Select organism (inspect panel) |
+| **F** | Focus camera on selected organism |
 | **Space** | Pause / unpause |
 | **[** / **]** | Slow down / speed up (0.125× to 16×) |
 | **M** | Toggle minimap heatmap |

@@ -597,11 +597,23 @@ fn camera_control_system(
     mut drag_state: ResMut<CameraDragState>,
     time: Res<Time>,
     ui_input: Res<UiInputState>,
+    selected: Res<SelectedOrganism>,
+    organism_positions: Query<&Position, With<Organism>>,
 ) {
     let Ok((mut transform, mut projection)) = camera.get_single_mut() else {
         warn_once!("camera_control: MainCamera missing — pan/zoom disabled");
         return;
     };
+
+    // F — snap camera to selected organism (if any)
+    if !ui_input.wants_keyboard && keys.just_pressed(KeyCode::KeyF) {
+        if let Some(sel_entity) = selected.entity {
+            if let Ok(pos) = organism_positions.get(sel_entity) {
+                transform.translation.x = pos.0.x;
+                transform.translation.y = pos.0.y;
+            }
+        }
+    }
 
     let dt = time.delta_secs();
 
