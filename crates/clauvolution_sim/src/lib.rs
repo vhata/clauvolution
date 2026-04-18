@@ -596,11 +596,11 @@ fn disease_transmission_system(
     let mut rng = rand::thread_rng();
 
     // 1. Background spontaneous infection — keeps disease present even when
-    // populations would otherwise clear all pathogens. Very rare.
+    // populations would otherwise clear all pathogens.
     // Only runs every 30 ticks (once per sim-second) to keep cost down.
     if tick.0 % 30 == 0 {
         for (entity, _, genome) in &healthy {
-            if rng.gen::<f32>() < 0.0003 * (1.0 - genome.disease_resistance) {
+            if rng.gen::<f32>() < 0.001 * (1.0 - genome.disease_resistance) {
                 commands.entity(entity).insert(Infection {
                     severity: rng.gen_range(0.3..0.7),
                     ticks_remaining: rng.gen_range(300..700), // 10-23 seconds
@@ -610,10 +610,8 @@ fn disease_transmission_system(
     }
 
     // 2. Proximity transmission — spreads from infected to nearby healthy.
-    // Cost: spatial_hash query per infected organism, typically O(infected * ~20).
     for (entity, healthy_pos, genome) in &healthy {
-        // Short-range transmission — you catch it from near-contact, not the whole biome
-        let transmission_range = 12.0;
+        let transmission_range = 20.0;
         let nearby = spatial_hash.query_radius(healthy_pos.0, transmission_range);
 
         let mut infection_pressure = 0.0f32;
@@ -650,19 +648,31 @@ fn disease_transmission_system(
     }
 }
 
-/// Apply per-tick disease effects: energy drain, tick down timer, remove when expired.
+/// Apply per-tick disease effects: energy drain, direct mortality chance,
+/// tick down timer, remove when expired.
 fn disease_effects_system(
     mut commands: Commands,
     mut infected: Query<(Entity, &mut Energy, &mut Infection, &Genome), With<Organism>>,
     config: Res<SimConfig>,
 ) {
+    let mut rng = rand::thread_rng();
     for (entity, mut energy, mut infection, genome) in &mut infected {
-        // Resistance cushions the drain
+        // Resistance cushions the drain; cranked up so plants actually feel it
         let drain = config.base_metabolism_cost
             * infection.severity
             * (1.0 - genome.disease_resistance * 0.5)
-            * 0.8;
+            * 1.6;
         energy.0 -= drain;
+
+        // Direct mortality chance per tick — ignores energy reserves so
+        // photosynthesisers can't just sun-bathe through an infection.
+        // ~0.15% × severity × (1 - resistance) per tick. At severity 0.5
+        // and zero resistance that's ~22% chance to die within 20 seconds.
+        // Zero only energy (not health) so death_system attributes to Disease.
+        let mortality = 0.0015 * infection.severity * (1.0 - genome.disease_resistance);
+        if rng.gen::<f32>() < mortality {
+            energy.0 = 0.0;
+        }
 
         infection.ticks_remaining = infection.ticks_remaining.saturating_sub(1);
         if infection.ticks_remaining == 0 {
