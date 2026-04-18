@@ -245,6 +245,50 @@ Runs as part of `cargo test`. Takes seconds per test. Catches regressions when w
 
 ---
 
+# Ongoing concerns
+
+These aren't one-off features to ship — they're recurring work that matters for the whole lifetime of the project. Revisit periodically and every time a new simulation dynamic is added.
+
+## Ecosystem tuning
+
+Every simulation dynamic (metabolism, predation, photosynthesis, disease, etc.) has numeric parameters that need tuning. The goal is not "perfect balance" — the goal is that no single strategy dominates forever, multiple causes of death contribute, and selection pressure is visible in evolving traits.
+
+**The tuning loop:**
+1. Run the sim for a few minutes
+2. Open Graphs tab, check: death cause breakdown, strategy ratios, trait trends
+3. Identify imbalances (one cause of death dominating, trait flatlining, etc.)
+4. Adjust parameters (transmission rate, energy cost, etc.)
+5. Re-run and compare
+
+Headless mode (Theme 4) will make this loop much faster once it lands.
+
+**Current tuning state:**
+- **Disease (v2 pass in progress).** First pass too mild. Second pass: radius 12→20, drain ×2, background ×3, added direct mortality. Not yet validated in a run. May need further adjustment if still too weak (or overcorrect).
+- **Plant dominance attractor.** Plant density competition shipped but a recent run still went 100% plants in ~50 seconds. Density formula might need to be steeper (current: `1/(1 + others × 0.2)`; steeper: `× 0.4`). Initial seeding is 30% plants — could reduce to 20%.
+- **Predation energy pyramid (10% trophic efficiency).** Thermodynamically motivated, not tuning-per-se, but worth sanity-checking — are predators ever viable, or does the 10% make them unsustainable at low prey density?
+- **Quadratic body/armor/claw costs.** Prevent "stack everything" meta — but if nobody evolves big bodies or heavy armor, the cost may be too punishing.
+
+**When adding a new dynamic:** expect that the first version will be wrong. Budget a follow-up tuning pass after the feature ships. Instrument first (make sure Graphs tab can show the dynamic's effect), then tune.
+
+## Attractor states to watch for
+
+Stable-but-boring configurations the sim can fall into. Each should get some counter-pressure so the world doesn't stay there.
+
+- **Green world** — plants win everything. Partially addressed by plant density competition; disease is intended to finish the job.
+- **Predator starvation collapse** — too many predators, prey crashes, predators starve. Natural but boring if it happens every run. Energy pyramid (10%) is supposed to prevent it.
+- **Minimal viable organism** — everyone converges to a tiny, cheap, photo-surface-only organism that barely moves. Watch for low body_size + low speed averages plus no predators.
+- **Genetic stagnation** — species count stabilises low, traits flatline. Suggests mutation rate or structural mutation rate is too low.
+
+Observing the sim trend toward any of these = trigger to tune.
+
+## Code health
+
+- **Known rough edges** tracked in CLAUDE.md's "Known Issues / Rough Edges" section
+- Big files worth splitting if they grow further: `clauvolution_sim/src/lib.rs` (~1000 lines), `clauvolution_render/src/lib.rs` (~1500), `clauvolution_ui/src/lib.rs` (~800)
+- When a function in one of those crosses 100 lines, it's probably ready to move to its own module
+
+---
+
 # Backlog
 
 Items that don't directly serve the joy-of-watching motivation. Here for completeness — pick up if we ever want to scale, share, or do science.
