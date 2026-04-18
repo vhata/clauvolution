@@ -88,6 +88,7 @@ impl Plugin for SimPlugin {
                 FixedUpdate,
                 (
                     tick_counter_system,
+                    update_food_snapshot,
                     sensing_and_brain_system,
                     action_system,
                     predation_system,
@@ -329,6 +330,16 @@ fn mass_extinction_input_system(
     }
 }
 
+/// Rebuild the FoodSnapshot resource once per tick. Both sensing_and_brain_system
+/// and action_system read food positions; this saves building the Vec twice.
+fn update_food_snapshot(
+    mut snapshot: ResMut<FoodSnapshot>,
+    food_query: Query<(Entity, &Position, &FoodEnergy), (With<Food>, Without<Organism>)>,
+) {
+    snapshot.entries.clear();
+    snapshot.entries.extend(food_query.iter().map(|(e, p, fe)| (e, p.0, fe.0)));
+}
+
 fn sensing_and_brain_system(
     config: Res<SimConfig>,
     spatial_hash: Res<SpatialHash>,
@@ -337,10 +348,9 @@ fn sensing_and_brain_system(
         (Entity, &Position, &Energy, &Health, &Genome, &Brain, &BodySize, &SpeciesId, &BrainMemory, &mut BrainOutput, &mut GroupSize),
         With<Organism>,
     >,
-    food_query: Query<(Entity, &Position), (With<Food>, Without<Organism>)>,
+    food_snapshot: Res<FoodSnapshot>,
     all_org_data: Query<(&Position, &BodySize, &SpeciesId, &Genome, &Signal), (With<Organism>, Without<Food>)>,
 ) {
-    let food_positions: Vec<(Entity, Vec2)> = food_query.iter().map(|(e, p)| (e, p.0)).collect();
 
     for (entity, pos, energy, health, genome, brain, body_size, species_id, memory, mut output, mut group_size) in &mut organisms {
         let mut inputs = [0.0f32; NUM_INPUTS];
@@ -351,7 +361,7 @@ fn sensing_and_brain_system(
         let mut nearest_food_dist = f32::MAX;
         let mut nearest_food_dir = Vec2::ZERO;
 
-        for &(_food_entity, food_pos) in &food_positions {
+        for &(_food_entity, food_pos, _fe) in &food_snapshot.entries {
             let diff = food_pos - pos.0;
             let dist = diff.length();
             if dist < nearest_food_dist && dist < sense_range {
@@ -452,13 +462,10 @@ fn action_system(
         (&mut Position, &mut Energy, &mut BrainMemory, &mut ActionFlash, &mut Signal, &BrainOutput, &Genome, &BodySize),
         (With<Organism>, Without<Food>),
     >,
-    food_query: Query<(Entity, &Position, &FoodEnergy), (With<Food>, Without<Organism>)>,
+    food_snapshot: Res<FoodSnapshot>,
     mut commands: Commands,
 ) {
-    let foods: Vec<(Entity, Vec2, f32)> = food_query
-        .iter()
-        .map(|(e, p, fe)| (e, p.0, fe.0))
-        .collect();
+    let foods = &food_snapshot.entries;
 
     let mut eaten_food: Vec<Entity> = Vec::new();
 
@@ -501,7 +508,7 @@ fn action_system(
         if output.eat > 0.0 {
             let mouth_bonus = if genome.has_mouth() { 1.0 } else { 0.3 };
             let eat_range = body_size.0 * 3.0;
-            for &(food_entity, food_pos, food_energy) in &foods {
+            for &(food_entity, food_pos, food_energy) in foods {
                 if eaten_food.contains(&food_entity) {
                     continue;
                 }

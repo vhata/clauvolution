@@ -22,7 +22,8 @@ impl Plugin for CorePlugin {
             .insert_resource(PopulationHistory::default())
             .insert_resource(BloomEffects::default())
             .insert_resource(UiInputState::default())
-            .insert_resource(TrailsVisible::default());
+            .insert_resource(TrailsVisible::default())
+            .insert_resource(FoodSnapshot::default());
     }
 }
 
@@ -538,6 +539,14 @@ impl TrailHistory {
         }
         self.positions.push_back(pos);
     }
+}
+
+/// Per-tick snapshot of all food items (entity, position, energy).
+/// Populated once at the start of FixedUpdate, read by sensing and action systems.
+/// Avoids rebuilding the same Vec twice per tick.
+#[derive(Resource, Default)]
+pub struct FoodSnapshot {
+    pub entries: Vec<(Entity, Vec2, f32)>,
 }
 
 /// Whether organism trails are rendered
