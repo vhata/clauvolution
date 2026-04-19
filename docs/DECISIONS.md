@@ -39,10 +39,11 @@ Not an exhaustive list of every tweak — just the decisions where someone readi
 **Accepted tradeoff:** a one-liner behavioural rule buried in `metabolism_system` that a future reader might not connect to attribution correctness. Mitigated by a comment at the gate explaining the predation-attribution coupling.
 
 ### Disease: direct mortality + energy drain, not drain alone
-**Chosen:** infected organisms suffer both a per-tick energy drain AND a small per-tick chance of direct death (scaled by severity × (1-resistance)).
-**Alternatives:** drain only (first implementation), direct mortality only.
-**Why:** drain-only failed on photosynthesisers. Plants refill energy from sunlight faster than disease drained it, so they were immune in practice. Adding direct mortality that ignores energy reserves ensures disease can't be "sun-bathed" through.
-**Accepted tradeoff:** slightly less intuitive than a pure energy model. The direct-mortality path only zeroes `energy` (not `health`) so `death_system` correctly attributes the death to Disease rather than Predation.
+**Chosen:** infected organisms suffer both a per-tick energy drain AND a small per-tick chance of direct death. Resistance protection is quadratic — `drain × (1 - res × 0.5)²` and `mortality × (1 - res)²`.
+**Alternatives:** drain only (first implementation), direct mortality only, linear (1-res) protection (v2 pass, superseded).
+**Why direct mortality:** drain-only failed on photosynthesisers. Plants refill energy from sunlight faster than disease drained it, so they were immune in practice. Adding direct mortality that ignores energy reserves ensures disease can't be "sun-bathed" through.
+**Why quadratic resistance:** at linear, resistance of 10% gave 90% mortality factor vs 100% for res=0 — nearly no fitness delta across the observed evolved range (5-20%), so selection drifted. Squared amplifies the delta at the top of the range (res=50% goes from 50% factor to 25%) and leaves the bottom mostly unchanged. Validated at 15k ticks across seeds 1, 7, 42, 99: infected population roughly halved on 3 of 4 seeds (359/276/266/359 vs linear 458/638/267/378), resistance +1-3 percentage points.
+**Accepted tradeoff:** Disease remains a background mortality pressure (~5-10% of deaths), not a primary evolutionary driver. Predation dominates the fitness landscape at 55-75% of deaths, so resistance is always a second-order concern; even with the quadratic bump, resistance doesn't climb to the range where squared really pays off (40%+). Shipping because (a) infected populations dropping is a monotone improvement, (b) the math now correctly rewards high resistance when it does appear. The direct-mortality path still only zeroes `energy` (not `health`) so `death_system` correctly attributes the death to Disease rather than Predation.
 
 ### Symbiosis tuning: loose threshold + modest transfer
 **Chosen:** `SYMBIOSIS_RANGE = 6.0`, `SYMBIOSIS_LINK_THRESHOLD = 10` ticks, `SYMBIOSIS_TRANSFER_RATE = 0.15` energy per tick at |rate|=1.0.

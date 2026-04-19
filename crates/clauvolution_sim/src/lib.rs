@@ -805,18 +805,28 @@ fn disease_effects_system(
 ) {
     let rng = &mut sim_rng.0;
     for (entity, mut energy, mut infection, genome) in &mut infected {
+        // Resistance protection is QUADRATIC so evolving upward is actually
+        // rewarded. Linear (1-res) gave too small a fitness delta across the
+        // realistic resistance range (5-20%) — orgs evolving resistance had
+        // nearly the same disease mortality as orgs that didn't, so the gene
+        // drifted with no signal. See DECISIONS.md "Disease: direct mortality
+        // + energy drain" and its tuning follow-up.
+        let res = genome.disease_resistance.clamp(0.0, 1.0);
+        let drain_factor = (1.0 - res * 0.5).powi(2);
+        let mortality_factor = (1.0 - res).powi(2);
+
         // Resistance cushions the drain; multiplier cranked above 1.0 so
         // photosynthesisers can't trivially out-absorb the cost from sunlight.
         let drain = config.base_metabolism_cost
             * infection.severity
-            * (1.0 - genome.disease_resistance * 0.5)
+            * drain_factor
             * DISEASE_DRAIN_MULTIPLIER;
         energy.0 -= drain;
 
         // Direct mortality chance per tick — ignores energy reserves so
         // photosynthesisers can't just sun-bathe through an infection.
         // Zero only energy (not health) so death_system attributes to Disease.
-        let mortality = DISEASE_MORTALITY_RATE * infection.severity * (1.0 - genome.disease_resistance);
+        let mortality = DISEASE_MORTALITY_RATE * infection.severity * mortality_factor;
         if rng.gen::<f32>() < mortality {
             energy.0 = 0.0;
         }
