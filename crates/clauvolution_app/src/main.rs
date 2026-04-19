@@ -110,12 +110,16 @@ fn main() {
     let dump_history: Option<String> = args.iter()
         .position(|a| a == "--dump-history")
         .and_then(|i| args.get(i + 1).cloned());
+    let species_threshold_override: Option<f32> = args.iter()
+        .position(|a| a == "--species-threshold")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|s| s.parse().ok());
 
     let worker_cap = compute_worker_cap();
     eprintln!("Compute pool capped at {} workers (set CLAU_WORKERS to override)", worker_cap);
 
     if let Some(ticks) = headless_ticks {
-        run_headless(ticks, seed, worker_cap, headless_speed, load_path, save_as, dump_history);
+        run_headless(ticks, seed, worker_cap, headless_speed, load_path, save_as, dump_history, species_threshold_override);
         return;
     }
 
@@ -405,6 +409,7 @@ fn run_headless(
     load_path: Option<String>,
     save_as: Option<String>,
     dump_history: Option<String>,
+    species_threshold: Option<f32>,
 ) {
     use bevy::app::ScheduleRunnerPlugin;
 
@@ -454,9 +459,10 @@ fn run_headless(
         .insert_resource(SeedOverride(seed))
         .insert_resource(HeadlessSpeed(speed))
         .insert_resource(HeadlessSaveAtEnd(save_as.is_some()))
+        .insert_resource(HeadlessSpeciesThreshold(species_threshold))
         .add_systems(
             Startup,
-            (apply_seed_override, startup_system, set_headless_speed).chain(),
+            (apply_seed_override, startup_system, set_headless_speed, apply_species_threshold).chain(),
         );
 
     // Counter system that exits after N FixedUpdate ticks from whatever
@@ -537,6 +543,19 @@ struct HeadlessSpeed(f32);
 
 fn set_headless_speed(speed: Res<HeadlessSpeed>, mut vtime: ResMut<Time<Virtual>>) {
     vtime.set_relative_speed(speed.0);
+}
+
+#[derive(Resource)]
+struct HeadlessSpeciesThreshold(Option<f32>);
+
+fn apply_species_threshold(
+    override_val: Res<HeadlessSpeciesThreshold>,
+    mut config: ResMut<SimConfig>,
+) {
+    if let Some(v) = override_val.0 {
+        config.species_compat_threshold = v;
+        eprintln!("Species compatibility threshold overridden to {}", v);
+    }
 }
 
 /// Number of additional ticks to run in headless mode. `--headless N` means
