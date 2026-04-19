@@ -107,12 +107,15 @@ fn main() {
     let save_as: Option<String> = args.iter()
         .position(|a| a == "--save-as")
         .and_then(|i| args.get(i + 1).cloned());
+    let dump_history: Option<String> = args.iter()
+        .position(|a| a == "--dump-history")
+        .and_then(|i| args.get(i + 1).cloned());
 
     let worker_cap = compute_worker_cap();
     eprintln!("Compute pool capped at {} workers (set CLAU_WORKERS to override)", worker_cap);
 
     if let Some(ticks) = headless_ticks {
-        run_headless(ticks, seed, worker_cap, headless_speed, load_path, save_as);
+        run_headless(ticks, seed, worker_cap, headless_speed, load_path, save_as, dump_history);
         return;
     }
 
@@ -401,6 +404,7 @@ fn run_headless(
     speed: f32,
     load_path: Option<String>,
     save_as: Option<String>,
+    dump_history: Option<String>,
 ) {
     use bevy::app::ScheduleRunnerPlugin;
 
@@ -474,8 +478,63 @@ fn run_headless(
 
     app.run();
 
+    // Write the population history to CSV if requested. Done after app.run()
+    // so the final tick's snapshot is included. The resource sticks around
+    // after the app stops; pull it by scratching the world directly.
+    if let Some(path) = dump_history {
+        let history = app.world().resource::<clauvolution_core::PopulationHistory>();
+        if let Err(e) = dump_history_csv(&path, history) {
+            eprintln!("Failed to write history CSV to {}: {}", path, e);
+        } else {
+            eprintln!("Wrote {} snapshots to {}", history.snapshots.len(), path);
+        }
+    }
+
     let elapsed = start.elapsed();
     eprintln!("Headless run complete in {:.2}s", elapsed.as_secs_f64());
+}
+
+fn dump_history_csv(
+    path: &str,
+    history: &clauvolution_core::PopulationHistory,
+) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut f = std::fs::File::create(path)?;
+    writeln!(
+        f,
+        "tick_second,organisms,food,species,plants,foragers,predators,infected,\
+         avg_lifespan,avg_body_size,avg_speed,avg_armor,avg_attack,avg_photo,\
+         avg_disease_resistance,avg_symbiosis_rate,symbiotic_pairs,\
+         deaths_starvation,deaths_predation,deaths_old_age,deaths_disease"
+    )?;
+    for (i, s) in history.snapshots.iter().enumerate() {
+        writeln!(
+            f,
+            "{},{},{},{},{},{},{},{},{:.2},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{},{},{},{},{}",
+            i,
+            s.organisms,
+            s.food,
+            s.species,
+            s.plants,
+            s.foragers,
+            s.predators,
+            s.infected,
+            s.avg_lifespan,
+            s.avg_body_size,
+            s.avg_speed,
+            s.avg_armor,
+            s.avg_attack,
+            s.avg_photo,
+            s.avg_disease_resistance,
+            s.avg_symbiosis_rate,
+            s.symbiotic_pairs,
+            s.deaths_starvation,
+            s.deaths_predation,
+            s.deaths_old_age,
+            s.deaths_disease,
+        )?;
+    }
+    Ok(())
 }
 
 #[derive(Resource)]
