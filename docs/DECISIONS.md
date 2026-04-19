@@ -71,11 +71,11 @@ Not an exhaustive list of every tweak — just the decisions where someone readi
 **Why:** the core goal of the project — watch evolution discover behaviour. Scripted behaviour wouldn't be evolution, it'd be a game.
 **Accepted tradeoff:** early-generation organisms behave poorly until selection produces useful circuits. Initial-diversity seeding (30% photosynthesisers) compensates by guaranteeing *some* strategy works out of the gate.
 
-### Species classification threshold 2.0 with 1.3× hysteresis
-**Chosen:** organisms classified by NEAT compatibility distance, threshold 2.0 to join a species, 2.6 (1.3×) to stay in it. Runs every 5 seconds.
-**Alternatives:** strict threshold (lots of flip-flopping), no speciation (one species forever), per-generation classification.
-**Why:** species should be stable enough to track over time but responsive enough that genuine divergence produces a new species. The 1.3× hysteresis prevents classification flip-flopping.
-**Accepted tradeoff:** species names can feel slightly "sticky" — a lineage that drifts gradually won't speciate as often as it might in a stricter system.
+### Species classification threshold 1.3 with 1.3× hysteresis
+**Chosen:** organisms classified by NEAT compatibility distance, threshold 1.3 to join a species, 1.69 (1.3×) to stay in it. Runs every 5 seconds.
+**Alternatives:** 2.0 (original — observed stagnation), 1.5 (moderate), 1.0 (too tight — broke ecosystems), no speciation, per-generation classification.
+**Why 1.3:** audit of 8 seeds at 15k ticks showed every single run lost species at roughly the same rate (halving across the run) with threshold 2.0 — small lineages drifting into the gene-space "territory" of larger existing species and getting absorbed. Tightening lets drifting organisms cross into "new species" territory instead. Tuning sweep 2.0 → 1.5 → 1.3 → 1.0: 1.0 preserves species count almost perfectly but over-speciates so hard that minority strategies (foragers, predators) can't find same-species mates and collapse (2/3 seeds hit full plant monoculture). 1.3 is the valley: mean final species count 15.3 vs 10.7 at baseline, one seed produced a healthy 22-species / 80-predator ecosystem.
+**Accepted tradeoff:** species names collide slightly more often (the word-list naming scheme has a finite combination count), plant dominance attractor is unchanged (needs a different lever), and mate-finding gets mildly harder for drift-cases. Hysteresis still 1.3× so an organism stays in its current species up to distance 1.69 — prevents classification flip-flopping at the new tighter threshold.
 
 ### Species naming — habitat + descriptor + strategy, children inherit two of three
 **Chosen:** three-word names like "Swamp Dwarf Moss" (habitat = Swamp, descriptor = Dwarf, strategy noun = Moss). Child species inherit their parent's habitat and strategy noun, only varying the descriptor.

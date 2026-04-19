@@ -171,7 +171,13 @@ impl Default for SimConfig {
             reproduction_energy_cost: 40.0,
             max_organism_energy: 120.0,
             food_energy_value: 25.0,
-            species_compat_threshold: 2.0,
+            // Tuning sweep across 2.0, 1.5, 1.3, 1.0 at 15k ticks × 3 seeds
+            // each. 1.0 preserves species count but over-speciates to the
+            // point minority strategies can't find mates and collapse (2/3
+            // seeds hit full plant monoculture). 1.3 is the sweet spot:
+            // diversity holds longer, and one seed showed a healthy
+            // 22-species / 80-predator ecosystem. See DECISIONS.md.
+            species_compat_threshold: 1.3,
             terrain_seed: rand::random(),
         }
     }
