@@ -223,16 +223,17 @@ Headless mode (Theme 4) will make this much faster once it lands.
 
 **When adding a new dynamic:** expect the first version to be wrong. Budget a follow-up tuning pass. Instrument first (Graphs tab should surface the dynamic's effect), then tune.
 
-## Attractor states to watch for
+## Attractor states — observed, not theoretical
 
-Stable-but-boring configurations the sim can fall into. Each should get counter-pressure so the world doesn't stay there.
+8-seed headless audit at 15k ticks (April 2026) surfaced which of these actually fire and how often. Below are the observed facts, not the guesses.
 
-- **Green world** — plants win everything. Addressed by `PHOTO_OUTPUT_MULTIPLIER = 0.5` (see DECISIONS.md); density competition alone didn't bite.
-- **Predator starvation collapse** — too many predators, prey crashes, predators starve. Natural but boring if it always happens. Energy pyramid (10%) is supposed to prevent it.
-- **Minimal viable organism** — everyone converges to a tiny, cheap, photo-surface-only organism that barely moves. Watch for low body_size + low speed averages plus no predators.
-- **Genetic stagnation** — species count stabilises low, traits flatline. Suggests mutation rate or structural mutation rate is too low.
+- **Green world / plant dominance** ⚠️ **still fires regularly.** 7/8 audit seeds ended >85% plants, 1/8 hit 99.8% (seed 314 — full monoculture). `PHOTO_OUTPUT_MULTIPLIER = 0.5` stopped the *extreme* case from v1 but hasn't solved the attractor. **Next levers:** lower initial plant seeding (30% → 15%), drop `PHOTO_OUTPUT_MULTIPLIER` further (0.5 → 0.35), or investigate whether forager/predator initial conditions are themselves disadvantaged.
+- **Predator extinction** ⚠️ **fires 6/8 seeds.** Predators peak at 5-37 then crash to ≤7. Never establish stable populations. 10% trophic efficiency may be too strict, OR predators' problem is upstream — prey (foragers) also crashing so predators starve second-order. Probably tied to plant dominance; fixing that may ease this.
+- **Species stagnation** ✅ **addressed by tightening compatibility threshold 2.0 → 1.3** (see DECISIONS.md). Mean final species count 10.7 → 15.3; one audit seed now produces a healthy 22-species / 80-predator ecosystem. Some seeds still regress to baseline pattern though — the threshold change isn't a silver bullet, just tilts the odds.
+- **Minimal viable organism drift** — observed body-size decline in plant-dominated worlds (0.5 → 0.4 range). Symptom of plant dominance, not a separate attractor. Should ease when we fix the green-world pressure.
+- **Starvation-dominated mortality** — theoretical but NOT happening. Audit shows only 0.5-7.7% of deaths are starvation; predation dominates at 55-75%. Food supply isn't the bottleneck; the bottleneck is that plant biomass can't convert into forager/predator biomass efficiently.
 
-Observing the sim trend toward any of these = trigger to tune.
+**Observational trigger:** when a running sim trends toward any of these, it's time to tune. The Graphs tab has current-state readouts for plant/forager/predator ratios and death cause breakdown to make this visible.
 
 ## Code health
 
