@@ -476,23 +476,18 @@ fn run_headless(
     // On an M4 Max at speed=10 we keep up with the CPU; push it further
     // and Bevy's catchup starts clamping via the 100ms max_delta cap.
 
-    app.run();
-
-    // Write the population history to CSV if requested. Done after app.run()
-    // so the final tick's snapshot is included. The resource sticks around
-    // after the app stops; pull it by scratching the world directly.
-    if let Some(path) = dump_history {
-        let history = app.world().resource::<clauvolution_core::PopulationHistory>();
-        if let Err(e) = dump_history_csv(&path, history) {
-            eprintln!("Failed to write history CSV to {}: {}", path, e);
-        } else {
-            eprintln!("Wrote {} snapshots to {}", history.snapshots.len(), path);
-        }
+    if let Some(path) = &dump_history {
+        app.insert_resource(HeadlessDumpHistoryPath(path.clone()));
     }
+
+    app.run();
 
     let elapsed = start.elapsed();
     eprintln!("Headless run complete in {:.2}s", elapsed.as_secs_f64());
 }
+
+#[derive(Resource)]
+struct HeadlessDumpHistoryPath(String);
 
 fn dump_history_csv(
     path: &str,
@@ -565,6 +560,7 @@ fn headless_tick_counter(
     predation: Res<clauvolution_core::PredationStats>,
     history: Res<clauvolution_core::PopulationHistory>,
     save_at_end: Res<HeadlessSaveAtEnd>,
+    dump_path: Option<Res<HeadlessDumpHistoryPath>>,
     mut events: EventWriter<clauvolution_core::WorldEventRequest>,
     mut exit: EventWriter<AppExit>,
     // 0 = running, 1 = summary printed + save requested, 2 = waited a frame
@@ -584,6 +580,12 @@ fn headless_tick_counter(
     match *phase {
         0 => {
             print_headless_summary(&stats, &predation, &history);
+            if let Some(dp) = &dump_path {
+                match dump_history_csv(&dp.0, &history) {
+                    Ok(_) => eprintln!("Wrote {} snapshots to {}", history.snapshots.len(), dp.0),
+                    Err(e) => eprintln!("Failed to write history CSV to {}: {}", dp.0, e),
+                }
+            }
             if save_at_end.0 {
                 events.send(clauvolution_core::WorldEventRequest::Save);
             }
