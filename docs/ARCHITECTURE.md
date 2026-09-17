@@ -25,7 +25,6 @@ Systems run in Bevy's standard schedules:
 
 **PreUpdate** (once per frame, before everything)
 - `update_input_capture_system` (ui) — reads egui's pointer/keyboard capture state into `UiInputState` so world-view systems can gate themselves
-- `update_spatial_hash` (world) — rebuilds the spatial hash for this frame's neighbour queries
 
 **Update** (once per frame — real-time input, UI, etc.)
 - `sim_speed_system` — pause/unpause virtual time, scale fixed timestep by speed multiplier
@@ -39,6 +38,7 @@ Systems run in Bevy's standard schedules:
 
 ```
 tick_counter_system           ← advance tick counter, advance season
+update_spatial_hash           ← rebuild the spatial hash from every Position (defined in world, scheduled here)
 update_food_snapshot          ← collect (entity, position, energy) of all food into FoodSnapshot
 sensing_and_brain_system      ← for each organism: gather inputs, evaluate brain, write outputs (par_iter_mut)
 action_system                 ← execute brain outputs (move, eat, signal, update memory)
@@ -77,7 +77,7 @@ update_minimap                ← repaint the minimap image every 0.5s
 - **Component presence as state.** `Infection` is a component with severity and timer; organisms without it are healthy. Avoids a nullable field and makes `Query<..., With<Infection>>` the natural way to find the sick.
 - **Unified event channel.** `WorldEventRequest` (in `core`) is fired by keyboard *and* UI buttons; one system consumes it. Avoids keyboard/UI code duplication and keeps triggering symmetrical.
 - **Shared mesh handles.** `SharedMeshes` resource holds one circle/food-circle/material handles reused across 2000+ organisms instead of creating unique meshes.
-- **Spatial hash for neighbour queries.** Rebuilt once per frame in `PreUpdate`, used by sensing and disease transmission.
+- **Spatial hash for neighbour queries.** Rebuilt once per fixed tick at the head of the `FixedUpdate` chain, used by sensing, predation, disease transmission, symbiosis tracking and mate search. The readers re-check real distance after the lookup, so entities that moved within the tick (after `action_system`) are missed rather than falsely matched.
 - **try_despawn everywhere.** `commands.entity(e).try_despawn()` and `.try_despawn_recursive()` avoid B0003 errors when two systems both try to despawn the same entity in one frame.
 - **Frustum culling off-screen.** Organisms and food outside the camera viewport get `Visibility::Hidden` — GPU skips them. Margin-padded to prevent pop-in at edges.
 - **egui input gating.** `UiInputState` resource tracks whether egui is capturing mouse/keyboard; the camera and click-select systems skip their handlers when true, so scrolling a panel doesn't also zoom the world.

@@ -9,7 +9,7 @@ use clauvolution_brain::Brain;
 use clauvolution_core::*;
 use clauvolution_genome::{Genome, InnovationCounter, NUM_INPUTS, NUM_MEMORY};
 use clauvolution_phylogeny::{PhyloTree, SpeciesStrategy, SpeciesTraits, WorldChronicle};
-use clauvolution_world::{SpatialHash, TileMap};
+use clauvolution_world::{update_spatial_hash, SpatialHash, TileMap};
 use rand::Rng;
 use std::collections::HashMap;
 
@@ -131,6 +131,7 @@ impl Plugin for SimPlugin {
                 FixedUpdate,
                 (
                     tick_counter_system,
+                    update_spatial_hash,
                     update_food_snapshot,
                     sensing_and_brain_system,
                     action_system,
@@ -444,6 +445,14 @@ fn sensing_and_brain_system(
                 continue;
             }
             if let Ok((other_pos, other_size, other_species, other_genome, other_signal)) = all_org_data.get(nearby_entity) {
+                // Nothing has moved since `update_spatial_hash` ran this tick, so every
+                // returned entity must still fall inside the queried cell range.
+                debug_assert!({
+                    let range_cells = (sense_range / spatial_hash.cell_size).ceil() as i32 + 1;
+                    let (cx, cy) = spatial_hash.cell_key(pos.0);
+                    let (kx, ky) = spatial_hash.cell_key(other_pos.0);
+                    (kx - cx).abs() <= range_cells && (ky - cy).abs() <= range_cells
+                }, "spatial hash returned an entity outside the queried cells; is update_spatial_hash still ordered before sensing?");
                 let diff = other_pos.0 - pos.0;
                 let dist = diff.length();
 

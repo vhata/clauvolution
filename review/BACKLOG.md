@@ -12,11 +12,6 @@ See the [`code review guide`](../docs/CODE_REVIEW_GUIDE.md) for how findings ent
   - Starting point: Rescale moisture (not elevation) to 0..1 in `TileMap::generate` in `clauvolution_world`, then re-run the 8-seed 15k-tick headless audit from `docs/ROADMAP.md` and compare plant share.
   - Source: review/2026-09-17-0756-full.md, 2026-09-17
   - Findings: `moisture-range-mismatch`
-- [SIM] `spatial-hash-fixed-tick` — **Rebuild the spatial hash inside the FixedUpdate chain, not once per frame.** Every fixed tick after the first in a frame reads neighbour positions from the start of the frame, which is every frame in headless at the default speed. Headless sweeps and the watched sim are not running the same physics.
-  - Starting point: Move `update_spatial_hash` from `PreUpdate` in `WorldPlugin` into the `SimPlugin` chain right after `tick_counter_system`. Validate with `--headless 1000 --seed 42` and compare the predation funnel and kills against the baseline block in the review.
-  - Source: review/2026-09-17-0756-full.md, 2026-09-17
-  - Findings: `spatial-hash-rebuilt-per-frame`
-  - Related: `headless-gui-parity`
 
 ## P2 Normal
 
@@ -24,7 +19,6 @@ See the [`code review guide`](../docs/CODE_REVIEW_GUIDE.md) for how findings ent
   - Starting point: In `sim_speed_system`, set `Time<Virtual>` relative speed instead of `set_timestep_hz`, matching `set_headless_speed`; apply `apply_species_threshold` in both startup chains in `clauvolution_app`.
   - Source: review/2026-09-17-0756-full.md, 2026-09-17
   - Findings: `gui-speed-rescales-timers`, `species-threshold-flag-gui-ignored`
-  - Related: `spatial-hash-fixed-tick`
 - [SIM] `sim-accounting-fixes` — **Fix the five small stat and energy accounting defects in the simulation.** The header Pop readout is frozen at the initial population, species count includes empty representatives, small parents mint energy on reproduction, one victim can pay several attackers, and event deaths never reach the per-cause totals.
   - Starting point: All in `clauvolution_sim/src/lib.rs` (`predation_system`, `reproduction_system`, `species_classification_system`, `mass_extinction_input_system`) plus the `total_organisms` writes in `clauvolution_app`. Validate with `--headless 1000 --seed 42`: "Total organisms (final)" must equal the strategy sum, and kills must not exceed predation deaths.
   - Source: review/2026-09-17-0756-full.md, 2026-09-17
