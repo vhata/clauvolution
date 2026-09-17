@@ -10,10 +10,6 @@ See the [`code review guide`](../docs/CODE_REVIEW_GUIDE.md) for how findings ent
 
 ## P2 Normal
 
-- [SIM] `sim-accounting-fixes` — **Fix the five small stat and energy accounting defects in the simulation.** The header Pop readout is frozen at the initial population, species count includes empty representatives, small parents mint energy on reproduction, one victim can pay several attackers, and event deaths never reach the per-cause totals.
-  - Starting point: All in `clauvolution_sim/src/lib.rs` (`predation_system`, `reproduction_system`, `species_classification_system`, `mass_extinction_input_system`) plus the `total_organisms` writes in `clauvolution_app`. Validate with `--headless 1000 --seed 42`: "Total organisms (final)" must equal the strategy sum, and kills must not exceed predation deaths.
-  - Source: review/2026-09-17-0756-full.md, 2026-09-17
-  - Findings: `frozen-total-organisms-stat`, `reproduction-child-energy-mint`, `multi-attacker-kill-duplication`, `event-deaths-bypass-cause-totals`, `species-count-includes-empty-reps`
 - [BRAIN] `convergence-chronicle-dedupe` — **Stop re-logging the same convergent-evolution entry every classification pass.** The dedupe substring omits the word "independent" that the logged text contains, so it never matches.
   - Starting point: Track the highest lineage count logged per strategy in a small map instead of scanning chronicle text. Validate by grepping `chronicle.log` after a headless run with `--save-as`: no repeated convergence lines.
   - Source: review/2026-09-17-0756-full.md, 2026-09-17
