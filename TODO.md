@@ -53,6 +53,10 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 - [UI] `header-show-species-threshold` — **Show the effective species threshold in the UI.** With `--species-threshold` now honoured in GUI mode, the only evidence that it applied is a startup log line.
   - Starting point: A small label in the header or the Phylo tab reading `SimConfig`.
   - Source: review/headless-gui-parity branch, 2026-09-17
+- [PERF] `moisture-fix-tick-cost` — **Find out why the moisture fix doubled the per-tick cost.** `cargo run --release -- --headless 300 --seed 42` takes about 9 s at c8fac9d (spatial hash fix only) and about 20 s at 1ab42ab (moisture fix merged); at speed 1 it takes 21 s, so the sim is now CPU-bound below real time during the opening burst. Ticks 30 to 100 cost roughly 200 ms each before settling to about 20 ms.
+  - Starting point: A wetter world grows more vegetation and so more food entities, and every food entity is indexed in the spatial hash that every neighbour query walks, so `spatial-hash-organisms-only` is the first thing to try. Measure food counts and organism counts per tick on both commits before changing anything. Also check whether the opening-burst slow phase (present before the moisture fix too, at about 8 s for the first 100 ticks) is the same cause.
+  - Source: rebase of review/headless-gui-parity onto main, 2026-09-17
+  - Related: `spatial-hash-organisms-only`, `photosynthesis-density-cache`
 
 ## Needs proof of concept
 
