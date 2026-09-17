@@ -8,11 +8,6 @@ See the [`code review guide`](../docs/CODE_REVIEW_GUIDE.md) for how findings ent
 
 ## P1 High
 
-- [WORLD] `moisture-range-normalisation` — **Normalise the moisture map to 0..1 so biomes and vegetation capacity get the range they assume.** The noise map is rescaled to −1..1, so half the land has negative moisture, a negative vegetation carrying capacity, and no regrowth; Forest is confined to the top fifth of the range. A candidate cause of the green-world attractor.
-  - Starting point: Rescale moisture (not elevation) to 0..1 in `TileMap::generate` in `clauvolution_world`, then re-run the 8-seed 15k-tick headless audit from `docs/ROADMAP.md` and compare plant share.
-  - Source: review/2026-09-17-0756-full.md, 2026-09-17
-  - Findings: `moisture-range-mismatch`
-
 ## P2 Normal
 
 - [SIM] `headless-gui-parity` — **Make the GUI speed control and the species-threshold flag behave the same in both modes.** The GUI rescales the fixed timestep, which shrinks every virtual-time timer's delta, while headless scales virtual time; and `--species-threshold` is silently dropped in GUI mode.
