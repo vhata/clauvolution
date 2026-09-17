@@ -1057,6 +1057,13 @@ fn death_system(
     }
 }
 
+/// Fraction of the parent's size-scaled reproduction cost that becomes the
+/// child's starting energy; the rest is the overhead of building a body.
+/// At body_size 1.0 this gives 32 energy, the fixed value every child
+/// received before the cost and the child's energy were tied together.
+/// See DECISIONS.md "Child starting energy is a fraction of what the parent paid".
+const CHILD_ENERGY_FRACTION: f32 = 0.8;
+
 fn reproduction_system(
     mut commands: Commands,
     config: Res<SimConfig>,
@@ -1081,7 +1088,8 @@ fn reproduction_system(
         })
         .collect();
 
-    let mut new_organisms: Vec<(Vec2, Genome, u64, u32)> = Vec::new();
+    // (position, genome, parent species, generation, starting energy)
+    let mut new_organisms: Vec<(Vec2, Genome, u64, u32, f32)> = Vec::new();
     let current_pop = organisms.iter().len();
     let max_pop = 2000usize;
     let mut already_mated: Vec<Entity> = Vec::new();
@@ -1139,18 +1147,21 @@ fn reproduction_system(
                 (pos.0.y + offset.y).rem_euclid(config.world_height as f32),
             );
 
-            new_organisms.push((child_pos, child_genome, species.0, generation.0 + 1));
+            // The child receives a fixed fraction of what this parent paid, so
+            // a birth never creates energy regardless of the parent's size.
+            let child_energy = repro_cost * CHILD_ENERGY_FRACTION;
+            new_organisms.push((child_pos, child_genome, species.0, generation.0 + 1, child_energy));
             already_mated.push(entity);
         }
     }
 
-    for (child_pos, child_genome, parent_species, child_gen) in new_organisms {
+    for (child_pos, child_genome, parent_species, child_gen, child_energy) in new_organisms {
         let brain = Brain::from_genome(&child_genome);
         let body_size = child_genome.body_size;
 
         commands.spawn((
             Organism,
-            Energy(config.reproduction_energy_cost * 0.8),
+            Energy(child_energy),
             Health(1.0),
             Position(child_pos),
             Velocity(Vec2::ZERO),
