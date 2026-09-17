@@ -388,9 +388,9 @@ mod tests {
             *counts.entry(tile.terrain).or_default() += 1;
         }
         let mut sorted: Vec<_> = counts.iter().collect();
-        sorted.sort_by_key(|(t, _)| format!("{:?}", t));
+        sorted.sort_by_key(|(t, _)| format!("{t:?}"));
         for (terrain, n) in sorted {
-            println!("{:?}: {}", terrain, n);
+            println!("{terrain:?}: {n}");
         }
 
         let (mut min_m, mut max_m) = (f32::MAX, f32::MIN);
