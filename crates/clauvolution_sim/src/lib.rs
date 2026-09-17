@@ -1331,10 +1331,12 @@ fn species_classification_system(
         }
     }
 
-    // Report populated species only. species_reps also holds species whose
-    // last member was reassigned during this pass; it is rebuilt from living
-    // organisms at the start of every pass, so those entries drop out on
-    // their own next time and need no pruning here.
+    // Report the number of populated species. In practice this equals
+    // species_reps.len(): a representative is at distance 0 from itself and
+    // so always stays in its own species, and a new species is created with
+    // the organism that founded it, so no species ends a pass empty.
+    // species_counts is still the quantity meant here, and species_reps is
+    // rebuilt from living organisms every pass, so nothing needs pruning.
     stats.species_count = species_counts.len() as u32;
 
     // Detect convergent evolution — only log when lineage count increases
