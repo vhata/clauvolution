@@ -212,7 +212,7 @@ fn startup_system(
             warn!("Save file not found: {}, starting fresh", save_path.display());
         }
     }
-    fresh_world(commands, config, innovation, stats);
+    fresh_world(commands, config, innovation);
 }
 
 fn load_saved_world(
@@ -260,24 +260,20 @@ fn load_saved_world(
     save::restore_phylo(&mut phylo, &state.phylo_nodes);
     save::restore_chronicle(&mut chronicle, &state.chronicle_entries);
     chronicle.log(tick.0, "World loaded from save".to_string());
-
-    stats.total_organisms = state.organisms.len() as u32;
 }
 
 fn fresh_world(
     commands: Commands,
     config: ResMut<SimConfig>,
     innovation: ResMut<InnovationCounter>,
-    stats: ResMut<SimStats>,
 ) {
-    setup_world(commands, config, innovation, stats);
+    setup_world(commands, config, innovation);
 }
 
 fn setup_world(
     mut commands: Commands,
     config: ResMut<SimConfig>,
     mut innovation: ResMut<InnovationCounter>,
-    mut stats: ResMut<SimStats>,
 ) {
     // Seed deterministic terrain generation
     let mut terrain_rng = rand::rngs::StdRng::seed_from_u64(config.terrain_seed);
@@ -290,8 +286,6 @@ fn setup_world(
     clauvolution_sim::spawn_initial_population(&mut commands, &config, &mut innovation, &mut sim_rng.0);
     commands.insert_resource(tile_map);
     commands.insert_resource(sim_rng);
-
-    stats.total_organisms = config.initial_population;
 
     info!(
         "Clauvolution initialized: {} organisms, world {}x{} with biomes (seed {})",
@@ -639,8 +633,11 @@ fn print_headless_summary(
     history: &clauvolution_core::PopulationHistory,
 ) {
     eprintln!();
+    // Population is read from the last 1Hz snapshot so it matches the
+    // strategy breakdown below exactly.
+    let latest = history.snapshots.last();
     eprintln!("=== Headless summary ===");
-    eprintln!("Total organisms (final): {}", stats.total_organisms);
+    eprintln!("Total organisms (final): {}", latest.map(|s| s.organisms).unwrap_or(0));
     eprintln!("Species (final):         {}", stats.species_count);
     eprintln!("Max generation:          {}", stats.max_generation);
     eprintln!("Total births:            {}", stats.total_births);
@@ -649,7 +646,7 @@ fn print_headless_summary(
     eprintln!("  by Predation:          {}", stats.deaths_by_cause[1]);
     eprintln!("  by Old age:            {}", stats.deaths_by_cause[2]);
     eprintln!("  by Disease:            {}", stats.deaths_by_cause[3]);
-    if let Some(latest) = history.snapshots.last() {
+    if let Some(latest) = latest {
         eprintln!();
         eprintln!("Final strategy breakdown:");
         eprintln!("  Plants:              {}", latest.plants);

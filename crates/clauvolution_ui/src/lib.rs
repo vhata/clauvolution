@@ -192,6 +192,7 @@ fn help_tab(ui: &mut egui::Ui) {
 fn header_bar_system(
     mut contexts: EguiContexts,
     stats: Res<SimStats>,
+    history: Res<PopulationHistory>,
     season: Res<Season>,
     speed: Res<SimSpeed>,
     mut ui_state: ResMut<UiState>,
@@ -234,7 +235,8 @@ fn header_bar_system(
                 ui.separator();
                 ui.label(format!("{} (light {}%)", season_name, light_pct));
                 ui.separator();
-                ui.label(format!("Pop: {}", stats.total_organisms));
+                let population = history.snapshots.last().map(|s| s.organisms).unwrap_or(0);
+                ui.label(format!("Pop: {population}"));
                 ui.separator();
                 ui.label(format!("Species: {}", stats.species_count));
                 ui.separator();

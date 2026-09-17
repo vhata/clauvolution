@@ -191,10 +191,11 @@ pub enum DeathCause {
     Disease = 3,
 }
 
+/// Run-wide counters. Live population and food counts are not kept here;
+/// `record_population_history` recounts them once per second into
+/// `PopulationHistory`, and readers take the latest snapshot from there.
 #[derive(Resource, Default)]
 pub struct SimStats {
-    pub total_organisms: u32,
-    pub total_food: u32,
     pub total_births: u64,
     pub total_deaths: u64,
     pub max_generation: u32,
