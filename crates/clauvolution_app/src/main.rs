@@ -548,8 +548,10 @@ fn dump_history_csv(
 #[derive(Resource)]
 struct HeadlessSpeed(f32);
 
-fn set_headless_speed(speed: Res<HeadlessSpeed>, mut vtime: ResMut<Time<Virtual>>) {
-    vtime.set_relative_speed(speed.0);
+/// Hand `--speed` to `SimSpeed`; `sim_speed_system` in `clauvolution_sim`
+/// applies it to `Time<Virtual>` for both headless and GUI runs.
+fn set_headless_speed(speed: Res<HeadlessSpeed>, mut sim_speed: ResMut<SimSpeed>) {
+    sim_speed.multiplier = speed.0;
 }
 
 /// `--species-threshold N` from the command line, applied after

@@ -218,14 +218,18 @@ fn tick_counter_system(mut tick: ResMut<TickCounter>, mut season: ResMut<Season>
     }
 }
 
-/// Apply the GUI speed control to virtual time. The multiplier scales
-/// `Time<Virtual>` (the same mechanism headless `--speed` uses) and the fixed
-/// timestep stays at 30 Hz, so one tick always means 1/30 s of sim time and
-/// every virtual-time timer (species classification, history sampling,
-/// seasons) fires after the same number of ticks at every speed. Relative
-/// speed and pause are independent fields on the clock, so the multiplier
-/// survives a pause/unpause cycle.
+/// Apply `SimSpeed` to the virtual clock. This is the only place the sim
+/// touches `Time<Virtual>`: the GUI speed keys and headless `--speed` both
+/// write `SimSpeed.multiplier`, and the multiplier scales virtual time while
+/// the fixed timestep stays at 30 Hz. One tick therefore always means 1/30 s
+/// of sim time, and every virtual-time timer (species classification,
+/// history sampling, seasons) fires after the same number of ticks at every
+/// speed in both modes. Relative speed and pause are independent fields on
+/// the clock, so the multiplier survives a pause/unpause cycle.
 fn sim_speed_system(speed: Res<SimSpeed>, mut virtual_time: ResMut<Time<Virtual>>) {
+    if !speed.is_changed() {
+        return;
+    }
     virtual_time.set_relative_speed(speed.multiplier);
     if speed.paused {
         virtual_time.pause();
