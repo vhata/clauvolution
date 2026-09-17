@@ -80,7 +80,7 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
   - Source: docs/ROADMAP.md (Known tech debt), 2026-09-16
   - Related: `name-sim-tuning-literals`
 - [PERF] `rayon-remaining-systems` — **Parallelise the remaining O(n) simulation systems.** `sensing_and_brain_system`, `metabolism_system`, and the photosynthesis second pass already use `par_iter_mut`, but predation, disease effects, and niche construction still run serially.
-  - Starting point: Disease effects and niche construction share `SimRng` and `Commands`, so both need refactoring before they can be parallelised. Benchmark at fast sim speeds rather than in headless runs, because headless is paced by a 30Hz virtual timestep and total wall time barely moves with per-tick cost. The compute pool is capped at 6 workers by default and overridable via `CLAU_WORKERS`.
+  - Starting point: `disease_effects_system` takes `SimRng` and `Commands`, and `niche_construction_system` mutates the shared `TileMap` (several organisms can hit one tile), so each needs restructuring before `par_iter_mut` is safe. Benchmark with `--headless N --speed 10`, which runs FixedUpdate as fast as the CPU allows (about 85 ticks/sec on an M4 Max at 2000 organisms), so wall time does track per-tick cost. The compute pool is capped at 6 workers by default and overridable via `CLAU_WORKERS`.
   - Source: docs/ROADMAP.md (Backlog), 2026-09-16
   - Related: `gpu-brain-compute-shader`, `split-sensing-and-brain-system`
 - [PERF] `batch-spatial-hash-queries` — **Cache or batch the per-tick spatial hash queries.** Roughly 2000 radius queries run every tick, each one independent of the others.

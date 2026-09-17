@@ -15,10 +15,19 @@ Each run gets a unique cosmic name (e.g. "pale-fading-shard"). Session data — 
 ```bash
 # Save: press F5 during gameplay
 cargo run --release -- --load sessions/pale-fading-shard   # load a saved session
-cargo run --release -- --screenshot                        # scripted verification tour
 cargo run --release -- --seed 42                           # deterministic-ish sim (see docs)
-cargo run --release -- --headless 1000 --seed 42           # no-UI run, prints summary at end
+cargo run --release -- --script tours/demo.json            # scripted tour with egui-aware screenshots
+cargo run --release -- --screenshot                        # legacy fixed tour (camera only, no panels)
+
+# Headless (no window). Ticks are relative to the starting tick, so --load + --headless resumes.
+cargo run --release -- --headless 1000 --seed 42           # run 1000 ticks, print a summary at the end
+cargo run --release -- --headless 1000 --speed 20          # virtual-time multiplier (default 10; CPU-bound past ~5)
+cargo run --release -- --headless 1000 --save-as my-world  # write sessions/my-world/save.json at the end
+cargo run --release -- --headless 1000 --dump-history h.csv   # 1 Hz population history as CSV
+cargo run --release -- --headless 1000 --species-threshold 1.5  # override the NEAT compatibility threshold
 ```
+
+`CLAU_WORKERS=<n>` caps the compute thread pool (default 6) in both modes. Flags are parsed by hand; unknown flags are ignored silently.
 
 Requires Rust (latest stable) and a GPU with Metal / Vulkan / DX12 support.
 
@@ -28,7 +37,7 @@ Requires Rust (latest stable) and a GPU with Metal / Vulkan / DX12 support.
 |-----|--------|
 | **WASD / Arrows** | Pan camera |
 | **Q / E** or **- / +** or **Scroll** | Zoom |
-| **Right-click drag** | Pan camera |
+| **Right / middle drag**, or **Shift+left drag** | Pan camera |
 | **Left click** | Select organism (inspect panel) |
 | **F** | Focus camera on selected organism |
 | **,** / **.** | Cycle through living members of the selected organism's species |

@@ -4,3 +4,4 @@ Whole-codebase and incremental review ledgers. Review snapshots are indexed belo
 
 | Review                                                           | Type        | Reviewed commit | Open findings at close |
 | ---------------------------------------------------------------- | ----------- | --------------- | ---------------------- |
+| [2026-09-17-0756-full.md](2026-09-17-0756-full.md)               | Full        | `e6bcf49`       | 47                     |

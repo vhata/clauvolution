@@ -23,24 +23,13 @@ This file holds work that serves the motivation above and is big enough to belon
 
 The sim shows WHAT happens (species rising and falling) but hides WHY. These items surface the underlying causes so every moment of watching is richer.
 
-**Top pick:** Brain activation heatmap. You already watch creatures move and compete; this lets you watch them *think*.
+The first two items here have shipped; genome diff view and extinction post-mortem are the open candidates.
 
 ### Brain activation heatmap
-When an organism is selected, show its neural network in real time — which inputs are currently firing, which connections are active, which outputs are being driven. Probably lives in the Inspect tab alongside the creature portrait.
-
-**Shape:**
-- Expose the brain's last-tick input and output values (already computed, just not exposed)
-- Add a neural-network renderer in the Inspect tab (reuses Creature Portrait design for the brain DAG part)
-- Colour nodes by activation level, connections by signal flow
-- Label input nodes with what they sense ("energy", "food dir x", "group size", etc.)
+✅ **Shipped.** The Inspect tab's Brain section draws the selected organism's NEAT network live: inputs on the left, outputs on the right, hidden neurons in between, nodes coloured by this tick's activation, edges coloured by weight sign and faded by signal strength, with every input and output labelled by what it senses or drives. Backed by the `BrainActivations` component that `sensing_and_brain_system` fills each tick.
 
 ### Species range heatmap
-Click a species in the Phylo tab and the minimap (or a world overlay) highlights only where that species lives. Reveals niche partitioning you can't see now.
-
-**Shape:**
-- SelectedSpecies resource (already exists conceptually via SelectedOrganism → species_id)
-- Minimap gets a third mode: Range (shows only this species at high contrast, everything else faded)
-- Or a main-world overlay: semi-transparent coloured tiles where the species lives
+✅ **Shipped** as the minimap's third mode (press M to cycle Normal → Heatmap → Range). Range dims the terrain, greys every other species, and paints the selected organism's species in bright blocks. Falls back to Normal when nothing is selected. A main-world tile overlay was the alternative shape and was not built.
 
 ### Genome diff view
 Pick two organisms (or two species representatives), see a side-by-side diff of their traits, body plans, and brain topology with the differences highlighted. Unpacks the "how different are these two?" question from a single number into specifics.
@@ -162,24 +151,9 @@ Enough for "same config, comparable outcomes" validation; not enough for exact i
 - Force single-threaded Bevy task pool (config `TaskPoolPlugin` with 1 worker) — costs parallelism but recovers determinism
 - Alternatively: sort query results by Entity ID before iterating anywhere order-sensitive (species classification, etc.)
 - Investigate whether HashMap iteration order (`seen_species`, etc.) contributes — swap to BTreeMap or explicit sorts
+- `SimRng` state is not saved, so a loaded world re-seeds from `terrain_seed` and diverges from the original run immediately
 
-### Session seeds — full reproducibility
-Currently `terrain_seed` is deterministic but everything else (initial placement, mutation, food spawning, reproduction) uses `rand::thread_rng()`. Two runs with the same terrain still diverge at tick 0.
-
-**Goal:** a single `--seed N` makes the entire simulation bit-reproducible.
-
-**Shape:**
-- New `SimRng(StdRng)` resource in core, seeded from master seed at startup
-- Replace every `rand::thread_rng()` / `rand::random()` in sim/genome/world/body with `sim_rng.0` accessed via `ResMut<SimRng>`
-- CLI flag: `--seed <u64>` overrides the default
-- Save files persist the seed for replay
-
-**Gotchas:**
-- Bevy system parallelism: two systems that mutate `SimRng` in parallel would race. All sim systems are already `.chain()`-ed — should be safe. Verify.
-- User-triggered events (asteroid selection, etc.) must use `SimRng` too
-- Bevy internal RNG may affect visuals but not gameplay; only care about gameplay determinism
-
-**Nice-to-have after v1:**
+**Nice-to-have once determinism holds:**
 - `--compare-seed N --feature-a disease_on --feature-b disease_off` — runs two sims with same seed, one feature toggled. Direct A/B testing of changes.
 
 ### Parameter sweep mode (builds on headless)
@@ -215,7 +189,7 @@ Every simulation dynamic has numeric parameters that need tuning. The goal is no
 4. Adjust parameters
 5. Re-run and compare
 
-Headless mode (Theme 4) will make this much faster once it lands.
+Headless mode (Theme 4) is the fast version of this loop: `cargo run --release -- --headless 15000 --seed 42 --dump-history run.csv` gives the same numbers without watching, and `--species-threshold` lets one constant be swept without a recompile.
 
 **Current tuning state:**
 - ~~**Disease (v2 pass in progress).**~~ Validated across four seeds at 15k ticks after v3 tweak (quadratic resistance protection). Disease kills 5-10% of organisms consistently, infected populations roughly halve vs linear-protection baseline, evolved resistance nudges up 1-3 percentage points. Accepted as a background pressure; not a primary selection driver (predation dominates at 55-75%). See DECISIONS.md for the tuning journey.
@@ -241,7 +215,7 @@ Headless mode (Theme 4) will make this much faster once it lands.
 
 ## Code health
 
-- Big files worth splitting if they grow further: `clauvolution_sim/src/lib.rs` (~1200 lines), `clauvolution_render/src/lib.rs` (~1100), `clauvolution_ui/src/lib.rs` (~830)
+- Big files worth splitting if they grow further: `clauvolution_sim/src/lib.rs` (~1500 lines), `clauvolution_ui/src/lib.rs` (~1450), `clauvolution_render/src/lib.rs` (~1350). Counts are refreshed by each code review in `review/`.
 - When a function in one of those crosses 100 lines, it's probably ready to move to its own module
 - Two settled calls worth not re-litigating: cosmetic overlay systems (minimap viewport rect, trails, infection halos) silently skip on a missing camera, and clippy's `type_complexity` and `too_many_arguments` lints are silenced crate-wide in the three Bevy-heavy crates because aliasing the `Query` signatures individually didn't improve readability
 
