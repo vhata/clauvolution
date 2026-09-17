@@ -78,7 +78,7 @@ Each entry has exactly one area marker. If an idea spans areas, split it into in
 
 ```md
 - [SIM] `energy-math-duplication` — **Collapse the duplicated energy accounting.** Three call sites recompute metabolic drain and have already drifted apart.
-  - Starting point: Where to begin.
+  - Starting point: Extract one drain helper in `clauvolution_sim` and route the three call sites through it.
   - Source: review/2026-09-14-0450-full.md, 2026-09-14
   - Findings: `metabolism-drain-dup`, `predation-drain-dup`
 ```
@@ -127,7 +127,7 @@ Order the description as follows.
 3. Claim or resolution markers.
 4. Validation instructions: what to run or watch to confirm the change works.
 
-Keep `## Why` first as the draft evolves. The user merges. Merge only when told to in that same turn, and then use a squash merge that preserves the full description as the commit body; confirm the resulting commit body is not just the subject line.
+Keep `## Why` first as the draft evolves. The user merges. The agent merges only when told to in that same turn, using a squash merge that preserves the full description as the commit body, and confirms afterwards that the resulting commit body is not just the subject line.
 
 ### Claim markers
 
