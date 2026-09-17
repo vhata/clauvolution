@@ -1310,7 +1310,11 @@ fn species_classification_system(
         }
     }
 
-    stats.species_count = species_reps.len() as u32;
+    // Report populated species only. species_reps also holds species whose
+    // last member was reassigned during this pass; it is rebuilt from living
+    // organisms at the start of every pass, so those entries drop out on
+    // their own next time and need no pruning here.
+    stats.species_count = species_counts.len() as u32;
 
     // Detect convergent evolution — only log when lineage count increases
     let convergences = phylo.detect_convergence();
