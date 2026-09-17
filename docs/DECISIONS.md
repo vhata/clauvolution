@@ -172,16 +172,16 @@ Not an exhaustive list of every tweak — just the decisions where someone readi
 
 **Why this feels like a Bevy/bevy_egui failure:** three small integration decisions — egui bypassing `ViewTarget`, screenshot going through `ViewTarget`, swap chain not being `COPY_SRC` — combine to make "capture a frame of the app as the user sees it" impossible with the stock APIs. Each decision is individually defensible; together they box us out. Fixing any one of them upstream would resolve this.
 
-**Chosen:** patch the surface configuration to add `COPY_SRC`, then add a custom render-graph node that runs *after* `egui_pass`, copies the swap chain texture into a buffer, and saves it as PNG. Bevy-native, keeps egui's direct-to-swapchain rendering intact.
+**Chosen:** render the frame a second time into an `Image` we own. `begin_screenshot` (in `clauvolution_render::screenshot_with_egui`) creates an image with `RENDER_ATTACHMENT | COPY_SRC | TEXTURE_BINDING`, spawns a secondary `Camera2d` targeting it with the main camera's transform and projection cloned, and attaches bevy_egui's `EguiRenderToImage` to the primary window entity so the same egui context is also drawn onto that image. bevy_egui's default graph edge draws egui *before* the camera (its use case is "egui as a texture in the scene"), which would let the camera clear over the UI, so a small `ExtractSchedule` system flips the edge so egui composites after the camera. A few frames later a `Readback::texture` observer receives the pixels, converts BGRA to RGBA, strips wgpu's row padding, writes the PNG, and despawns the secondary camera. One capture is in flight at a time; the tour script waits on it.
 
 **Alternatives considered:**
+- Patch Bevy's surface configuration to add `COPY_SRC` to the swap chain and copy it out after `egui_pass`. Was the first plan; rejected because it modifies Bevy's window setup and depends on the platform surface accepting `COPY_SRC`.
 - `screencapture` CLI shell-out on macOS. Shipped briefly, reverted — platform-specific, captures the entire monitor, required `osascript` to activate our window first.
 - Fork bevy_egui to render via `ViewTarget`. Ongoing upstream maintenance burden for a personal project.
-- Use `EguiRenderToImage` on a secondary entity to render egui to an image, composite with the main camera's output. Requires duplicating every UI-draw system across two contexts or somehow sharing paint jobs — invasive.
 - Render everything (camera + egui) to an intermediate texture we own, then blit to the swap chain for display. Needs bevy_egui cooperation we don't have.
 - Accept that screenshots miss egui. Would have been fine if we didn't want UI overlays in README images.
 
-**Accepted tradeoff:** we depend on `TextureUsages::COPY_SRC` being supported on the platform's swap chain surface (Metal on macOS definitely does; DX12 and Vulkan typically do; WebGPU has some restrictions). If a target platform later rejects `COPY_SRC` on the surface, the screenshot path breaks and we fall back to Bevy's egui-less capture. Also, modifying Bevy's surface setup couples us to internal Bevy details — any Bevy upgrade may require re-fitting the patch.
+**Accepted tradeoff:** the world is rendered twice for the capture frame, and the graph-edge flip is coupled to bevy_egui's internal node labels and its `setup_new_render_to_image_nodes_system`, so a bevy_egui upgrade may need the patch refitted. The legacy `--screenshot` tour still uses Bevy's stock `Screenshot::primary_window()` and therefore produces camera-only images; `--script` is the egui-aware path.
 
 ### Incremental release builds
 **Chosen:** `[profile.release] incremental = true` in Cargo.toml.
