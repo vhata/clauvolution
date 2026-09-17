@@ -27,14 +27,14 @@ Systems run in Bevy's standard schedules:
 - `update_input_capture_system` (ui) — reads egui's pointer/keyboard capture state into `UiInputState` so world-view systems can gate themselves
 
 **Update** (once per frame — real-time input, UI, etc.)
-- `sim_speed_system` — pause/unpause virtual time, scale fixed timestep by speed multiplier
+- `sim_speed_system` — apply `SimSpeed` to `Time<Virtual>`: pause/unpause, and set the relative speed to the multiplier (both the GUI speed keys and headless `--speed` write `SimSpeed`)
 - `keyboard_to_events_system` — translate hotkeys into `WorldEventRequest` events
 - `mass_extinction_input_system` — consume `WorldEventRequest` to trigger asteroid/ice/volcano/blooms
 - `save_system` — consume `WorldEventRequest::Save` to serialise the world
 - Rendering-adjacent Update systems: click-select, speed control, toggle minimap/trails, screenshot, LOD change, minimap click
 - UI systems (`header_bar_system`, `right_panel_system`) — draw the egui overlays
 
-**FixedUpdate** (strictly chained, 30Hz × speed multiplier — this is the simulation tick)
+**FixedUpdate** (strictly chained, always 30Hz of virtual time — this is the simulation tick; speed scales the virtual clock, not the timestep)
 
 ```
 tick_counter_system           ← advance tick counter, advance season
@@ -98,8 +98,8 @@ update_minimap                ← repaint the minimap image every 0.5s
 
 ## Bevy schedule essentials
 
-- **Time::\<Fixed\>** at 30Hz drives simulation rate. Scaled by `SimSpeed::multiplier`.
-- **Time::\<Virtual\>** with a 100ms `max_delta` cap. When paused we pause virtual time directly (so the accumulator doesn't build up and cause a death spiral on unpause).
+- **Time::\<Fixed\>** at 30Hz of virtual time drives the simulation rate in both GUI and headless mode. It is never rescaled; one tick is always 1/30 s of sim time.
+- **Time::\<Virtual\>** with a 100ms `max_delta` cap. `SimSpeed::multiplier` sets its relative speed (GUI speed keys, headless `--speed`). When paused we pause virtual time directly (so the accumulator doesn't build up and cause a death spiral on unpause).
 - **Incremental release builds** are enabled in `Cargo.toml` (trades slightly larger binary for much faster rebuilds during development).
 
 ## Data flow summary
