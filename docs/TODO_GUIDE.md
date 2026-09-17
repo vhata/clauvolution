@@ -1,8 +1,8 @@
 # Backlog workflow guide
 
-This guide defines how entries are captured, classified, claimed, and resolved in the tracked [`TODO.md`](../TODO.md) and [`review/BACKLOG.md`](../review/BACKLOG.md) queues. It does not apply to `.context/todos.md`, which Conductor uses for work that must be completed before the current workspace can merge.
+This guide defines how work is captured, classified, claimed, and resolved across the three tracked queues: [`docs/ROADMAP.md`](ROADMAP.md), [`TODO.md`](../TODO.md), and [`review/BACKLOG.md`](../review/BACKLOG.md).
 
-Read this guide only when evaluating a possible follow-up or adding, claiming, moving, or resolving an entry in either tracked backlog.
+Read this guide only when evaluating a possible follow-up, or when adding, claiming, moving, or resolving work in one of those queues.
 
 ## Decide whether work belongs in the current branch
 
@@ -11,12 +11,12 @@ Compare each new suggestion with the current goal and acceptance criteria before
 - Keep work in scope when it is required for the requested outcome, correctness, regression prevention, tests, or another explicit acceptance criterion.
 - Treat a separately shippable feature, broader refactor, optional optimization, or unrelated polish as a follow-up.
 - Ask the user when the boundary is ambiguous.
-- For a clear follow-up, capture it in `TODO.md`, tell the user where it was recorded, and continue the original task without investigating or implementing it.
-- For an unrelated P0 security, data-loss, or release-blocking discovery, record it, alert the user prominently, and pause for direction.
+- For a clear follow-up, capture it in the queue named under [Queue boundaries](#queue-boundaries), tell the user where it was recorded, and continue the original task without investigating or implementing it.
+- For an unrelated P0 discovery, such as a crash, a corrupted save file, or lost session data, record it, alert the user prominently, and pause for direction.
 
 ## Capture an idea
 
-Search the backlog for the idea and related slugs first. Update an existing entry instead of adding a duplicate.
+Search all three queues for the idea and related slugs first. Update an existing entry instead of adding a duplicate.
 
 Infer the workflow stage from the available evidence, but use Unprioritized unless the user supplied a priority or the issue objectively qualifies as P0 Critical.
 
@@ -25,14 +25,14 @@ Infer the workflow stage from the available evidence, but use Unprioritized unle
 Keep the main line concise and easy to scan: one area marker, an immutable slug, a short title, and a one-sentence rationale. Put supporting context on indented lines:
 
 ```md
-- [UI] `keyboard-map-navigation` — **Add keyboard map navigation.** Make board controls usable without pointer input.
-  - Starting point: Prototype directional focus behavior.
-  - Source: settings-refresh workspace, 2026-09-13
-  - Related: `keyboard-map-shortcuts`
+- [UI] `graphs-axis-labels` — **Label the Graphs tab axes.** Curves are unreadable without knowing the units and the time window.
+  - Starting point: The plotting helpers in `clauvolution_ui` already know the ranges.
+  - Source: species-threshold tuning branch, 2026-09-14
+  - Related: `graphs-tab-y-autoscale`
 ```
 
 - `Starting point` optionally tells a future worker where to begin. It is not an instruction for the agent that records the idea.
-- `Source` is required and names the task, workspace, issue, pull request, or branch where the idea arose, followed by the date in `YYYY-MM-DD` form.
+- `Source` is required and names the task, branch, issue, or pull request where the idea arose, followed by the date in `YYYY-MM-DD` form. For a follow-up spun off a roadmap theme, name the theme.
 - `Related` optionally cross-references closely connected entry slugs.
 - `Split from` links a new entry created by a backlog-only split to the original batch slug.
 - `Remaining from` preserves the original slug when a partial implementation leaves residual work from a removed entry.
@@ -42,62 +42,94 @@ Keep the main line concise and easy to scan: one area marker, an immutable slug,
 
 - **Needs triage:** The value, intended outcome, dependencies, or appropriate follow-up still needs a decision.
 - **Needs proof of concept:** A focused experiment is needed to establish feasibility or choose an approach.
-- **Ready for separate work:** The outcome is understood well enough to plan and implement in its own workspace.
+- **Ready for separate work:** The outcome is understood well enough to plan and implement on its own branch.
 
 Move an entry when its readiness changes.
 
 ### Priorities
 
-- **P0 Critical:** An active security, data-loss, or release-blocking risk that requires immediate direction.
+- **P0 Critical:** An active crash, data-loss, or save-corruption risk that requires immediate direction.
 - **P1 High:** Important work that should be scheduled promptly.
 - **P2 Normal:** Worthwhile work without immediate urgency.
 - **P3 Low:** Optional or speculative improvement.
-- **Unprioritized:** Business priority has not been assigned.
+- **Unprioritized:** Priority has not been assigned.
 
 ### Area markers
 
-- `[UI]`: Interface, interaction, layout, visual design, or accessibility.
-- `[GAMEPLAY]`: Rules, balance, AI, maps, progression, or game-state behavior.
-- `[AUDIO]`: Music, sound effects, or audio playback.
-- `[BACKEND]`: Server-side services, APIs, or remote data.
-- `[PLATFORM]`: Browser, device, persistence, performance, or runtime integration.
-- `[TOOLING]`: Build, test, development, or deployment workflows.
+- `[SIM]`: Organism biology, body plans, metabolism, predation, disease, symbiosis, and ecology dynamics.
+- `[BRAIN]`: NEAT networks, genome encoding, mutation, speciation, and species classification.
+- `[WORLD]`: Terrain, climate, seasons, and world events such as asteroids and ice ages.
+- `[UI]`: egui panels, inspect, graphs, chronicle, phylogeny, and input controls.
+- `[RENDER]`: Rendering, camera, meshes, trails, and level of detail.
+- `[PERF]`: Throughput, parallelism, and memory.
+- `[PERSIST]`: Save and load, sessions, seeds, and reproducibility.
+- `[TOOLING]`: Build, CLI flags, headless mode, tests, and scripts.
 - `[DOCS]`: Documentation or research.
 
 Each entry has exactly one area marker. If an idea spans areas, split it into independently actionable entries and connect their slugs with `Related`. Add a new marker to this legend only when none of the existing areas fits.
 
 ### Queue boundaries
 
-[`TODO.md`](../TODO.md) holds ideas that arise during ordinary work. An ordinary idea still goes there when it is a bug or refactor; the source of the work, rather than its technical kind, determines the queue. Its entries use the workflow stages above.
+[`docs/ROADMAP.md`](ROADMAP.md) holds work that serves the project's vision and is big enough to belong to a theme. Roadmap items are prose sections under a theme heading; they do not use the entry format above and do not need a matching `TODO.md` entry.
 
-[`review/BACKLOG.md`](../review/BACKLOG.md) holds only work promoted from a whole-codebase review: bugs, duplication, structural refactors, and tooling gaps worth their own workspace. Entries use the standard format plus a `Findings` line listing every raw review finding slug they cover and a `Source` naming the review file. They keep priority sections but have no workflow stages because each is understood well enough to start. A batch entry may cover many findings; each finding names at most one review backlog entry. See [`CODE_REVIEW_GUIDE.md`](CODE_REVIEW_GUIDE.md) for which findings qualify.
+[`TODO.md`](../TODO.md) holds concrete work that is not theme-sized: ideas that arise during ordinary work. An ordinary idea still goes there when it is a bug or refactor; the source of the work, rather than its technical kind, determines the queue. A concrete follow-up spun off a roadmap theme also goes here, with `Source` naming the theme. Its entries use the workflow stages above.
+
+[`review/BACKLOG.md`](../review/BACKLOG.md) holds only work promoted from a whole-codebase review: bugs, duplication, structural refactors, and tooling gaps worth their own branch. Entries use the standard format plus a `Findings` line listing every raw review finding slug they cover and a `Source` naming the review file. They keep priority sections but have no workflow stages because each is understood well enough to start. A batch entry may cover many findings; each finding names at most one review backlog entry. See [`CODE_REVIEW_GUIDE.md`](CODE_REVIEW_GUIDE.md) for which findings qualify.
 
 ```md
-- [UI] `backlog-slug` — **Fix the thing.** One-sentence rationale.
+- [SIM] `energy-math-duplication` — **Collapse the duplicated energy accounting.** Three call sites recompute metabolic drain and have already drifted apart.
   - Starting point: Where to begin.
   - Source: review/2026-09-14-0450-full.md, 2026-09-14
-  - Findings: `finding-slug`, `another-finding-slug`
+  - Findings: `metabolism-drain-dup`, `predation-drain-dup`
 ```
 
 Natural-language selection follows the file boundary:
 
-- “Grab something from the TODO,” “grab a TODO,” and “grab a feature” mean `TODO.md` only.
-- “Grab something from the review backlog” and “grab a review finding” mean `review/BACKLOG.md`; a specifically named raw finding follows the direct-selection exception in `CODE_REVIEW_GUIDE.md`.
+- "Grab something from the roadmap" means `docs/ROADMAP.md` only.
+- "Grab something from the TODO," "grab a TODO," and "grab a feature" mean `TODO.md` only.
+- "Grab something from the review backlog" and "grab a review finding" mean `review/BACKLOG.md`; a specifically named raw finding follows the direct-selection exception in `CODE_REVIEW_GUIDE.md`.
 - For implementation work from `TODO.md`, prefer the highest-priority suitable unclaimed entry in **Ready for separate work**. Ask before selecting from **Needs proof of concept** or **Needs triage** when no suitable entry is ready.
 - Never switch queues because the requested queue lacks a suitable, available, or small entry. State the selected queue, section, and slug before claiming it.
 
 ## Claim and resolve an entry
 
-Before starting a backlog entry, check both places where another worker may already have claimed it:
+Every unit of work gets its own branch, its own git worktree, and its own pull request.
 
-1. Search open pull requests for the exact slug.
-2. When working in Conductor, search the repository's active workspaces for the exact slug and the entry title. A matching workspace counts as a provisional claim even when it has not opened a pull request yet.
+Before starting, check both places where another worker may already have claimed the work:
 
-For an entry in `review/BACKLOG.md`, repeat both checks for every slug in its `Findings` line. A worker may have been explicitly assigned one raw finding without claiming the mapped batch entry. Also follow each raw finding to any other review backlog entry that names it, then search for that entry's slug; the mapped backlog workspace is the normal provisional claim even when the workspace name does not contain every underlying finding slug.
+1. Search open pull requests for the exact slug: `gh pr list --state open --search "<slug>"`.
+2. Search worktrees and branches for the slug and the entry title: `git worktree list` and `git branch -a`. A worktree or branch whose name contains the slug counts as a provisional claim even when it has not opened a pull request yet.
 
-If either search finds another claim, pause and ask the user before duplicating the work. After selecting an unclaimed entry in Conductor, immediately rename the workspace to the exact entry slug and give the branch a name that includes the slug. Do this before investigating or implementing the entry so later workers can discover the provisional claim. Recheck active workspaces after the rename; if another workspace selected the same slug concurrently, pause before either workspace proceeds. Finally, rename the main chat to something appropriate for the task you have picked.
+For an entry in `review/BACKLOG.md`, repeat both checks for every slug in its `Findings` line. A worker may have been explicitly assigned one raw finding without claiming the mapped batch entry. Also follow each raw finding to any other review backlog entry that names it, then search for that entry's slug; the mapped backlog branch is the normal provisional claim even when its name does not contain every underlying finding slug.
 
-Every pull request that claims or resolves a tracked backlog entry must begin its description with a `## Why` section. Explain why the work is worth doing and the outcome it is meant to achieve, not merely what code changes: describe the unmet user or system need, the problem or opportunity, and its impact. For a feature, state the need and the capability it will add; for a bug, state the original behavior, who or what it affected, and why it was wrong; for internal work, state the concrete risk, limitation, or recurring cost it removes. Write it so a reviewer can understand the motivation without opening the backlog, its source, or a review ledger. If a pull request covers several entries or findings, address each one's motivation. Keep `## Why` as the first section as the draft evolves; implementation details, claim or resolution markers, and validation instructions come afterward.
+If either search finds another claim, pause and ask the user before duplicating the work. After selecting an unclaimed entry, immediately create the branch and its worktree, before investigating or implementing, so later workers can discover the provisional claim. Name the branch after the queue and the slug:
+
+- `todo/<slug>` for a `TODO.md` entry.
+- `review/<slug>` for a `review/BACKLOG.md` entry.
+- `roadmap/<slug>` for a roadmap item.
+
+Recheck worktrees and branches after creating yours; if another one took the same slug concurrently, pause before either proceeds.
+
+### Claim a roadmap item
+
+A roadmap item is claimed directly and needs no `TODO.md` entry. Derive a short kebab-case slug from its heading, so `### Species range heatmap` becomes `species-range-heatmap`, then run the same claim checks against that slug and branch as `roadmap/<slug>`. When the work lands, update the roadmap section in the same pull request so the roadmap reflects what is now true.
+
+### Write the pull request description as a commit message
+
+Pull requests are squash merged: the title becomes the commit subject and the description becomes the commit body. The description is therefore the permanent record of the change, not a note to a reviewer that disappears on merge. Never merge with a one-line body.
+
+One pull request does one thing. It may contain several commits, which the squash collapses, so the description carries the weight.
+
+Order the description as follows.
+
+1. `## Why`, always first. Explain why the work is worth doing and the outcome it is meant to achieve, not merely what code changed: describe the unmet need, the problem or opportunity, and its impact. For a feature, state the need and the capability it adds; for a bug, state the original behavior and why it was wrong; for internal work, state the concrete risk, limitation, or recurring cost it removes. Write it so a reader can understand the motivation without opening a backlog, its source, or a review ledger. If a pull request covers several entries or findings, address each one's motivation.
+2. What changed, at the level of behavior and structure rather than a file-by-file diff summary.
+3. Claim or resolution markers.
+4. Validation instructions: what to run or watch to confirm the change works.
+
+Keep `## Why` first as the draft evolves. The user merges. Merge only when told to in that same turn, and then use a squash merge that preserves the full description as the commit body; confirm the resulting commit body is not just the subject line.
+
+### Claim markers
 
 Once the branch has its first meaningful commit, open a draft pull request. For a `TODO.md` entry, include `Claims TODO: <slug>`. For a `review/BACKLOG.md` entry, include `Claims review backlog: <slug>` plus `Claims review finding: <finding-slug>` for each raw finding in scope. For a raw finding selected under the direct-selection exception in [`CODE_REVIEW_GUIDE.md`](CODE_REVIEW_GUIDE.md), include only `Claims review finding: <finding-slug>`. Leave the source entry intact while work is underway. If a draft pull request cannot be created, report that the claim is not globally visible and do not remove the entry. If the work is abandoned, close the draft pull request so the entry is visibly available again.
 
@@ -111,6 +143,8 @@ A batched review backlog entry is a scheduling unit, not a requirement to mix un
 4. At resolution, use the partial-resolution flow below: replace the original batch entry with a newly assessed remainder entry that lists only the open findings. The new entry gets a new backlog slug and `Remaining from: <original-slug>`; raw finding slugs remain immutable.
 
 If parallel work on pieces of a batch is important, first land a backlog-only split. Keep the original slug on one focused entry, narrow its `Findings` line, and add independently claimable entries with new slugs and `Split from: <original-slug>` for the other subsets. Do not use resolution markers for this queue-only change, and do not let multiple implementation branches each invent a different remainder from the same original entry.
+
+### Resolution markers
 
 Before marking the pull request ready for review, verify the implementation against the complete source entry:
 
