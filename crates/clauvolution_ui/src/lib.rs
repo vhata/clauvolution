@@ -1104,7 +1104,7 @@ fn graphs_tab(ui: &mut egui::Ui, history: &PopulationHistory) {
         latest.infected as f32 / latest.organisms as f32 * 100.0
     } else { 0.0 };
     let total_deaths_sample = latest.deaths_starvation + latest.deaths_predation
-        + latest.deaths_old_age + latest.deaths_disease;
+        + latest.deaths_old_age + latest.deaths_disease + latest.deaths_event;
     let ratio = |n: u32| if total_deaths_sample > 0 { n as f32 / total_deaths_sample as f32 * 100.0 } else { 0.0 };
 
     egui::Grid::new("graphs_current").num_columns(4).striped(true).show(ui, |ui| {
@@ -1160,6 +1160,11 @@ fn graphs_tab(ui: &mut egui::Ui, history: &PopulationHistory) {
             ui.monospace("Disease");
             ui.monospace(format!("{:>3}", latest.deaths_disease));
             ui.monospace(format!("{:>4.0}%", ratio(latest.deaths_disease)));
+            ui.end_row();
+
+            ui.monospace("Event");
+            ui.monospace(format!("{:>3}", latest.deaths_event));
+            ui.monospace(format!("{:>4.0}%", ratio(latest.deaths_event)));
             ui.end_row();
         });
     });
@@ -1233,6 +1238,8 @@ fn graphs_tab(ui: &mut egui::Ui, history: &PopulationHistory) {
             .map(|(i, s)| [i as f64, s.deaths_old_age as f64]).collect();
         let d_dis: PlotPoints = snaps.iter().enumerate()
             .map(|(i, s)| [i as f64, s.deaths_disease as f64]).collect();
+        let d_evt: PlotPoints = snaps.iter().enumerate()
+            .map(|(i, s)| [i as f64, s.deaths_event as f64]).collect();
 
         Plot::new("deaths_by_cause")
             .height(130.0)
@@ -1246,6 +1253,8 @@ fn graphs_tab(ui: &mut egui::Ui, history: &PopulationHistory) {
                     .color(egui::Color32::from_rgb(180, 180, 180)).name("Old age"));
                 plot_ui.line(Line::new(d_dis)
                     .color(egui::Color32::from_rgb(180, 80, 220)).name("Disease"));
+                plot_ui.line(Line::new(d_evt)
+                    .color(egui::Color32::from_rgb(255, 140, 40)).name("Event"));
             });
 
         ui.add_space(4.0);

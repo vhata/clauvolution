@@ -507,12 +507,12 @@ fn dump_history_csv(
         "tick_second,organisms,food,species,plants,foragers,predators,infected,\
          avg_lifespan,avg_body_size,avg_speed,avg_armor,avg_attack,avg_photo,\
          avg_disease_resistance,avg_symbiosis_rate,symbiotic_pairs,\
-         deaths_starvation,deaths_predation,deaths_old_age,deaths_disease"
+         deaths_starvation,deaths_predation,deaths_old_age,deaths_disease,deaths_event"
     )?;
     for (i, s) in history.snapshots.iter().enumerate() {
         writeln!(
             f,
-            "{},{},{},{},{},{},{},{},{:.2},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{},{},{},{},{}",
+            "{},{},{},{},{},{},{},{},{:.2},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{},{},{},{},{},{}",
             i,
             s.organisms,
             s.food,
@@ -534,6 +534,7 @@ fn dump_history_csv(
             s.deaths_predation,
             s.deaths_old_age,
             s.deaths_disease,
+            s.deaths_event,
         )?;
     }
     Ok(())
@@ -646,6 +647,7 @@ fn print_headless_summary(
     eprintln!("  by Predation:          {}", stats.deaths_by_cause[1]);
     eprintln!("  by Old age:            {}", stats.deaths_by_cause[2]);
     eprintln!("  by Disease:            {}", stats.deaths_by_cause[3]);
+    eprintln!("  by Event:              {}", stats.deaths_by_cause[4]);
     if let Some(latest) = latest {
         eprintln!();
         eprintln!("Final strategy breakdown:");

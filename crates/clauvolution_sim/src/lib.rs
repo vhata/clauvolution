@@ -286,13 +286,15 @@ fn mass_extinction_input_system(
     if matches!(req, WorldEventRequest::Asteroid) {
         info!("MASS EXTINCTION: Asteroid impact!");
         let mut killed = 0u32;
-        for (entity, _, _) in &organisms {
+        for (entity, pos, _) in &organisms {
             if rng.gen::<f32>() < 0.7 {
+                commands.spawn((DeathMarker { timer: 0.5, was_predated: false }, Position(pos.0)));
                 commands.entity(entity).try_despawn_recursive();
                 killed += 1;
             }
         }
         stats.total_deaths += killed as u64;
+        stats.deaths_by_cause[DeathCause::Event as usize] += killed as u64;
         chronicle.log(tick.0, format!("ASTEROID IMPACT! {} organisms killed", killed));
         triggered = true;
     }
@@ -321,11 +323,13 @@ fn mass_extinction_input_system(
         for (entity, pos, _) in &organisms {
             let dist = ((pos.0.x - center_x).powi(2) + (pos.0.y - center_y).powi(2)).sqrt();
             if dist < radius {
+                commands.spawn((DeathMarker { timer: 0.5, was_predated: false }, Position(pos.0)));
                 commands.entity(entity).try_despawn_recursive();
                 killed += 1;
             }
         }
         stats.total_deaths += killed as u64;
+        stats.deaths_by_cause[DeathCause::Event as usize] += killed as u64;
 
         // Boost nutrients in affected area
         if let Some(ref mut tm) = tile_map {
