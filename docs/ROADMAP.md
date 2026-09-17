@@ -13,6 +13,10 @@ This is a personal project. The goal isn't to answer a research question, ship a
 
 If you're considering a new feature and it doesn't fit any of the first two buckets, question whether it should be built.
 
+## What belongs here
+
+This file holds work that serves the motivation above and is big enough to belong to a theme. Themes, ongoing concerns, and aspirational items all live here. Concrete deferred work that doesn't belong to a theme goes in [`TODO.md`](../TODO.md), and work promoted by a whole-codebase review goes in [`review/BACKLOG.md`](../review/BACKLOG.md). "Grab something from the roadmap" selects this file only.
+
 ---
 
 ## Theme 1: Comprehension — make the invisible visible
@@ -237,67 +241,11 @@ Headless mode (Theme 4) will make this much faster once it lands.
 
 ## Code health
 
-- Known rough edges tracked in `CLAUDE.md` under "Known rough edges"
 - Big files worth splitting if they grow further: `clauvolution_sim/src/lib.rs` (~1200 lines), `clauvolution_render/src/lib.rs` (~1100), `clauvolution_ui/src/lib.rs` (~830)
 - When a function in one of those crosses 100 lines, it's probably ready to move to its own module
+- Two settled calls worth not re-litigating: cosmetic overlay systems (minimap viewport rect, trails, infection halos) silently skip on a missing camera, and clippy's `type_complexity` and `too_many_arguments` lints are silenced crate-wide in the three Bevy-heavy crates because aliasing the `Query` signatures individually didn't improve readability
 
-### Known tech debt (not blocking, worth addressing when touching nearby code)
-
-**Performance / allocation hotspots:**
-- `photosynthesis_system` allocates a new `HashMap<(u32,u32), u32>` every tick (30/sec) for plant density counting. Two passes over all organisms. At 2000 organisms this is fine, but could reuse a cached resource for the count.
-- ~~Food positions collected into a new Vec twice per tick~~ — now unified behind a single `FoodSnapshot` resource built once per tick.
-- `reproduction_system` calls `genome.clone()` multiple times when setting up mate candidates. Genomes are large (neurons + connections + body segments). Could pass references via a lookup table.
-- `render` systems clone mesh/material handles frequently — handles are cheap (Arc-like) but the pattern obscures that.
-
-**Magic numbers that should be named:**
-- ~~Disease tuning literals~~, ~~bloom durations~~, ~~plant density coefficient~~, ~~extinction cooldown~~, ~~species classification period~~, ~~species hysteresis factor~~ — all done (named consts at top of `clauvolution_sim/src/lib.rs`).
-- Still inline: random click-radius, frustum margin, disease severity clamps, NEAT innovation/mutation thresholds in genome crate. Lower priority — not frequently tuned.
-- Future: promote the tuning consts to a `SimConfig`-style resource so they can be edited live via the UI without recompile (would serve the tuning loop even more directly).
-
-**Large multi-concern functions:**
-- `sensing_and_brain_system` (~114 lines) does spatial querying, input assembly, social sensing computation, and brain evaluation in one loop. Splitting the sensing pass from the brain-eval pass would also enable Rayon parallelism (ROADMAP theme 4).
-- `reproduction_system` (~114 lines) mixes mate finding, genome crossover/mutation, and child spawning. Natural split along those three concerns.
-
-**Inconsistent patterns:**
-- Event-based triggering vs direct Commands usage varies across systems. `mass_extinction_input_system` uses `WorldEventRequest` but `action_system` spawns food entities directly. Should decide: is every world mutation an event, or only user-triggered ones? Right now it's "user-triggered only", which is fine — just document.
-- Some systems use explicit chaining (`.chain()`), others rely on default Bevy ordering within a tuple. Be deliberate about which.
-
-**Name duplication:**
-- ~~`body_descriptor`, `habitat_word`, `strategy_noun` `pick!` triplet~~ — done, unified to a shared `pick()` function.
-
-**Silent failure spots:**
-- ~~`click_select_system` and `camera_control_system` window/camera silent returns~~ — now use `warn_once!` so engine-state bugs leave a single log breadcrumb.
-- Remaining overlay systems (minimap viewport rect, trails, infection halos) still silently skip on missing camera — kept silent because they're cosmetic and can't confuse input behaviour.
-- `save_system` wraps save writes in `.expect("Failed to write save file")` — panics on disk full / permissions. For a personal tool this is fine but worth noting.
-
-**Validation / save compatibility:**
-- ~~Loaded save files get no structural validation~~ — basic validation now runs on load (genome shape checks, non-finite position clamping, broken organisms skipped with a warn).
-- `disease_resistance` uses `#[serde(default)]` for backward-compat with old saves. Other fields don't. When adding new genome fields, default them too, or the load will fail.
-
-**Type complexity:**
-- ~~Bevy `Query` type signatures flagged by clippy~~ — silenced crate-wide with `#![allow(clippy::type_complexity, clippy::too_many_arguments)]` in the three Bevy-heavy crates. Aliasing individually didn't improve readability; Bevy idiom accepts these.
-
----
-
-# Cool ideas to try
-
-Small-to-medium features that aren't on the critical path but would be fun. Pick one when in the mood.
-
-### Symbiosis starter
-Lighter version of full symbiosis — energy transfer between nearby stable pairs, no genome trait yet. See whether the dynamic works at all before investing in evolvability.
-
-### Clickable chronicle entries
-Click a chronicle entry → if it's about a species, switch to Phylo tab and highlight that species. If it's about a location, focus camera there.
-
-### Prettier creature portrait (v2)
-V1 shipped — literal geometry per segment type (ellipses, triangles, lines). Reads the anatomy but looks rough. Follow-up polish:
-- Curved / jointed limbs instead of single line segments
-- Layered fin art with veins or gradients
-- Shaded torso (subtle radial gradient, not flat fill)
-- Idle breathing animation (slight torso scale oscillation synced to Age)
-- Armor plates that stack/segment visibly for multiple ArmorPlate genes
-- Proper bilateral-pair alignment so mirrored parts line up along a centre axis rather than jittering on attachment_slot offsets
-- See [design doc](design/creature-portrait.md) for the full vision (metaballs, L-systems, etc. are still future / optional)
+Concrete tech-debt items live in `TODO.md`; review-derived work lives in `review/BACKLOG.md`.
 
 ---
 
@@ -305,43 +253,7 @@ V1 shipped — literal geometry per segment type (ellipses, triangles, lines). R
 
 Larger design pieces that deserve their own document:
 
-- [Creature Portrait — detailed inspect visualization](design/creature-portrait.md) — large, detailed rendering of selected organism with brain DAG (v1 shipped — see "Prettier creature portrait" above for v2 follow-ups)
-
----
-
-# Backlog
-
-Items that don't directly serve the joy-of-watching motivation. Here for completeness.
-
-## Performance scaling
-
-Three complementary approaches, roughly in order of bang-for-buck:
-
-### Rayon parallelization for brain evaluation
-⚠️ **Partial (v2).** `sensing_and_brain_system`, `metabolism_system`, and the photosynthesis second pass all use `Query::par_iter_mut` now. Compute pool capped at 6 workers by default (overridable via `CLAU_WORKERS` env var) — leaves cores free for other OS tasks so the sim doesn't peg the laptop.
-
-**Caveat on benchmarking:** headless runs at a 30Hz fixed timestep paced by virtual time, so 1500 ticks always take ~50s regardless of per-tick cost. Real speedup shows at fast sim speeds (`]` key, up to 16x) where each real-time second has to accommodate more ticks — that's where the extra Rayon headroom matters.
-
-**Follow-ups for further speedup:**
-- Parallelise remaining O(n) systems: predation, disease effects, niche construction (the last two currently share `SimRng` / `Commands`, need refactoring)
-- Cache or batch spatial hash queries (currently ~2000 radius queries per tick)
-- GPU compute shader for brain eval (below) for big wins at 10k+ organisms
-
-### GPU instanced rendering
-Currently each organism gets its own `ColorMaterial`. True instanced rendering would pack per-instance data into a single buffer and draw all organisms in one draw call. Bitmask shader trick: each instance carries a feature bitmask, shader scales absent parts to zero — no entity churn for LOD changes.
-
-### GPU compute for neural net batching
-The big one. Pad all NEAT networks to uniform max size, flatten into GPU buffers, evaluate all brains in a single compute shader dispatch. Only worth it at 10k+ organisms.
-
-## Accessibility
-
-### WASM+WebGPU browser build
-Run in a browser without installing anything. Only matters if you ever want to share the sim. Needs perf work first.
-
-## Sharing
-
-### Organism export / import
-Save an interesting creature to a file. Load it into another sim as seed population. JSON export of a single organism's genome. `--seed-with creature.json` CLI flag.
+- [Creature Portrait — detailed inspect visualization](design/creature-portrait.md) — large, detailed rendering of selected organism with brain DAG (v1 shipped; v2 polish is tracked in `TODO.md` as `creature-portrait-v2-polish`)
 
 ---
 

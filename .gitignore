@@ -7,3 +7,6 @@
 *.swo
 .DS_Store
 **/*.iconset/
+
+# Claude Code local state (agent worktrees, local settings)
+/.claude/
