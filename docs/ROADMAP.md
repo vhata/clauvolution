@@ -13,6 +13,10 @@ This is a personal project. The goal isn't to answer a research question, ship a
 
 If you're considering a new feature and it doesn't fit any of the first two buckets, question whether it should be built.
 
+## What belongs here
+
+This file holds work that serves the motivation above and is big enough to belong to a theme. Themes, ongoing concerns, and aspirational items all live here. Concrete deferred work that doesn't belong to a theme goes in [`TODO.md`](../TODO.md), and work promoted by a whole-codebase review goes in [`review/BACKLOG.md`](../review/BACKLOG.md). "Grab something from the roadmap" selects this file only.
+
 ---
 
 ## Theme 1: Comprehension — make the invisible visible
