@@ -39,14 +39,17 @@ Systems run in Bevy's standard schedules:
 
 ```
 tick_counter_system           ← advance tick counter, advance season
-sensing_and_brain_system      ← for each organism: gather inputs, evaluate brain, write outputs
+update_food_snapshot          ← collect (entity, position, energy) of all food into FoodSnapshot
+sensing_and_brain_system      ← for each organism: gather inputs, evaluate brain, write outputs (par_iter_mut)
 action_system                 ← execute brain outputs (move, eat, signal, update memory)
 predation_system              ← attack intents → damage → kills (energy pyramid: 10%)
-photosynthesis_system         ← sun energy for plants, factoring plant density competition
+photosynthesis_system         ← sun energy for plants, factoring plant density competition (second pass par_iter_mut)
 niche_construction_system     ← organisms modify the tiles they occupy
 disease_transmission_system   ← background infections + proximity spread
 disease_effects_system        ← per-tick drain, direct mortality chance, timer countdown
-metabolism_system             ← energy costs (quadratic in body/armor/claws/speed), aging
+symbiosis_tracking_system     ← nearest-neighbour streak per organism (par_iter_mut)
+symbiosis_transfer_system     ← energy exchange between mutual pairs past the link threshold
+metabolism_system             ← energy costs (quadratic in body/armor/claws/speed), aging (par_iter_mut)
 death_system                  ← energy ≤ 0 → categorise cause → despawn
 reproduction_system           ← eligible parents → crossover + mutate → spawn child
 species_classification_system ← NEAT compatibility distance with hysteresis (every 5s)
@@ -54,7 +57,7 @@ record_population_history     ← 1Hz snapshot into PopulationHistory ring buffe
 record_trail_history          ← organism position samples (when trails enabled)
 ```
 
-Plus in FixedUpdate separately: `food_regeneration_system` and `tile_dynamics_system` (vegetation growth).
+Plus in FixedUpdate, registered by `WorldPlugin` with no ordering constraint relative to the chain above: `food_regeneration_system` and `tile_dynamics_system` (vegetation growth).
 
 **PostUpdate** (once per frame, after logic — rendering only)
 

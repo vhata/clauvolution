@@ -37,7 +37,7 @@ Requires Rust (latest stable) and a GPU with Metal / Vulkan / DX12 support.
 |-----|--------|
 | **WASD / Arrows** | Pan camera |
 | **Q / E** or **- / +** or **Scroll** | Zoom |
-| **Right-click drag** | Pan camera |
+| **Right / middle drag**, or **Shift+left drag** | Pan camera |
 | **Left click** | Select organism (inspect panel) |
 | **F** | Focus camera on selected organism |
 | **,** / **.** | Cycle through living members of the selected organism's species |
