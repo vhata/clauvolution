@@ -7,8 +7,10 @@ pub struct WorldPlugin;
 
 impl Plugin for WorldPlugin {
     fn build(&self, app: &mut App) {
+        // `update_spatial_hash` is deliberately not registered here. It is
+        // scheduled by `SimPlugin` inside the FixedUpdate chain so that every
+        // tick's neighbour queries see that tick's positions.
         app.insert_resource(SpatialHash::default())
-            .add_systems(PreUpdate, update_spatial_hash)
             .add_systems(FixedUpdate, (food_regeneration_system, tile_dynamics_system));
     }
 }
@@ -232,7 +234,7 @@ fn tile_dynamics_system(mut tile_map: ResMut<TileMap>) {
     }
 }
 
-// --- Spatial Hash (unchanged) ---
+// --- Spatial Hash ---
 
 #[derive(Resource, Default)]
 pub struct SpatialHash {
@@ -282,7 +284,14 @@ impl SpatialHash {
     }
 }
 
-fn update_spatial_hash(
+/// Rebuild the spatial hash from every `Position` in the world.
+///
+/// Runs once per FixedUpdate tick, ordered by `SimPlugin` directly after
+/// `tick_counter_system` and before any system that queries neighbours.
+/// Positions change once per tick, so rebuilding per frame (the previous
+/// `PreUpdate` placement) left every tick after the first in a frame reading
+/// stale cells whenever a frame ran several ticks.
+pub fn update_spatial_hash(
     mut spatial_hash: ResMut<SpatialHash>,
     query: Query<(Entity, &Position)>,
 ) {
