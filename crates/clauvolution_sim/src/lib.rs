@@ -11,7 +11,7 @@ use clauvolution_genome::{Genome, InnovationCounter, NUM_INPUTS, NUM_MEMORY};
 use clauvolution_phylogeny::{PhyloTree, SpeciesStrategy, SpeciesTraits, WorldChronicle};
 use clauvolution_world::{update_spatial_hash, SpatialHash, TileMap};
 use rand::Rng;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 // -----------------------------------------------------------------------------
 // Disease tuning constants
@@ -621,14 +621,19 @@ fn predation_system(
         .collect();
     predation_stats.attacks_attempted += attackers.len() as u64;
 
-    // (killer, victim, victim_energy) — energy transfer computed at kill time
+    // (killer, victim, victim_energy) — energy transfer computed at kill time.
+    // A victim is claimed at most once per tick: the first attacker to land a
+    // kill takes the energy transfer, and later attackers skip that target and
+    // keep scanning. Without this, several attackers could each be paid 10% of
+    // the same victim's energy and each count a kill. See DECISIONS.md.
     let mut kills: Vec<(Entity, Entity, f32)> = Vec::new();
+    let mut claimed_victims: HashSet<Entity> = HashSet::new();
 
     for (attacker_entity, attacker_pos, attack_str, attack_range, attacker_size) in &attackers {
         let nearby = spatial_hash.query_radius(*attacker_pos, *attack_range);
 
         for &target_entity in &nearby {
-            if target_entity == *attacker_entity {
+            if target_entity == *attacker_entity || claimed_victims.contains(&target_entity) {
                 continue;
             }
 
@@ -659,6 +664,7 @@ fn predation_system(
                     // This is thermodynamics — most energy is lost as heat.
                     let energy_gained = target_energy.0 * 0.1;
                     kills.push((*attacker_entity, target_entity, energy_gained));
+                    claimed_victims.insert(target_entity);
                     break;
                 }
             }

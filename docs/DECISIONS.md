@@ -14,6 +14,12 @@ Not an exhaustive list of every tweak — just the decisions where someone readi
 **Why:** thermodynamically honest — most energy is lost as heat in real ecosystems. Also functions as a balance mechanism: predators can't sustain themselves indefinitely on abundant prey, preventing predator-dominated attractors.
 **Accepted tradeoff:** predators need dense prey to thrive; in sparse populations they struggle. This is realistic but can mean predator lineages fail on some seeds.
 
+### One kill per victim per tick — first attacker wins
+**Chosen:** `predation_system` tracks the victims claimed during the current tick. The first attacker to land a kill on a target takes the 10% energy transfer; later attackers skip that target and carry on scanning for another one.
+**Alternatives:** split the transfer between every attacker that picked the victim; pay every attacker in full (the previous behaviour, by omission).
+**Why:** several attackers can pick the same victim in one tick. Before this rule each of them was paid 10% of the victim's unmodified energy and each pushed a kill, so one death was paid several times over and `PredationStats.kills` exceeded predation deaths (4724 kills against 1946 predation deaths at the baseline seed of the 2026-09-17 review). Splitting the transfer would also conserve energy, but the payout would then depend on how many neighbours happened to fire in the same tick, which is noise rather than a selective signal. First-wins keeps the payout a fixed fraction of the victim's energy, and the attacker that loses the race is free to find another target in the same tick.
+**Accepted tradeoff:** which attacker wins is query iteration order, not a contest of size or speed. At one tick of resolution this is indistinguishable from simultaneity, and the loser pays nothing for the attempt.
+
 ### Quadratic costs for body, armor, claws, speed
 **Chosen:** metabolism cost scales as `trait²` for these four traits.
 **Alternatives:** linear costs, tiered cliffs, no extra cost.
