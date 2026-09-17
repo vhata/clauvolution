@@ -91,6 +91,12 @@ Not an exhaustive list of every tweak — just the decisions where someone readi
 **Why:** creates regular environmental pressure on a timescale where you can actually observe adaptation within one viewing session. 60 seconds is short enough that you'll see winter affect populations multiple times in a run.
 **Accepted tradeoff:** not a lifetime pressure — organisms can't "adapt" within one season. Multi-generational pressure needs long-term climate shift (which is on the roadmap).
 
+### Terrain noise ranges: elevation -1..1, moisture 0..1
+**Chosen:** `generate_noise_map` normalises each noise map to 0..1. `TileMap::generate` remaps only elevation to -1..1; moisture keeps 0..1.
+**Alternatives:** normalise both to -1..1 (what shipped originally), remap moisture with `(m + 1) / 2` at each consumer.
+**Why:** elevation needs a signed range because water is "below zero" (DeepWater under -0.3, ShallowWater under -0.05). Nothing about moisture is signed. Every consumer assumes 0..1: the biome thresholds in `Tile::from_elevation_moisture` (Sand/Rock below 0.25, Forest above 0.6), the vegetation carrying capacity `nutrients × moisture` in `tile_dynamics_system`, the `min(1.0)` clamp in `niche_construction_system`, and the ice age's `moisture *= 0.7`. With -1..1, roughly half the land had negative moisture, so its carrying capacity was negative and vegetation decayed to zero with no regrowth; Forest was confined to the top fifth of the range; and the ice age made dry (negative) tiles wetter, since scaling a negative number toward zero raises it. On the default 512² world at seed 42, Sand went from about 65% of land to 16% and Grassland from 12% to 46% once the range was corrected.
+**Accepted tradeoff:** the biome thresholds were left at 0.25 and 0.6, so Rock (dry and above elevation 0.6) is now rare to absent on some seeds; it was only 0.2% of land before. Any retuning of thresholds, `PHOTO_OUTPUT_MULTIPLIER`, or initial seeding in response to the greener world belongs to a separate tuning pass after the attractor audit is re-run. Saves regenerate terrain from the seed, so saves made before this change load with a different biome layout.
+
 ### Deep water 10× movement cost
 **Chosen:** land organisms crossing deep water pay 10× energy cost per step.
 **Alternatives:** soft gradient, impassable barrier, no penalty.
