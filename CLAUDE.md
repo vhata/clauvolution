@@ -21,6 +21,18 @@ Start there before reading code for any meaningful change. The decisions doc in 
 - When adding a new simulation dynamic, budget a follow-up tuning pass. Instrument first (ensure Graphs tab can show the dynamic's effect), then tune.
 - Prefer editing existing files to creating new ones.
 
+## Scope discipline and deferred ideas
+
+Keep each branch focused on its stated goal and acceptance criteria. Whenever a new suggestion appears, whether from the user or from your own investigation, read [`docs/TODO_GUIDE.md`](docs/TODO_GUIDE.md) and apply its scope decision before acting. That guide also defines where deferred ideas are recorded, how entries are written, and how to claim and resolve an entry in either tracked backlog: [`TODO.md`](TODO.md) for deferred project ideas and [`review/BACKLOG.md`](review/BACKLOG.md) for work promoted by a whole-codebase review.
+
+## Backlog selection
+
+Requests such as "grab something from the TODO" or "grab a review finding" name a specific queue. Read the queue boundaries in [`docs/TODO_GUIDE.md`](docs/TODO_GUIDE.md) before choosing an entry, and state the chosen queue, section, and slug before claiming the work.
+
+## Code reviews
+
+Whole-codebase reviews are recorded as ledgers in [`review/`](review/) and kept current through incremental reviews. Read [`docs/CODE_REVIEW_GUIDE.md`](docs/CODE_REVIEW_GUIDE.md) when asked to perform a full or incremental review, when a pull request resolves a review finding, or when deciding whether a finding belongs in the review backlog. Do not load it for other work.
+
 ## Build & run
 
 ```bash
