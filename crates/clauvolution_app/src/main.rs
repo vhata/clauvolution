@@ -145,7 +145,11 @@ fn main() {
     .insert_resource(InnovationCounter(100))
     .insert_resource(LoadPath(load_path))
     .insert_resource(SeedOverride(seed))
-    .add_systems(Startup, (apply_seed_override, startup_system, set_window_title).chain());
+    .insert_resource(SpeciesThresholdOverride(species_threshold_override))
+    .add_systems(
+        Startup,
+        (apply_seed_override, startup_system, apply_species_threshold, set_window_title).chain(),
+    );
 
     if screenshot_mode {
         app.insert_resource(ScreenshotSchedule::new())
@@ -459,7 +463,7 @@ fn run_headless(
         .insert_resource(SeedOverride(seed))
         .insert_resource(HeadlessSpeed(speed))
         .insert_resource(HeadlessSaveAtEnd(save_as.is_some()))
-        .insert_resource(HeadlessSpeciesThreshold(species_threshold))
+        .insert_resource(SpeciesThresholdOverride(species_threshold))
         .add_systems(
             Startup,
             (apply_seed_override, startup_system, set_headless_speed, apply_species_threshold).chain(),
@@ -475,10 +479,13 @@ fn run_headless(
     .add_systems(FixedUpdate, headless_tick_counter);
 
     // Headless runs virtual time at `--speed` ×, so FixedUpdate can fire
-    // faster than 30Hz wall-clock up to whatever the CPU can sustain. Every
-    // sim timer (species classification, pop history, bloom durations) is
-    // defined in virtual seconds so their semantics stay intact — a run
-    // that used to take 50s wall-clock just completes in 5s at speed=10.
+    // faster than 30Hz wall-clock up to whatever the CPU can sustain. The
+    // fixed timestep stays at 30 Hz and every sim timer (species
+    // classification, pop history, bloom durations) is defined in virtual
+    // seconds, so their semantics stay intact — a run that used to take 50s
+    // wall-clock just completes in 5s at speed=10. The GUI speed control
+    // (`sim_speed_system` in clauvolution_sim) scales virtual time the same
+    // way, so both modes run the same per-tick simulation.
     // On an M4 Max at speed=10 we keep up with the CPU; push it further
     // and Bevy's catchup starts clamping via the 100ms max_delta cap.
 
@@ -541,15 +548,19 @@ fn dump_history_csv(
 #[derive(Resource)]
 struct HeadlessSpeed(f32);
 
-fn set_headless_speed(speed: Res<HeadlessSpeed>, mut vtime: ResMut<Time<Virtual>>) {
-    vtime.set_relative_speed(speed.0);
+/// Hand `--speed` to `SimSpeed`; `sim_speed_system` in `clauvolution_sim`
+/// applies it to `Time<Virtual>` for both headless and GUI runs.
+fn set_headless_speed(speed: Res<HeadlessSpeed>, mut sim_speed: ResMut<SimSpeed>) {
+    sim_speed.multiplier = speed.0;
 }
 
+/// `--species-threshold N` from the command line, applied after
+/// `startup_system` in both the GUI and headless startup chains.
 #[derive(Resource)]
-struct HeadlessSpeciesThreshold(Option<f32>);
+struct SpeciesThresholdOverride(Option<f32>);
 
 fn apply_species_threshold(
-    override_val: Res<HeadlessSpeciesThreshold>,
+    override_val: Res<SpeciesThresholdOverride>,
     mut config: ResMut<SimConfig>,
 ) {
     if let Some(v) = override_val.0 {

@@ -10,10 +10,6 @@ See the [`code review guide`](../docs/CODE_REVIEW_GUIDE.md) for how findings ent
 
 ## P2 Normal
 
-- [SIM] `headless-gui-parity` — **Make the GUI speed control and the species-threshold flag behave the same in both modes.** The GUI rescales the fixed timestep, which shrinks every virtual-time timer's delta, while headless scales virtual time; and `--species-threshold` is silently dropped in GUI mode.
-  - Starting point: In `sim_speed_system`, set `Time<Virtual>` relative speed instead of `set_timestep_hz`, matching `set_headless_speed`; apply `apply_species_threshold` in both startup chains in `clauvolution_app`.
-  - Source: review/2026-09-17-0756-full.md, 2026-09-17
-  - Findings: `gui-speed-rescales-timers`, `species-threshold-flag-gui-ignored`
 - [SIM] `sim-accounting-fixes` — **Fix the five small stat and energy accounting defects in the simulation.** The header Pop readout is frozen at the initial population, species count includes empty representatives, small parents mint energy on reproduction, one victim can pay several attackers, and event deaths never reach the per-cause totals.
   - Starting point: All in `clauvolution_sim/src/lib.rs` (`predation_system`, `reproduction_system`, `species_classification_system`, `mass_extinction_input_system`) plus the `total_organisms` writes in `clauvolution_app`. Validate with `--headless 1000 --seed 42`: "Total organisms (final)" must equal the strategy sum, and kills must not exceed predation deaths.
   - Source: review/2026-09-17-0756-full.md, 2026-09-17
