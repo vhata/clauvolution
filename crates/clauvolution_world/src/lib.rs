@@ -145,9 +145,17 @@ impl TileMap {
         self.get(x, y)
     }
 
-    /// Generate a world using layered simplex-like noise (diamond-square)
+    /// Generate a world from two layered value-noise maps.
+    ///
+    /// Elevation is remapped to -1..1 so that water sits below zero; moisture
+    /// stays in the noise map's native 0..1 because the biome thresholds in
+    /// `Tile::from_elevation_moisture` and the vegetation carrying capacity in
+    /// `tile_dynamics_system` both assume that range.
     pub fn generate(width: u32, height: u32, rng: &mut impl Rng) -> Self {
-        let elevation = generate_noise_map(width, height, 5, rng);
+        let mut elevation = generate_noise_map(width, height, 5, rng);
+        for e in &mut elevation {
+            *e = *e * 2.0 - 1.0;
+        }
         let moisture = generate_noise_map(width, height, 4, rng);
 
         let tiles: Vec<Tile> = elevation
@@ -164,7 +172,7 @@ impl TileMap {
     }
 }
 
-/// Simple value noise with octaves for procedural terrain
+/// Simple multi-octave value noise for procedural terrain, normalised to 0..1.
 fn generate_noise_map(width: u32, height: u32, octaves: u32, rng: &mut impl Rng) -> Vec<f32> {
     let size = (width * height) as usize;
     let mut result = vec![0.0f32; size];
@@ -209,12 +217,12 @@ fn generate_noise_map(width: u32, height: u32, octaves: u32, rng: &mut impl Rng)
         }
     }
 
-    // Normalize to -1..1
+    // Normalize to 0..1
     let min = result.iter().cloned().fold(f32::MAX, f32::min);
     let max = result.iter().cloned().fold(f32::MIN, f32::max);
     let range = (max - min).max(0.001);
     for v in &mut result {
-        *v = (*v - min) / range * 2.0 - 1.0;
+        *v = (*v - min) / range;
     }
 
     result
@@ -357,5 +365,47 @@ pub fn food_regeneration_system(
                 Position(Vec2::new(x, y)),
             ));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand::{rngs::StdRng, SeedableRng};
+
+    /// Moisture must span 0..1 (the biome thresholds and the vegetation
+    /// carrying capacity assume it) while elevation stays signed so that
+    /// water sits below zero. Uses the default world size and the seed the
+    /// headless validation runs use, and prints the biome counts so a tuning
+    /// pass can compare distributions.
+    #[test]
+    fn generated_map_has_unit_moisture_and_mixed_biomes() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let map = TileMap::generate(512, 512, &mut rng);
+
+        let mut counts: HashMap<TerrainType, usize> = HashMap::new();
+        for tile in &map.tiles {
+            *counts.entry(tile.terrain).or_default() += 1;
+        }
+        let mut sorted: Vec<_> = counts.iter().collect();
+        sorted.sort_by_key(|(t, _)| format!("{:?}", t));
+        for (terrain, n) in sorted {
+            println!("{:?}: {}", terrain, n);
+        }
+
+        let (mut min_m, mut max_m) = (f32::MAX, f32::MIN);
+        let (mut min_e, mut max_e) = (f32::MAX, f32::MIN);
+        for tile in &map.tiles {
+            min_m = min_m.min(tile.moisture);
+            max_m = max_m.max(tile.moisture);
+            min_e = min_e.min(tile.elevation);
+            max_e = max_e.max(tile.elevation);
+        }
+        println!("moisture {min_m}..{max_m}, elevation {min_e}..{max_e}");
+
+        assert!(min_m >= 0.0 && max_m <= 1.0, "moisture outside 0..1: {min_m}..{max_m}");
+        assert!(min_e < 0.0 && max_e > 0.0, "elevation should straddle zero: {min_e}..{max_e}");
+        assert!(counts.len() > 1, "expected more than one biome type, got {counts:?}");
+        assert!(counts.contains_key(&TerrainType::Forest), "no Forest tiles generated");
     }
 }
