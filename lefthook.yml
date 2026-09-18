@@ -1,0 +1,16 @@
+# Git hooks, installed with scripts/setup.sh (which runs `lefthook install`).
+# Each hook calls the matching script in scripts/, so the hook and the CI
+# job run the same code. See docs/QUALITY.md.
+
+pre-commit:
+  parallel: true
+  jobs:
+    - name: fmt-check
+      run: scripts/fmt-check.sh
+    - name: lint
+      run: scripts/lint.sh
+
+pre-push:
+  jobs:
+    - name: test
+      run: scripts/test.sh
