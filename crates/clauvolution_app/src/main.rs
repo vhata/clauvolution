@@ -460,7 +460,7 @@ fn run_headless(
         .insert_resource(SpeciesThresholdOverride(species_threshold))
         .add_systems(
             Startup,
-            (apply_seed_override, startup_system, set_headless_speed, apply_species_threshold).chain(),
+            (apply_seed_override, startup_system, set_headless_speed, apply_species_threshold, unbound_history).chain(),
         );
 
     // Counter system that exits after N FixedUpdate ticks from whatever
@@ -504,16 +504,17 @@ fn dump_history_csv(
     let mut f = std::fs::File::create(path)?;
     writeln!(
         f,
-        "tick_second,organisms,food,species,plants,foragers,predators,infected,\
+        "tick,sim_second,organisms,food,species,plants,foragers,predators,infected,\
          avg_lifespan,avg_body_size,avg_speed,avg_armor,avg_attack,avg_photo,\
          avg_disease_resistance,avg_symbiosis_rate,symbiotic_pairs,\
          deaths_starvation,deaths_predation,deaths_old_age,deaths_disease,deaths_event"
     )?;
-    for (i, s) in history.snapshots.iter().enumerate() {
+    for s in &history.snapshots {
         writeln!(
             f,
-            "{},{},{},{},{},{},{},{},{:.2},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{},{},{},{},{},{}",
-            i,
+            "{},{:.1},{},{},{},{},{},{},{},{:.2},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{},{},{},{},{},{}",
+            s.tick,
+            s.tick as f64 / 30.0,
             s.organisms,
             s.food,
             s.species,
@@ -545,6 +546,13 @@ struct HeadlessSpeed(f32);
 
 /// Hand `--speed` to `SimSpeed`; `sim_speed_system` in `clauvolution_sim`
 /// applies it to `Time<Virtual>` for both headless and GUI runs.
+/// Headless runs keep every population snapshot so `--dump-history` covers
+/// the whole run. The GUI keeps the 300-entry ring buffer the Graphs tab
+/// is sized for.
+fn unbound_history(mut history: ResMut<clauvolution_core::PopulationHistory>) {
+    history.max_entries = usize::MAX;
+}
+
 fn set_headless_speed(speed: Res<HeadlessSpeed>, mut sim_speed: ResMut<SimSpeed>) {
     sim_speed.multiplier = speed.0;
 }

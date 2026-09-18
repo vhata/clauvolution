@@ -1,0 +1,41 @@
+Compute pool capped at 6 workers (set CLAU_WORKERS to override)
+Headless run: 15000 ticks, seed 42 at 10× virtual-time
+
+=== Headless summary ===
+Total organisms (final): 2000
+Species (final):         29
+Max generation:          28
+Total births:            20722
+Total deaths:            19122
+  by Starvation:         2224
+  by Predation:          12291
+  by Old age:            1866
+  by Disease:            2741
+  by Event:              0
+
+Final strategy breakdown:
+  Plants:              1822
+  Foragers:            177
+  Predators:           1
+  Infected:            388
+
+Final trait averages:
+  Body size:           0.52
+  Speed:               0.47
+  Attack:              0.03
+  Armor:               0.25
+  Photosynthesis:      68%
+  Disease resistance:  18%
+  Symbiosis rate:      +0.10
+  Symbiotic pairs:     80
+  Avg lifespan:        3841 ticks
+
+Predation funnel:
+  Attack intents:      12694494
+  Targets considered:  3111070
+  Rejected (size):     173072
+  Rejected (damage):   3096049
+  Kills:               12291
+
+Wrote 499 snapshots to docs/audits/2026-09-18-attractor-audit/seed42-run2.csv
+Headless run complete in 683.89s

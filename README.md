@@ -24,7 +24,8 @@ cargo run --release -- --screenshot                        # legacy fixed tour (
 cargo run --release -- --headless 1000 --seed 42           # run 1000 ticks, print a summary at the end
 cargo run --release -- --headless 1000 --speed 20          # virtual-time multiplier (default 10; CPU-bound past ~5)
 cargo run --release -- --headless 1000 --save-as my-world  # write sessions/my-world/save.json at the end
-cargo run --release -- --headless 1000 --dump-history h.csv   # 1 Hz population history as CSV
+cargo run --release -- --headless 1000 --dump-history h.csv   # 1 Hz population history for the whole run as CSV
+scripts/attractor_audit.sh docs/audits/$(date +%F)-attractor-audit   # 8 seeds x 2 runs x 15k ticks; summarise with scripts/attractor_audit_summary.py
 cargo run --release -- --headless 1000 --species-threshold 1.5  # same override, applied identically in headless
 ```
 
