@@ -1,6 +1,6 @@
 # Quality assurance
 
-How this project keeps itself honest: which checks exist, where each one runs, what blocks a merge, and what stays a human judgement call. Companion to `docs/CODE_REVIEW_GUIDE.md` (periodic whole-codebase review) and `docs/TODO_GUIDE.md` (how deferred work is tracked). This document is the contract; the Makefile, hooks, and workflows implement it.
+How this project keeps itself honest: which checks exist, where each one runs, what blocks a merge, and what stays a human judgement call. Companion to `docs/CODE_REVIEW_GUIDE.md` (periodic whole-codebase review) and `docs/TODO_GUIDE.md` (how deferred work is tracked). This document is the contract; the scripts, hooks, and workflows implement it.
 
 ## What quality means here
 
@@ -28,21 +28,21 @@ The clippy count problem is already tracked as `clippy-baseline-toolchain` in `T
 
 ## The gates
 
-Every check below has one canonical entry point in a `Makefile` at the repository root, so that the hook, CI, the review guide, and an agent typing a command all run the same thing. `make` with no target lists them.
+Every check is a standalone shell script in `scripts/`, runnable on its own with no arguments and exiting non-zero on failure. The hooks, CI, the review guide, and an agent typing a command all run the same scripts. `scripts/check.sh` is the entry point that runs the local gates in order; there is no Makefile.
 
-| Target | What it runs | Pre-commit | Pre-push | CI on PR | CI on `main` |
+| Script | What it runs | Pre-commit | Pre-push | CI on PR | CI on `main` |
 | --- | --- | --- | --- | --- | --- |
-| `make fmt-check` | `cargo fmt --all -- --check` | yes | yes | yes | yes |
-| `make lint` | `cargo clippy --workspace --all-targets -- -D warnings` | yes | yes | yes | yes |
-| `make test` | `cargo test --workspace` | no | yes | yes | yes |
-| `make build` | `cargo build --release` | no | no | yes | yes |
-| `make smoke` | release binary, `--headless 500 --seed 42`, must exit 0 with a living population | no | no | yes | yes |
-| `make probe` | the long headless probe described below | no | no | no | scheduled |
-| `make check` | `fmt-check` + `lint` + `test` | | | | |
-| `make fmt` | `cargo fmt --all` (fixes, does not check) | | | | |
-| `make setup` | installs the hooks (`git config core.hooksPath .githooks`) | | | | |
+| `scripts/fmt-check.sh` | `cargo fmt --all -- --check` | yes | yes | yes | yes |
+| `scripts/lint.sh` | `cargo clippy --workspace --all-targets -- -D warnings` | yes | yes | yes | yes |
+| `scripts/test.sh` | `cargo test --workspace` | no | yes | yes | yes |
+| `scripts/smoke.sh` | release build, then `--headless 500 --seed 42`, must exit 0 with a living population | no | no | yes | yes |
+| `scripts/probe.sh SEED TICKS OUT_DIR` | one long headless run, described below | no | no | no | scheduled |
+| `scripts/check.sh` | `fmt-check` + `lint` + `test` | | | | |
+| `scripts/setup.sh` | installs lefthook's hooks into the repository | | | | |
 
 "Yes" in a CI column means the job blocks the merge. Everything in the pre-commit and pre-push columns is a fast local mirror of the same gate, so a red CI run should be a surprise, not a discovery.
+
+Timings measured on the development machine with a warm cache, which decide what runs at commit time: the format check takes well under a second, and clippy after editing a root crate takes about one second. Both are under the two-second budget for a commit hook. A cold cache (after a toolchain change or `cargo clean`) takes minutes once; that is the price of the first commit after this lands.
 
 ### Formatting
 
@@ -63,9 +63,9 @@ Rustdoc warnings are not gated. `cargo doc` is not part of the workflow and the 
 
 ### Toolchain
 
-A `rust-toolchain.toml` pinning `channel = "stable"` with `components = ["rustfmt", "clippy"]`. Clippy's lint set changes between releases, so the lint gate is only meaningful if everyone runs the same toolchain. Stable rather than a specific version: a hobby project should ride the release train, and when a new stable adds a lint that fires, the fix is a small PR. If that churn turns out to be annoying, pin to a version and bump deliberately.
+A `rust-toolchain.toml` pinning an exact stable release, `channel = "1.98.1"` (the current stable at the time of writing), with `components = ["rustfmt", "clippy"]`. Clippy's lint set changes between releases, so the lint gate is only meaningful if everyone runs the same toolchain, and a new stable release must never turn an unrelated PR red. Bumping the pin is its own small PR: edit the file, run the lint script, fix whatever the new release flags.
 
-This changes the local toolchain from nightly to stable. Nothing in the code needs nightly today (the workspace builds on the nightly only because that is what was installed).
+This changes the local toolchain from nightly to stable. Nothing in the code needs nightly today (the workspace builds on the nightly only because that is what was installed). `rustup` reads the file and installs the pinned toolchain on first use.
 
 ### Tests
 
@@ -80,10 +80,12 @@ An integration test crate that spawns a headless app, runs a few hundred ticks, 
 
 ### Pre-commit and pre-push hooks
 
-Hooks live in a versioned `.githooks/` directory and are activated by `make setup`, which sets `core.hooksPath`. That setting lives in the shared `.git/config`, so it applies to every worktree at once. No hook framework; two shell scripts are enough.
+Hooks are managed by [lefthook](https://github.com/evilmartians/lefthook), configured in a versioned `lefthook.yml` at the repository root. Lefthook is the current standard for polyglot repositories: a single Go binary with no runtime dependency (husky needs Node, the `pre-commit` framework needs Python), a declarative config that lives in git, and `lefthook install` to wire it up. Its config here does nothing clever: each hook calls the matching script in `scripts/`, so the hook and the CI job are the same code. `scripts/setup.sh` runs `lefthook install` and tells you how to get lefthook if it is missing (`brew install lefthook`).
 
-- **pre-commit** runs `make fmt-check` and `make lint`. With a warm incremental cache clippy on this workspace takes tens of seconds, which is acceptable for a commit. It does not auto-format: a hook that rewrites the files being committed hides the change from the author, and `make fmt` is one command away.
-- **pre-push** runs `make test`. Test compilation is slower than clippy, so it sits at push time rather than commit time. Pushes here open or update a PR, which is the moment the result matters.
+The generated hooks live in `.git/hooks`, which is shared by every worktree of this repository, so one install covers all of them.
+
+- **pre-commit** runs `scripts/fmt-check.sh` and `scripts/lint.sh`, in parallel. Both finish in about a second with a warm cache. The hook does not auto-format: a hook that rewrites the files being committed hides the change from the author, and `cargo fmt --all` is one command away.
+- **pre-push** runs `scripts/test.sh`. Test compilation is much slower than clippy, so it sits at push time. Pushes here open or update a PR, which is the moment the result matters.
 
 `--no-verify` is for recovering from a broken toolchain, not for deferring a fix. If a hook is wrong, fix the hook.
 
@@ -91,8 +93,8 @@ Hooks live in a versioned `.githooks/` directory and are activated by `make setu
 
 One workflow, `.github/workflows/ci.yml`, triggered on `pull_request` and on `push` to `main`. Jobs:
 
-1. **check**: `make fmt-check`, `make lint`, `make test`, in that order so the cheapest failure reports first.
-2. **smoke**: `make build` then `make smoke`. Runs in parallel with `check` because the release build shares nothing with the debug test build.
+1. **check**: `scripts/fmt-check.sh`, `scripts/lint.sh`, `scripts/test.sh`, in that order so the cheapest failure reports first.
+2. **smoke**: `scripts/smoke.sh`, which builds release and runs the short headless check. Runs in parallel with `check` because the release build shares nothing with the debug test build.
 
 Both jobs run on `ubuntu-latest` with `dtolnay/rust-toolchain` reading the pinned toolchain file and `Swatinem/rust-cache` caching `target/`. Bevy 0.15 needs `libasound2-dev`, `libudev-dev`, `libwayland-dev`, and `libxkbcommon-dev` installed with `apt` before the build; the headless binary still links the audio and windowing stacks. A cold Bevy build on a two-core runner is slow (expect ten minutes or more the first time); with the cache warm it should be a few minutes. Concurrency is set so a new push to a PR cancels the previous run.
 
@@ -104,10 +106,12 @@ The user merges. CI is what makes "the user merges" safe rather than ceremonial:
 
 This is the one place the project needs more than a standard Rust CI, because the failure mode that matters most is "a merged change quietly moved the attractor" and nothing above catches that. A separate workflow, `.github/workflows/probe.yml`:
 
-- **Trigger**: `push` to `main`, `schedule` weekly (Sunday night), and `workflow_dispatch` for on-demand runs. Main moves only by squash merge, so the push trigger fires a few times a day at most. The weekly run exists to catch toolchain and dependency drift when main is idle.
-- **Matrix**: the eight audit seeds from `scripts/attractor_audit.sh` (1, 2, 3, 42, 314, 7, 99, 1000), one job each, 5000 ticks with `--dump-history`. Not the full 15000-tick, two-runs-per-seed audit: that is a deliberate, documented event with a summary written by a human, and it would take many hours on runner hardware. The probe is a canary, not an audit.
+- **Trigger**: `push` to `main`, `schedule` weekly (Sunday night), `workflow_dispatch` for on-demand runs, and `pull_request` when the probe workflow or its script changes, so edits to the probe are exercised before merge. Main moves only by squash merge, so the push trigger fires a few times a day at most.
+- **Two shapes, one script.** Each matrix job runs `scripts/probe.sh SEED TICKS OUT_DIR`, which does one headless run with `--dump-history` and writes the summary and CSV to the output directory. The eight seeds are the audit seeds from `scripts/attractor_audit.sh` (1, 2, 3, 42, 314, 7, 99, 1000). Runner jobs are independent machines, so the matrix gives the parallelism the audit script gets from background processes.
+  - **On push**: eight seeds, one run each, 5000 ticks. A compromise between time and signal: long enough to be past the early transient the audits describe, short enough to report within the hour on runner hardware. The number can move once a first run shows what a runner actually takes.
+  - **Weekly**: the full audit shape, eight seeds, two runs each, 15000 ticks, sixteen jobs. This is the "as long as necessary for best signal" run. It matches the audit protocol, so its artifacts are directly comparable to the entries under `docs/audits/`, and it catches toolchain and dependency drift when main has been idle. Wall clock per job on a two-core runner is unknown until the first run; GitHub allows six hours per job, and the runner minutes are free on a public repository.
 - **Pass criteria**: each job exits 0 and ends with a living population. Nothing more. Asserting on strategy mix or species count would encode today's attractor as correct, which is the opposite of what the project wants.
-- **Output**: per-seed summary and history CSV uploaded as artifacts, retained for 90 days, so that when a change in dynamics is suspected the evidence is already there. A short job-summary table (final population, plants, foragers, predators, species per seed) is written to the workflow run page.
+- **Output**: per-run summary and history CSV uploaded as artifacts, retained for 90 days, so that when a change in dynamics is suspected the evidence is already there. A short job-summary table (final population, plants, foragers, predators, species per seed) is written to the workflow run page.
 - **Determinism probe**: one extra job runs seed 42 twice, back to back, and diffs the two summaries. It reports match or mismatch in the job summary and never fails the workflow. This gives `determinism-claim-recheck` a steady stream of data points from a different machine class at no cost.
 
 Failure of the probe workflow is a notification, not a block, because by the time it runs the change is already merged. The response to a red probe is a `TODO.md` entry or a revert, decided by a human.
@@ -133,10 +137,10 @@ All of this lands on the `tooling/quality-gates` branch, in this order, each ste
 1. **This document.** Reviewed by the user before anything else is built.
 2. **Toolchain pin and lint configuration.** `rust-toolchain.toml`, `rustfmt.toml`, `[workspace.lints]` in `Cargo.toml`, `[lints] workspace = true` in each crate. No code changes yet; the workspace will fail its own gates at this point.
 3. **Mechanical sweep.** `cargo fmt --all`, then `cargo clippy --fix` for the auto-fixable warnings, then hand fixes for the rest. Committed separately from step 2 so that the diff is reviewable as "formatting only" and "lint fixes only", though the squash merge will fold them together. The format commit hash is recorded in `.git-blame-ignore-revs` after the squash, in a follow-up.
-4. **Makefile and hooks.** `Makefile`, `.githooks/pre-commit`, `.githooks/pre-push`, `make setup`. README gains a two-line "Development" section pointing at `make setup` and `make check`.
+4. **Scripts and hooks.** The scripts listed in the gates table, `lefthook.yml`, and `scripts/setup.sh`. README gains a short "Development" section pointing at `scripts/setup.sh` and `scripts/check.sh`.
 5. **CI workflow.** `ci.yml` with the `check` and `smoke` jobs. This is the first point at which the PR itself shows a green check.
-6. **Probe workflow.** `probe.yml` with the seed matrix and determinism job. Tested via `workflow_dispatch` on the branch before merge.
-7. **Docs.** `AGENTS.md` gets one line under Workflow: run `make check` before opening or updating a PR. `docs/CODE_REVIEW_GUIDE.md` baseline section is updated: the clippy count is no longer recorded because it is enforced at zero, and `cargo test --workspace` is described as it actually is. `TODO.md` entry `clippy-baseline-toolchain` is resolved.
+6. **Probe workflow.** `probe.yml` with the seed matrix and determinism job. Its `pull_request` trigger fires on this PR because the workflow file is new, which is how it gets tested before merge.
+7. **Docs.** `AGENTS.md` gets one line under Workflow: run `scripts/check.sh` before opening or updating a PR. `docs/CODE_REVIEW_GUIDE.md` baseline section is updated: the clippy count is no longer recorded because it is enforced at zero, and `cargo test --workspace` is described as it actually is. `TODO.md` entry `clippy-baseline-toolchain` is resolved and a low-priority entry for the scripted tour under a software renderer is added.
 
 ### Effect on open branches
 
@@ -144,23 +148,30 @@ Four roadmap branches are open in worktrees. The format sweep will conflict with
 
 ## Done looks like
 
-- `make check` passes on `main` and the hooks are installed by `make setup`.
+- `scripts/check.sh` passes on `main` and the hooks are installed by `scripts/setup.sh`.
 - Every PR shows two required checks and a smoke summary artifact.
-- The probe workflow has run at least once from `workflow_dispatch` on the branch and produced eight seed artifacts and a determinism verdict.
+- The probe workflow has run at least once on the branch and produced eight seed artifacts and a determinism verdict.
 - `docs/CODE_REVIEW_GUIDE.md`, `AGENTS.md`, and `README.md` describe the workflow as built.
 
 ## Out of scope
 
-- GUI or screenshot testing in CI. No GPU on runners; software rendering under Bevy is possible but brittle and not worth the maintenance.
+- GUI or screenshot testing in CI. No GPU on runners; software rendering under Bevy is possible but brittle. Filed as `ci-scripted-tour-software-renderer` in `TODO.md` at low priority.
 - A coverage tool or coverage threshold.
 - Integration tests with tight bounds on simulation outcomes. Blocked on `determinism-claim-recheck`.
 - Release packaging or the macOS app bundle script. Unchanged by this work.
 - Reformatting or lint-fixing the four open roadmap branches. Each branch handles its own rebase.
 
-## Open questions
+## Decisions
 
-1. **Stable or a pinned version?** The proposal is `channel = "stable"`. A new stable can turn a PR red through no fault of its own, roughly every six weeks at worst. Pinning avoids that at the cost of remembering to bump.
-2. **Clippy in the pre-commit hook, or only at push?** Tens of seconds per commit with a warm cache, minutes with a cold one. The proposal keeps it at commit because the gate it mirrors is the one most likely to fail. If it becomes irritating, move it to pre-push alongside tests.
-3. **Branch protection.** Requiring the `check` and `smoke` jobs before merge is a repository setting, reversible, and makes the "red does not merge" rule mechanical. Turn it on?
-4. **Probe cadence and length.** Push-to-main plus weekly, 5000 ticks, is the proposal. Longer runs on a schedule are cheap on a public repository but slow to report; the number can move once a first run shows how long a runner takes.
-5. **Should the smoke job also run the scripted tour** (`--script tours/demo.json`) under a software renderer? Deferred as out of scope above, but listed here in case it is wanted enough to try.
+Settled with the user on 2026-09-18, after the first draft of this document.
+
+- **Standalone scripts, no Makefile.** Each check is its own script; `scripts/check.sh` is the entry point.
+- **Lefthook for hooks** rather than raw `.githooks` or husky.
+- **Exact stable version pinned** in `rust-toolchain.toml`, bumped deliberately.
+- **Clippy at commit time**, because it measured under the two-second budget with a warm cache. If a later toolchain or a much larger workspace pushes it past that, it moves to pre-push.
+- **Probe length**: weekly runs use the full audit shape for best signal; push runs use 5000 ticks as the time-versus-benefit compromise.
+- **Scripted tour in CI**: not now. Filed as a low-priority TODO.
+
+## Open question
+
+**Branch protection.** A GitHub setting on `main` that makes the merge button refuse until named checks (`check` and `smoke`) have passed on the PR's latest commit. Without it, CI is advisory and the "red does not merge" rule relies on the person clicking. With it, the rule is mechanical, and it also protects against merging a PR whose last push has not finished running. It can also block direct pushes to `main`, which this project does not want because plans are committed to `main` directly; the recommendation is to require the two checks and leave pushes alone. It is a repository setting, reversible in the same place, and does not change any file in this PR. Decide once CI has been green on this PR at least once.
