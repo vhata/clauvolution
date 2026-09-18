@@ -214,6 +214,27 @@ Headless mode (Theme 4) is the fast version of this loop: `cargo run --release -
 - **Minimal viable organism drift** — observed body-size decline in plant-dominated worlds (0.5 → 0.4 range). Symptom of plant dominance, not a separate attractor. Should ease when we fix the green-world pressure.
 - **Starvation-dominated mortality** — theoretical but NOT happening. Audit shows only 0.5-7.7% of deaths are starvation; predation dominates at 55-75%. Food supply isn't the bottleneck; the bottleneck is that plant biomass can't convert into forager/predator biomass efficiently.
 
+**Re-run 2026-09-18**, on commit 984aedd (the four review-backlog fixes and the corpse fountain closed, `PHOTO_OUTPUT_MULTIPLIER` 1.0), seeds 1, 2, 3, 7, 42, 99, 314 and 1000, two runs per seed, 15k ticks. Full summaries, whole-run CSVs and the method are in [`docs/audits/2026-09-18-attractor-audit/`](audits/2026-09-18-attractor-audit/README.md); repeat with `scripts/attractor_audit.sh`. Not comparable to April line by line: different physics, a different multiplier, and April's seed list was never recorded.
+
+| seed | run 1 plants / foragers / predators | run 2 | plant share | species | body size | runs identical |
+|---|---|---|---|---|---|---|
+| 1 | 1977 / 1 / 22 | 1875 / 125 / 0 | 99% / 94% | 19 / 11 | 0.60 / 0.59 | no |
+| 2 | 1998 / 2 / 0 | 1996 / 4 / 0 | 100% / 100% | 12 / 15 | 0.52 / 0.50 | no |
+| 3 | 1521 / 476 / 3 | 1438 / 558 / 4 | 76% / 72% | 16 / 15 | 0.57 / 0.57 | no |
+| 7 | 1862 / 138 / 0 | 1862 / 138 / 0 | 93% / 93% | 17 / 17 | 0.54 / 0.54 | yes |
+| 42 | 1357 / 624 / 19 | 1822 / 177 / 1 | 68% / 91% | 21 / 29 | 0.57 / 0.52 | no |
+| 99 | 1939 / 61 / 0 | 1939 / 61 / 0 | 97% / 97% | 16 / 16 | 0.47 / 0.47 | yes |
+| 314 | 1668 / 329 / 3 | 1668 / 329 / 3 | 83% / 83% | 22 / 22 | 0.56 / 0.56 | yes |
+| 1000 | 1767 / 232 / 1 | 1767 / 232 / 1 | 88% / 88% | 12 / 12 | 0.53 / 0.53 | yes |
+
+- **Green world / plant dominance still fires.** 11 of 16 runs ended above 85% plants and every run ended at or above 68%. Seeds 2 and 99 are effectively monocultures on both runs.
+- **Predator extinction is worse than April, and no longer an artefact.** Predators peak at roughly 100 to 480 within the first 3 to 5 sim-seconds (the opening burst on the 400-organism seed population), then collapse. 10 of 16 runs ended with at most one predator and 14 of 16 with at most four. Only seed 1 run 1 (22) and seed 42 run 1 (19) still held a population at 15k ticks.
+- **Species count** ended between 11 and 29, mean 17.0, in the range April recorded after the threshold change.
+- **Body size** ended between 0.47 and 0.60 on every run. The minimal-viable drift persists.
+- **Death causes**, as shares of total deaths across the 16 runs: predation 40% to 75%, starvation 9% to 29%, disease 11% to 18%, old age 1% to 18%. Old age had always read zero before the `Killed` marker fixed its attribution.
+- **Lock-in is early.** Where plants cross 80% of the population they do so between 42 and 372 sim-seconds (ticks 1260 to 11160); seed 3 on both runs and seed 42 on run 1 never cross it. The 5000-tick view in the corpse-fountain branch was too short to see the plant creep finish.
+- **Same-seed runs are reproducible on some seeds and not others.** Seeds 7, 99, 314, 1000 produced bit-identical summaries on their two runs; seeds 1, 2, 3, 42 diverged, seed 42 from 68% to 91% plants. The determinism probe, two simultaneous runs of seed 42, came out bit-identical to each other at 88% plants and 6 predators, a third distinct outcome for the seed after 68% and 91%. Across the whole audit, runs that started at the same moment matched and runs that started at different moments did not: the four seeds that diverged are the four whose first run was in the first batch after launch. Tracked as `determinism-claim-recheck` in `TODO.md`.
+
 **Observational trigger:** when a running sim trends toward any of these, it's time to tune. The Graphs tab has current-state readouts for plant/forager/predator ratios and death cause breakdown to make this visible.
 
 ## Code health
