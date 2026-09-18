@@ -7,9 +7,9 @@ use bevy_egui::{egui, EguiContexts, EguiPlugin};
 use clauvolution_brain::Brain;
 use clauvolution_core::*;
 use clauvolution_genome::{Genome, SegmentType, Symmetry, NUM_INPUTS, NUM_OUTPUTS};
-use clauvolution_phylogeny::{PhyloTree, PhyloNode, SpeciesStrategy, WorldChronicle};
+use clauvolution_phylogeny::{PhyloNode, PhyloTree, SpeciesStrategy, WorldChronicle};
 use clauvolution_world::TileMap;
-use egui_plot::{Line, Plot, PlotPoints, Legend};
+use egui_plot::{Legend, Line, Plot, PlotPoints};
 
 pub struct UiPlugin;
 
@@ -49,7 +49,7 @@ fn scale_ui_fonts(mut contexts: EguiContexts) {
         .map(|f| f.size)
         .unwrap_or(EGUI_DEFAULT_BODY);
     let factor = TARGET_BODY_SIZE / current_body;
-    for (_, font_id) in style.text_styles.iter_mut() {
+    for font_id in style.text_styles.values_mut() {
         font_id.size *= factor;
     }
     ctx.set_style(style);
@@ -85,15 +85,11 @@ fn tab_shortcut_system(
     }
 }
 
-fn update_input_capture_system(
-    mut contexts: EguiContexts,
-    mut input_state: ResMut<UiInputState>,
-) {
+fn update_input_capture_system(mut contexts: EguiContexts, mut input_state: ResMut<UiInputState>) {
     let ctx = contexts.ctx_mut();
     input_state.wants_keyboard = ctx.wants_keyboard_input();
-    input_state.pointer_over_ui = ctx.is_pointer_over_area()
-        || ctx.wants_pointer_input()
-        || ctx.is_using_pointer();
+    input_state.pointer_over_ui =
+        ctx.is_pointer_over_area() || ctx.wants_pointer_input() || ctx.is_using_pointer();
 }
 
 /// Which tab the right panel is showing
@@ -108,21 +104,11 @@ pub enum RightTab {
     Help,
 }
 
-#[derive(Resource)]
+#[derive(Resource, Default)]
 pub struct UiState {
     pub right_tab: RightTab,
     pub egui_wants_keyboard: bool,
     pub chronicle_hide_seasons: bool,
-}
-
-impl Default for UiState {
-    fn default() -> Self {
-        Self {
-            right_tab: RightTab::default(),
-            egui_wants_keyboard: false,
-            chronicle_hide_seasons: false,
-        }
-    }
 }
 
 fn help_tab(ui: &mut egui::Ui) {
@@ -130,13 +116,15 @@ fn help_tab(ui: &mut egui::Ui) {
     ui.label("Every dot is a living organism with its own evolved brain. They sense the world, decide what to do, and pass their genes to offspring. No behaviour is programmed — everything emerges from evolution.");
     ui.separator();
 
-    egui::CollapsingHeader::new("Organism colours").default_open(true).show(ui, |ui| {
-        ui.label("• Bright circles with outlines — active organisms (foragers, predators)");
-        ui.label("• Faded circles without outlines — photosynthesizers (plants)");
-        ui.label("• Colour varies by species — related organisms share colours");
-        ui.label("• Red tint — predator (has claws)");
-        ui.label("• Green tint — photosynthesizer");
-    });
+    egui::CollapsingHeader::new("Organism colours")
+        .default_open(true)
+        .show(ui, |ui| {
+            ui.label("• Bright circles with outlines — active organisms (foragers, predators)");
+            ui.label("• Faded circles without outlines — photosynthesizers (plants)");
+            ui.label("• Colour varies by species — related organisms share colours");
+            ui.label("• Red tint — predator (has claws)");
+            ui.label("• Green tint — photosynthesizer");
+        });
 
     egui::CollapsingHeader::new("Body parts").show(ui, |ui| {
         ui.label("Torso — main body, everyone has one");
@@ -149,31 +137,35 @@ fn help_tab(ui: &mut egui::Ui) {
         ui.label("ArmorPlate — defence, reduces damage");
     });
 
-    egui::CollapsingHeader::new("Controls").default_open(true).show(ui, |ui| {
-        egui::Grid::new("controls_grid").striped(true).show(ui, |ui| {
-            for (key, desc) in [
-                ("Space", "pause / unpause"),
-                ("[  ]", "slow down / speed up"),
-                ("Scroll", "zoom in / out"),
-                ("Click", "inspect organism"),
-                ("F", "focus camera on selected organism"),
-                (", / .", "prev / next living member of same species"),
-                ("R", "select a random living organism"),
-                ("Right-drag", "pan camera"),
-                ("WASD", "pan camera"),
-                ("M", "cycle minimap mode (normal / heatmap / species-range)"),
-                ("Shift+M", "show/hide minimap"),
-                ("T", "toggle trail for selected organism"),
-                ("F5", "save world"),
-                ("Shift+S", "take screenshot"),
-                ("1 … 6", "switch right-panel tab"),
-            ] {
-                ui.monospace(key);
-                ui.label(desc);
-                ui.end_row();
-            }
+    egui::CollapsingHeader::new("Controls")
+        .default_open(true)
+        .show(ui, |ui| {
+            egui::Grid::new("controls_grid")
+                .striped(true)
+                .show(ui, |ui| {
+                    for (key, desc) in [
+                        ("Space", "pause / unpause"),
+                        ("[  ]", "slow down / speed up"),
+                        ("Scroll", "zoom in / out"),
+                        ("Click", "inspect organism"),
+                        ("F", "focus camera on selected organism"),
+                        (", / .", "prev / next living member of same species"),
+                        ("R", "select a random living organism"),
+                        ("Right-drag", "pan camera"),
+                        ("WASD", "pan camera"),
+                        ("M", "cycle minimap mode (normal / heatmap / species-range)"),
+                        ("Shift+M", "show/hide minimap"),
+                        ("T", "toggle trail for selected organism"),
+                        ("F5", "save world"),
+                        ("Shift+S", "take screenshot"),
+                        ("1 … 6", "switch right-panel tab"),
+                    ] {
+                        ui.monospace(key);
+                        ui.label(desc);
+                        ui.end_row();
+                    }
+                });
         });
-    });
 
     egui::CollapsingHeader::new("Mass extinction events").show(ui, |ui| {
         ui.label("X — asteroid impact (kills 70%)");
@@ -286,7 +278,26 @@ fn right_panel_system(
     mut event_writer: EventWriter<WorldEventRequest>,
     bloom: Res<BloomEffects>,
     mut selected: ResMut<SelectedOrganism>,
-    organisms: Query<(&Energy, &Health, &BodySize, &Genome, &SpeciesId, &Position, &Age, &Generation, &Signal, &GroupSize, &ParentInfo, Option<&Infection>, &Brain, &BrainActivations, &Symbiosis), With<Organism>>,
+    organisms: Query<
+        (
+            &Energy,
+            &Health,
+            &BodySize,
+            &Genome,
+            &SpeciesId,
+            &Position,
+            &Age,
+            &Generation,
+            &Signal,
+            &GroupSize,
+            &ParentInfo,
+            Option<&Infection>,
+            &Brain,
+            &BrainActivations,
+            &Symbiosis,
+        ),
+        With<Organism>,
+    >,
     species_members: Query<(Entity, &SpeciesId), With<Organism>>,
     tile_map: Option<Res<TileMap>>,
     config: Res<SimConfig>,
@@ -314,7 +325,15 @@ fn right_panel_system(
 
             match ui_state.right_tab {
                 RightTab::Inspect => {
-                    inspect_tab(ui, &mut selected, &organisms, &species_members, tile_map.as_deref(), &config, &phylo);
+                    inspect_tab(
+                        ui,
+                        &mut selected,
+                        &organisms,
+                        &species_members,
+                        tile_map.as_deref(),
+                        &config,
+                        &phylo,
+                    );
                 }
                 RightTab::Phylo => {
                     phylo_tab(ui, &phylo, tick.0, &mut selected, &species_members);
@@ -354,7 +373,9 @@ fn phylo_tab(
     // the first living-member lookup after the tree renders.
     let mut clicked_species: Option<u64> = None;
 
-    let living: Vec<&PhyloNode> = phylo.nodes.values()
+    let living: Vec<&PhyloNode> = phylo
+        .nodes
+        .values()
         .filter(|n| n.extinct_tick.is_none() && n.current_population > 0)
         .collect();
 
@@ -364,7 +385,10 @@ fn phylo_tab(
 
     ui.horizontal(|ui| {
         ui.heading("Phylogeny");
-        ui.small(format!("{} alive · {} extinct · {} total", total_living, total_extinct, total_ever));
+        ui.small(format!(
+            "{} alive · {} extinct · {} total",
+            total_living, total_extinct, total_ever
+        ));
     });
     ui.separator();
 
@@ -379,8 +403,12 @@ fn phylo_tab(
                 if let Some(pid) = n.parent_id {
                     root = pid;
                     current = pid;
-                } else { break; }
-            } else { break; }
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
         }
         lineages.entry(root).or_default().push(node);
     }
@@ -393,53 +421,82 @@ fn phylo_tab(
         pop_b.cmp(&pop_a).then(a.0.cmp(&b.0))
     });
 
-    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-        for (_root_id, mut members) in sorted_lineages {
-            members.sort_by(|a, b| b.current_population.cmp(&a.current_population).then(a.species_id.cmp(&b.species_id)));
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            for (_root_id, mut members) in sorted_lineages {
+                members.sort_by(|a, b| {
+                    b.current_population
+                        .cmp(&a.current_population)
+                        .then(a.species_id.cmp(&b.species_id))
+                });
 
-            let first = members[0];
-            let lineage_total: u32 = members.iter().map(|n| n.current_population).sum();
+                let first = members[0];
+                let lineage_total: u32 = members.iter().map(|n| n.current_population).sum();
 
-            let header_text = if members.len() == 1 {
-                format!("{} — pop {}", first.name, first.current_population)
-            } else {
-                format!("{} — {} species, {} total", first.name, members.len(), lineage_total)
-            };
+                let header_text = if members.len() == 1 {
+                    format!("{} — pop {}", first.name, first.current_population)
+                } else {
+                    format!(
+                        "{} — {} species, {} total",
+                        first.name,
+                        members.len(),
+                        lineage_total
+                    )
+                };
 
-            let id = egui::Id::new(("lineage", first.species_id));
-            egui::CollapsingHeader::new(header_text)
-                .id_salt(id)
-                .default_open(true)
-                .show(ui, |ui| {
-                    for node in &members {
-                        if species_row(ui, node, current_tick) {
-                            clicked_species = Some(node.species_id);
+                let id = egui::Id::new(("lineage", first.species_id));
+                egui::CollapsingHeader::new(header_text)
+                    .id_salt(id)
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        for node in &members {
+                            if species_row(ui, node, current_tick) {
+                                clicked_species = Some(node.species_id);
+                            }
                         }
+                    });
+            }
+
+            // Recently extinct
+            let mut recently_extinct: Vec<&PhyloNode> = phylo
+                .nodes
+                .values()
+                .filter(|n| n.extinct_tick.is_some())
+                .collect();
+            recently_extinct.sort_by(|a, b| {
+                b.extinct_tick
+                    .cmp(&a.extinct_tick)
+                    .then(a.species_id.cmp(&b.species_id))
+            });
+
+            if !recently_extinct.is_empty() {
+                ui.add_space(8.0);
+                ui.separator();
+                egui::CollapsingHeader::new(format!(
+                    "Recently extinct ({})",
+                    recently_extinct.len().min(10)
+                ))
+                .show(ui, |ui| {
+                    for node in recently_extinct.iter().take(10) {
+                        let age_secs =
+                            current_tick.saturating_sub(node.extinct_tick.unwrap_or(0)) / 30;
+                        let lived = node
+                            .extinct_tick
+                            .unwrap_or(0)
+                            .saturating_sub(node.born_tick)
+                            / 30;
+                        ui.horizontal(|ui| {
+                            ui.small(format!("✝ {}", node.name));
+                            ui.small(format!(
+                                "peak {} · lived {}s · died {}s ago",
+                                node.peak_population, lived, age_secs
+                            ));
+                        });
                     }
                 });
-        }
-
-        // Recently extinct
-        let mut recently_extinct: Vec<&PhyloNode> = phylo.nodes.values()
-            .filter(|n| n.extinct_tick.is_some())
-            .collect();
-        recently_extinct.sort_by(|a, b| b.extinct_tick.cmp(&a.extinct_tick).then(a.species_id.cmp(&b.species_id)));
-
-        if !recently_extinct.is_empty() {
-            ui.add_space(8.0);
-            ui.separator();
-            egui::CollapsingHeader::new(format!("Recently extinct ({})", recently_extinct.len().min(10))).show(ui, |ui| {
-                for node in recently_extinct.iter().take(10) {
-                    let age_secs = current_tick.saturating_sub(node.extinct_tick.unwrap_or(0)) / 30;
-                    let lived = node.extinct_tick.unwrap_or(0).saturating_sub(node.born_tick) / 30;
-                    ui.horizontal(|ui| {
-                        ui.small(format!("✝ {}", node.name));
-                        ui.small(format!("peak {} · lived {}s · died {}s ago", node.peak_population, lived, age_secs));
-                    });
-                }
-            });
-        }
-    });
+            }
+        });
 
     // Resolve a click on a species name into a selection of a living member.
     // First match wins — arbitrary but deterministic given query ordering.
@@ -474,7 +531,11 @@ fn species_row(ui: &mut egui::Ui, node: &PhyloNode, current_tick: u64) -> bool {
     ui.horizontal(|ui| {
         ui.colored_label(strategy_badge.1, strategy_badge.0);
         // Clickable name — selects a living member of this species
-        if ui.link(&node.name).on_hover_text("Click to select a living member").clicked() {
+        if ui
+            .link(&node.name)
+            .on_hover_text("Click to select a living member")
+            .clicked()
+        {
             clicked = true;
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -492,7 +553,26 @@ fn species_row(ui: &mut egui::Ui, node: &PhyloNode, current_tick: u64) -> bool {
 fn inspect_tab(
     ui: &mut egui::Ui,
     selected: &mut SelectedOrganism,
-    organisms: &Query<(&Energy, &Health, &BodySize, &Genome, &SpeciesId, &Position, &Age, &Generation, &Signal, &GroupSize, &ParentInfo, Option<&Infection>, &Brain, &BrainActivations, &Symbiosis), With<Organism>>,
+    organisms: &Query<
+        (
+            &Energy,
+            &Health,
+            &BodySize,
+            &Genome,
+            &SpeciesId,
+            &Position,
+            &Age,
+            &Generation,
+            &Signal,
+            &GroupSize,
+            &ParentInfo,
+            Option<&Infection>,
+            &Brain,
+            &BrainActivations,
+            &Symbiosis,
+        ),
+        With<Organism>,
+    >,
     species_members: &Query<(Entity, &SpeciesId), With<Organism>>,
     tile_map: Option<&TileMap>,
     config: &SimConfig,
@@ -504,16 +584,36 @@ fn inspect_tab(
         return;
     };
 
-    let Ok((energy, health, body_size, genome, species, pos, age, generation, signal, group_size, parent_info, infection, brain, activations, symbiosis)) = organisms.get(entity) else {
+    let Ok((
+        energy,
+        health,
+        body_size,
+        genome,
+        species,
+        pos,
+        age,
+        generation,
+        signal,
+        group_size,
+        parent_info,
+        infection,
+        brain,
+        activations,
+        symbiosis,
+    )) = organisms.get(entity)
+    else {
         ui.heading("Inspect");
         ui.colored_label(egui::Color32::LIGHT_RED, "Selected organism died.");
         return;
     };
 
-    let species_name = phylo.nodes.get(&species.0)
+    let species_name = phylo
+        .nodes
+        .get(&species.0)
         .map(|n| n.name.as_str())
         .unwrap_or("Unknown");
-    let parent_name = parent_info.parent_species_id
+    let parent_name = parent_info
+        .parent_species_id
         .and_then(|pid| phylo.nodes.get(&pid))
         .map(|n| n.name.as_str())
         .unwrap_or("(origin)");
@@ -661,7 +761,7 @@ fn inspect_tab(
         egui::CollapsingHeader::new("Symbiosis link").default_open(true).show(ui, |ui| {
             if symbiosis.link_ticks >= SYMBIOSIS_LINK_THRESHOLD && symbiosis.link_target.is_some() {
                 ui.label(format!("Tracking partner for {} ticks", symbiosis.link_ticks));
-            } else if let Some(_) = symbiosis.link_target {
+            } else if symbiosis.link_target.is_some() {
                 ui.label(format!("Courting ({} / {} ticks)", symbiosis.link_ticks, SYMBIOSIS_LINK_THRESHOLD));
             } else {
                 ui.label("No nearby partner");
@@ -689,19 +789,40 @@ fn inspect_tab(
 }
 
 const BRAIN_INPUT_LABELS: [&str; NUM_INPUTS] = [
-    "energy", "food dx", "food dy", "food near",
-    "org dx", "org dy", "org near", "org size",
-    "in water", "nutrients", "light", "aquatic",
-    "health", "same sp",
-    "mem 0", "mem 1", "mem 2",
-    "photo hint", "org signal",
-    "group sz", "group sig", "bias",
+    "energy",
+    "food dx",
+    "food dy",
+    "food near",
+    "org dx",
+    "org dy",
+    "org near",
+    "org size",
+    "in water",
+    "nutrients",
+    "light",
+    "aquatic",
+    "health",
+    "same sp",
+    "mem 0",
+    "mem 1",
+    "mem 2",
+    "photo hint",
+    "org signal",
+    "group sz",
+    "group sig",
+    "bias",
 ];
 
 const BRAIN_OUTPUT_LABELS: [&str; NUM_OUTPUTS] = [
-    "move x", "move y", "eat", "reproduce",
-    "attack", "signal",
-    "mem out 0", "mem out 1", "mem out 2",
+    "move x",
+    "move y",
+    "eat",
+    "reproduce",
+    "attack",
+    "signal",
+    "mem out 0",
+    "mem out 1",
+    "mem out 2",
 ];
 
 fn brain_node_color(activation: f32) -> egui::Color32 {
@@ -712,9 +833,17 @@ fn brain_node_color(activation: f32) -> egui::Color32 {
     let base: u8 = 55;
     let intensity = (mag * 200.0) as u8;
     if a >= 0.0 {
-        egui::Color32::from_rgb(base, base.saturating_add(intensity), base.saturating_add(intensity / 2))
+        egui::Color32::from_rgb(
+            base,
+            base.saturating_add(intensity),
+            base.saturating_add(intensity / 2),
+        )
     } else {
-        egui::Color32::from_rgb(base.saturating_add(intensity), base, base.saturating_add(intensity / 3))
+        egui::Color32::from_rgb(
+            base.saturating_add(intensity),
+            base,
+            base.saturating_add(intensity / 3),
+        )
     }
 }
 
@@ -751,8 +880,10 @@ fn draw_creature_portrait(
 
     // Draw back-layer segments first so front ones overlay correctly.
     for seg in &genome.body_segments {
-        if matches!(seg.segment_type, SegmentType::ArmorPlate | SegmentType::PhotoSurface | SegmentType::Fin)
-        {
+        if matches!(
+            seg.segment_type,
+            SegmentType::ArmorPlate | SegmentType::PhotoSurface | SegmentType::Fin
+        ) {
             draw_segments_at_angle(&painter, center, scale, seg, strategy_color, health);
         }
     }
@@ -766,13 +897,18 @@ fn draw_creature_portrait(
     painter.add(egui::Shape::ellipse_stroke(
         center,
         EVec2::new(torso_w, torso_h),
-        Stroke::new(1.5, torso_outline),
+        Stroke::new(1.5_f32, torso_outline),
     ));
 
     // Front-layer segments — eyes, mouth, claws, limbs.
     for seg in &genome.body_segments {
-        if !matches!(seg.segment_type, SegmentType::ArmorPlate | SegmentType::PhotoSurface | SegmentType::Fin | SegmentType::Torso)
-        {
+        if !matches!(
+            seg.segment_type,
+            SegmentType::ArmorPlate
+                | SegmentType::PhotoSurface
+                | SegmentType::Fin
+                | SegmentType::Torso
+        ) {
             draw_segments_at_angle(&painter, center, scale, seg, strategy_color, health);
         }
     }
@@ -853,7 +989,7 @@ fn draw_segment_shape(
             painter.add(egui::Shape::ellipse_stroke(
                 pos,
                 EVec2::new(s * 1.2, s * 0.7),
-                Stroke::new(0.8, darken(blended, 0.4)),
+                Stroke::new(0.8_f32, darken(blended, 0.4)),
             ));
         }
         SegmentType::Claw => {
@@ -867,7 +1003,7 @@ fn draw_segment_shape(
             painter.add(egui::Shape::convex_polygon(
                 vec![tip, left, right],
                 Color32::from_rgb(200, 80, 80),
-                Stroke::new(0.8, Color32::from_rgb(100, 30, 30)),
+                Stroke::new(0.8_f32, Color32::from_rgb(100, 30, 30)),
             ));
         }
         SegmentType::Fin => {
@@ -881,14 +1017,18 @@ fn draw_segment_shape(
             painter.add(egui::Shape::convex_polygon(
                 vec![tip, left, right],
                 Color32::from_rgba_unmultiplied(120, 180, 220, 180),
-                Stroke::new(0.8, Color32::from_rgb(60, 100, 140)),
+                Stroke::new(0.8_f32, Color32::from_rgb(60, 100, 140)),
             ));
         }
         SegmentType::Eye => {
             let white = Color32::from_rgb(235, 235, 235);
             let pupil = Color32::BLACK;
             painter.circle_filled(pos, s * 0.6, white);
-            painter.circle_stroke(pos, s * 0.6, Stroke::new(0.8, Color32::from_rgb(70, 70, 70)));
+            painter.circle_stroke(
+                pos,
+                s * 0.6,
+                Stroke::new(0.8_f32, Color32::from_rgb(70, 70, 70)),
+            );
             // Pupil offset slightly toward gaze direction
             let dx = angle.cos();
             let dy = angle.sin();
@@ -911,10 +1051,7 @@ fn draw_segment_shape(
             let dx = angle.cos();
             let dy = angle.sin();
             let tip = Pos2::new(pos.x + dx * s * 1.1, pos.y + dy * s * 1.1);
-            painter.line_segment(
-                [pos, tip],
-                Stroke::new(s * 0.45, darken(base, 0.2)),
-            );
+            painter.line_segment([pos, tip], Stroke::new(s * 0.45, darken(base, 0.2)));
             painter.circle_filled(tip, s * 0.3, darken(base, 0.3));
         }
         SegmentType::ArmorPlate => {
@@ -1031,8 +1168,12 @@ fn draw_brain_viz(
         if !conn.enabled {
             continue;
         }
-        let Some(&from_pos) = positions.get(&conn.from) else { continue };
-        let Some(&to_pos) = positions.get(&conn.to) else { continue };
+        let Some(&from_pos) = positions.get(&conn.from) else {
+            continue;
+        };
+        let Some(&to_pos) = positions.get(&conn.to) else {
+            continue;
+        };
 
         let source_act = activations.values.get(&conn.from).copied().unwrap_or(0.0);
         let signal = (source_act * conn.weight).abs().min(2.0) / 2.0;
@@ -1052,12 +1193,18 @@ fn draw_brain_viz(
     for (id, &pos) in &positions {
         let act = activations.values.get(id).copied().unwrap_or(0.0);
         painter.circle_filled(pos, node_radius, brain_node_color(act));
-        painter.circle_stroke(pos, node_radius, Stroke::new(0.8, Color32::from_rgb(90, 90, 100)));
+        painter.circle_stroke(
+            pos,
+            node_radius,
+            Stroke::new(0.8_f32, Color32::from_rgb(90, 90, 100)),
+        );
     }
 
     // Input labels
     for (i, &id) in brain.input_ids().iter().enumerate() {
-        let Some(&pos) = positions.get(&id) else { continue };
+        let Some(&pos) = positions.get(&id) else {
+            continue;
+        };
         let label = BRAIN_INPUT_LABELS.get(i).copied().unwrap_or("?");
         painter.text(
             Pos2::new(pos.x - node_radius - 3.0, pos.y),
@@ -1070,7 +1217,9 @@ fn draw_brain_viz(
 
     // Output labels
     for (i, &id) in brain.output_ids().iter().enumerate() {
-        let Some(&pos) = positions.get(&id) else { continue };
+        let Some(&pos) = positions.get(&id) else {
+            continue;
+        };
         let label = BRAIN_OUTPUT_LABELS.get(i).copied().unwrap_or("?");
         painter.text(
             Pos2::new(pos.x + node_radius + 3.0, pos.y),
@@ -1102,264 +1251,408 @@ fn graphs_tab(ui: &mut egui::Ui, history: &PopulationHistory) {
     // Current snapshot: key ratios and rates at a glance — this is the tuning dashboard
     let infected_pct = if latest.organisms > 0 {
         latest.infected as f32 / latest.organisms as f32 * 100.0
-    } else { 0.0 };
-    let total_deaths_sample = latest.deaths_starvation + latest.deaths_predation
-        + latest.deaths_old_age + latest.deaths_disease + latest.deaths_event;
-    let ratio = |n: u32| if total_deaths_sample > 0 { n as f32 / total_deaths_sample as f32 * 100.0 } else { 0.0 };
+    } else {
+        0.0
+    };
+    let total_deaths_sample = latest.deaths_starvation
+        + latest.deaths_predation
+        + latest.deaths_old_age
+        + latest.deaths_disease
+        + latest.deaths_event;
+    let ratio = |n: u32| {
+        if total_deaths_sample > 0 {
+            n as f32 / total_deaths_sample as f32 * 100.0
+        } else {
+            0.0
+        }
+    };
 
-    egui::Grid::new("graphs_current").num_columns(4).striped(true).show(ui, |ui| {
-        ui.label("Organisms");
-        ui.monospace(format!("{:>4}", latest.organisms));
-        ui.label("Food");
-        ui.monospace(format!("{:>5}", latest.food));
-        ui.end_row();
-
-        ui.label("Species");
-        ui.monospace(format!("{:>4}", latest.species));
-        ui.label("Lifespan");
-        ui.monospace(format!("{:>5}", latest.avg_lifespan as u32));
-        ui.end_row();
-
-        ui.label("Plants");
-        ui.monospace(format!("{:>4}", latest.plants));
-        ui.label("Foragers");
-        ui.monospace(format!("{:>5}", latest.foragers));
-        ui.end_row();
-
-        ui.label("Predators");
-        ui.monospace(format!("{:>4}", latest.predators));
-        ui.label("Infected");
-        ui.monospace(format!("{:>3} ({:>2.0}%)", latest.infected, infected_pct));
-        ui.end_row();
-
-        ui.label("Sym pairs");
-        ui.monospace(format!("{:>4}", latest.symbiotic_pairs));
-        ui.label("Sym rate");
-        ui.monospace(format!("{:>+5.2}", latest.avg_symbiosis_rate));
-        ui.end_row();
-    });
-
-    ui.add_space(6.0);
-    egui::CollapsingHeader::new("Death cause breakdown (this second)").default_open(true).show(ui, |ui| {
-        egui::Grid::new("death_causes").num_columns(3).striped(true).show(ui, |ui| {
-            ui.monospace("Starvation");
-            ui.monospace(format!("{:>3}", latest.deaths_starvation));
-            ui.monospace(format!("{:>4.0}%", ratio(latest.deaths_starvation)));
+    egui::Grid::new("graphs_current")
+        .num_columns(4)
+        .striped(true)
+        .show(ui, |ui| {
+            ui.label("Organisms");
+            ui.monospace(format!("{:>4}", latest.organisms));
+            ui.label("Food");
+            ui.monospace(format!("{:>5}", latest.food));
             ui.end_row();
 
-            ui.monospace("Predation");
-            ui.monospace(format!("{:>3}", latest.deaths_predation));
-            ui.monospace(format!("{:>4.0}%", ratio(latest.deaths_predation)));
+            ui.label("Species");
+            ui.monospace(format!("{:>4}", latest.species));
+            ui.label("Lifespan");
+            ui.monospace(format!("{:>5}", latest.avg_lifespan as u32));
             ui.end_row();
 
-            ui.monospace("Old age");
-            ui.monospace(format!("{:>3}", latest.deaths_old_age));
-            ui.monospace(format!("{:>4.0}%", ratio(latest.deaths_old_age)));
+            ui.label("Plants");
+            ui.monospace(format!("{:>4}", latest.plants));
+            ui.label("Foragers");
+            ui.monospace(format!("{:>5}", latest.foragers));
             ui.end_row();
 
-            ui.monospace("Disease");
-            ui.monospace(format!("{:>3}", latest.deaths_disease));
-            ui.monospace(format!("{:>4.0}%", ratio(latest.deaths_disease)));
+            ui.label("Predators");
+            ui.monospace(format!("{:>4}", latest.predators));
+            ui.label("Infected");
+            ui.monospace(format!("{:>3} ({:>2.0}%)", latest.infected, infected_pct));
             ui.end_row();
 
-            ui.monospace("Event");
-            ui.monospace(format!("{:>3}", latest.deaths_event));
-            ui.monospace(format!("{:>4.0}%", ratio(latest.deaths_event)));
+            ui.label("Sym pairs");
+            ui.monospace(format!("{:>4}", latest.symbiotic_pairs));
+            ui.label("Sym rate");
+            ui.monospace(format!("{:>+5.2}", latest.avg_symbiosis_rate));
             ui.end_row();
         });
-    });
+
+    ui.add_space(6.0);
+    egui::CollapsingHeader::new("Death cause breakdown (this second)")
+        .default_open(true)
+        .show(ui, |ui| {
+            egui::Grid::new("death_causes")
+                .num_columns(3)
+                .striped(true)
+                .show(ui, |ui| {
+                    ui.monospace("Starvation");
+                    ui.monospace(format!("{:>3}", latest.deaths_starvation));
+                    ui.monospace(format!("{:>4.0}%", ratio(latest.deaths_starvation)));
+                    ui.end_row();
+
+                    ui.monospace("Predation");
+                    ui.monospace(format!("{:>3}", latest.deaths_predation));
+                    ui.monospace(format!("{:>4.0}%", ratio(latest.deaths_predation)));
+                    ui.end_row();
+
+                    ui.monospace("Old age");
+                    ui.monospace(format!("{:>3}", latest.deaths_old_age));
+                    ui.monospace(format!("{:>4.0}%", ratio(latest.deaths_old_age)));
+                    ui.end_row();
+
+                    ui.monospace("Disease");
+                    ui.monospace(format!("{:>3}", latest.deaths_disease));
+                    ui.monospace(format!("{:>4.0}%", ratio(latest.deaths_disease)));
+                    ui.end_row();
+
+                    ui.monospace("Event");
+                    ui.monospace(format!("{:>3}", latest.deaths_event));
+                    ui.monospace(format!("{:>4.0}%", ratio(latest.deaths_event)));
+                    ui.end_row();
+                });
+        });
 
     ui.add_space(6.0);
     egui::CollapsingHeader::new("Average traits").show(ui, |ui| {
-        egui::Grid::new("avg_traits").num_columns(2).striped(true).show(ui, |ui| {
-            ui.label("Disease resistance");
-            ui.monospace(format!("{:>4.0}%", latest.avg_disease_resistance * 100.0));
-            ui.end_row();
-            ui.label("Body size");
-            ui.monospace(format!("{:>5.2}", latest.avg_body_size));
-            ui.end_row();
-            ui.label("Speed factor");
-            ui.monospace(format!("{:>5.2}", latest.avg_speed));
-            ui.end_row();
-            ui.label("Attack (claw)");
-            ui.monospace(format!("{:>5.2}", latest.avg_attack));
-            ui.end_row();
-            ui.label("Armor");
-            ui.monospace(format!("{:>5.2}", latest.avg_armor));
-            ui.end_row();
-            ui.label("Photosynthesis");
-            ui.monospace(format!("{:>4.0}%", latest.avg_photo * 100.0));
-            ui.end_row();
-        });
+        egui::Grid::new("avg_traits")
+            .num_columns(2)
+            .striped(true)
+            .show(ui, |ui| {
+                ui.label("Disease resistance");
+                ui.monospace(format!("{:>4.0}%", latest.avg_disease_resistance * 100.0));
+                ui.end_row();
+                ui.label("Body size");
+                ui.monospace(format!("{:>5.2}", latest.avg_body_size));
+                ui.end_row();
+                ui.label("Speed factor");
+                ui.monospace(format!("{:>5.2}", latest.avg_speed));
+                ui.end_row();
+                ui.label("Attack (claw)");
+                ui.monospace(format!("{:>5.2}", latest.avg_attack));
+                ui.end_row();
+                ui.label("Armor");
+                ui.monospace(format!("{:>5.2}", latest.avg_armor));
+                ui.end_row();
+                ui.label("Photosynthesis");
+                ui.monospace(format!("{:>4.0}%", latest.avg_photo * 100.0));
+                ui.end_row();
+            });
     });
 
     ui.separator();
 
-    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-        // Scale the plot-heavy region back to egui's default font size.
-        // `egui_plot`'s legends and axis numbers inherit from the UI's
-        // TextStyle::Body, and at our global 16px scale they overlap the
-        // chart lines. This undoes the global UI_SCALE for this scroll
-        // area only; the stats grid above stays at 16px.
-        for (_, font_id) in ui.style_mut().text_styles.iter_mut() {
-            font_id.size /= UI_SCALE;
-        }
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            // Scale the plot-heavy region back to egui's default font size.
+            // `egui_plot`'s legends and axis numbers inherit from the UI's
+            // TextStyle::Body, and at our global 16px scale they overlap the
+            // chart lines. This undoes the global UI_SCALE for this scroll
+            // area only; the stats grid above stays at 16px.
+            for font_id in ui.style_mut().text_styles.values_mut() {
+                font_id.size /= UI_SCALE;
+            }
 
-        // Population by strategy
-        ui.label("Population by strategy");
-        let plants: PlotPoints = snaps.iter().enumerate()
-            .map(|(i, s)| [i as f64, s.plants as f64]).collect();
-        let foragers: PlotPoints = snaps.iter().enumerate()
-            .map(|(i, s)| [i as f64, s.foragers as f64]).collect();
-        let predators: PlotPoints = snaps.iter().enumerate()
-            .map(|(i, s)| [i as f64, s.predators as f64]).collect();
+            // Population by strategy
+            ui.label("Population by strategy");
+            let plants: PlotPoints = snaps
+                .iter()
+                .enumerate()
+                .map(|(i, s)| [i as f64, s.plants as f64])
+                .collect();
+            let foragers: PlotPoints = snaps
+                .iter()
+                .enumerate()
+                .map(|(i, s)| [i as f64, s.foragers as f64])
+                .collect();
+            let predators: PlotPoints = snaps
+                .iter()
+                .enumerate()
+                .map(|(i, s)| [i as f64, s.predators as f64])
+                .collect();
 
-        Plot::new("pop_strategy")
-            .height(130.0)
-            .legend(Legend::default().position(egui_plot::Corner::LeftTop))
-            .show(ui, |plot_ui| {
-                plot_ui.line(Line::new(plants)
-                    .color(egui::Color32::from_rgb(90, 200, 90)).name("Plants"));
-                plot_ui.line(Line::new(foragers)
-                    .color(egui::Color32::from_rgb(230, 230, 230)).name("Foragers"));
-                plot_ui.line(Line::new(predators)
-                    .color(egui::Color32::from_rgb(230, 100, 100)).name("Predators"));
-            });
+            Plot::new("pop_strategy")
+                .height(130.0)
+                .legend(Legend::default().position(egui_plot::Corner::LeftTop))
+                .show(ui, |plot_ui| {
+                    plot_ui.line(
+                        Line::new(plants)
+                            .color(egui::Color32::from_rgb(90, 200, 90))
+                            .name("Plants"),
+                    );
+                    plot_ui.line(
+                        Line::new(foragers)
+                            .color(egui::Color32::from_rgb(230, 230, 230))
+                            .name("Foragers"),
+                    );
+                    plot_ui.line(
+                        Line::new(predators)
+                            .color(egui::Color32::from_rgb(230, 100, 100))
+                            .name("Predators"),
+                    );
+                });
 
-        ui.add_space(4.0);
+            ui.add_space(4.0);
 
-        // Deaths by cause — the main tuning chart
-        ui.label("Deaths per second by cause");
-        let d_starv: PlotPoints = snaps.iter().enumerate()
-            .map(|(i, s)| [i as f64, s.deaths_starvation as f64]).collect();
-        let d_pred: PlotPoints = snaps.iter().enumerate()
-            .map(|(i, s)| [i as f64, s.deaths_predation as f64]).collect();
-        let d_old: PlotPoints = snaps.iter().enumerate()
-            .map(|(i, s)| [i as f64, s.deaths_old_age as f64]).collect();
-        let d_dis: PlotPoints = snaps.iter().enumerate()
-            .map(|(i, s)| [i as f64, s.deaths_disease as f64]).collect();
-        let d_evt: PlotPoints = snaps.iter().enumerate()
-            .map(|(i, s)| [i as f64, s.deaths_event as f64]).collect();
+            // Deaths by cause — the main tuning chart
+            ui.label("Deaths per second by cause");
+            let d_starv: PlotPoints = snaps
+                .iter()
+                .enumerate()
+                .map(|(i, s)| [i as f64, s.deaths_starvation as f64])
+                .collect();
+            let d_pred: PlotPoints = snaps
+                .iter()
+                .enumerate()
+                .map(|(i, s)| [i as f64, s.deaths_predation as f64])
+                .collect();
+            let d_old: PlotPoints = snaps
+                .iter()
+                .enumerate()
+                .map(|(i, s)| [i as f64, s.deaths_old_age as f64])
+                .collect();
+            let d_dis: PlotPoints = snaps
+                .iter()
+                .enumerate()
+                .map(|(i, s)| [i as f64, s.deaths_disease as f64])
+                .collect();
+            let d_evt: PlotPoints = snaps
+                .iter()
+                .enumerate()
+                .map(|(i, s)| [i as f64, s.deaths_event as f64])
+                .collect();
 
-        Plot::new("deaths_by_cause")
-            .height(130.0)
-            .legend(Legend::default().position(egui_plot::Corner::LeftTop))
-            .show(ui, |plot_ui| {
-                plot_ui.line(Line::new(d_starv)
-                    .color(egui::Color32::from_rgb(230, 180, 90)).name("Starvation"));
-                plot_ui.line(Line::new(d_pred)
-                    .color(egui::Color32::from_rgb(230, 100, 100)).name("Predation"));
-                plot_ui.line(Line::new(d_old)
-                    .color(egui::Color32::from_rgb(180, 180, 180)).name("Old age"));
-                plot_ui.line(Line::new(d_dis)
-                    .color(egui::Color32::from_rgb(180, 80, 220)).name("Disease"));
-                plot_ui.line(Line::new(d_evt)
-                    .color(egui::Color32::from_rgb(255, 140, 40)).name("Event"));
-            });
+            Plot::new("deaths_by_cause")
+                .height(130.0)
+                .legend(Legend::default().position(egui_plot::Corner::LeftTop))
+                .show(ui, |plot_ui| {
+                    plot_ui.line(
+                        Line::new(d_starv)
+                            .color(egui::Color32::from_rgb(230, 180, 90))
+                            .name("Starvation"),
+                    );
+                    plot_ui.line(
+                        Line::new(d_pred)
+                            .color(egui::Color32::from_rgb(230, 100, 100))
+                            .name("Predation"),
+                    );
+                    plot_ui.line(
+                        Line::new(d_old)
+                            .color(egui::Color32::from_rgb(180, 180, 180))
+                            .name("Old age"),
+                    );
+                    plot_ui.line(
+                        Line::new(d_dis)
+                            .color(egui::Color32::from_rgb(180, 80, 220))
+                            .name("Disease"),
+                    );
+                    plot_ui.line(
+                        Line::new(d_evt)
+                            .color(egui::Color32::from_rgb(255, 140, 40))
+                            .name("Event"),
+                    );
+                });
 
-        ui.add_space(4.0);
+            ui.add_space(4.0);
 
-        // Infection & resistance — disease tuning view
-        ui.label("Infection rate & evolved resistance");
-        let inf: PlotPoints = snaps.iter().enumerate()
-            .map(|(i, s)| [i as f64, s.infected as f64]).collect();
-        let resist: PlotPoints = snaps.iter().enumerate()
-            .map(|(i, s)| [i as f64, (s.avg_disease_resistance * 100.0) as f64]).collect();
+            // Infection & resistance — disease tuning view
+            ui.label("Infection rate & evolved resistance");
+            let inf: PlotPoints = snaps
+                .iter()
+                .enumerate()
+                .map(|(i, s)| [i as f64, s.infected as f64])
+                .collect();
+            let resist: PlotPoints = snaps
+                .iter()
+                .enumerate()
+                .map(|(i, s)| [i as f64, (s.avg_disease_resistance * 100.0) as f64])
+                .collect();
 
-        Plot::new("disease_trend")
-            .height(120.0)
-            .legend(Legend::default().position(egui_plot::Corner::LeftTop))
-            .show(ui, |plot_ui| {
-                plot_ui.line(Line::new(inf)
-                    .color(egui::Color32::from_rgb(180, 80, 220)).name("Infected (count)"));
-                plot_ui.line(Line::new(resist)
-                    .color(egui::Color32::from_rgb(120, 200, 220)).name("Avg resistance × 100"));
-            });
+            Plot::new("disease_trend")
+                .height(120.0)
+                .legend(Legend::default().position(egui_plot::Corner::LeftTop))
+                .show(ui, |plot_ui| {
+                    plot_ui.line(
+                        Line::new(inf)
+                            .color(egui::Color32::from_rgb(180, 80, 220))
+                            .name("Infected (count)"),
+                    );
+                    plot_ui.line(
+                        Line::new(resist)
+                            .color(egui::Color32::from_rgb(120, 200, 220))
+                            .name("Avg resistance × 100"),
+                    );
+                });
 
-        ui.add_space(4.0);
+            ui.add_space(4.0);
 
-        // Total population vs species count
-        ui.label("Total population vs species count");
-        let organisms: PlotPoints = snaps.iter().enumerate()
-            .map(|(i, s)| [i as f64, s.organisms as f64]).collect();
-        let species: PlotPoints = snaps.iter().enumerate()
-            .map(|(i, s)| [i as f64, s.species as f64]).collect();
+            // Total population vs species count
+            ui.label("Total population vs species count");
+            let organisms: PlotPoints = snaps
+                .iter()
+                .enumerate()
+                .map(|(i, s)| [i as f64, s.organisms as f64])
+                .collect();
+            let species: PlotPoints = snaps
+                .iter()
+                .enumerate()
+                .map(|(i, s)| [i as f64, s.species as f64])
+                .collect();
 
-        Plot::new("pop_vs_species")
-            .height(120.0)
-            .legend(Legend::default().position(egui_plot::Corner::LeftTop))
-            .show(ui, |plot_ui| {
-                plot_ui.line(Line::new(organisms)
-                    .color(egui::Color32::from_rgb(100, 160, 255)).name("Organisms"));
-                plot_ui.line(Line::new(species)
-                    .color(egui::Color32::from_rgb(255, 200, 100)).name("Species"));
-            });
+            Plot::new("pop_vs_species")
+                .height(120.0)
+                .legend(Legend::default().position(egui_plot::Corner::LeftTop))
+                .show(ui, |plot_ui| {
+                    plot_ui.line(
+                        Line::new(organisms)
+                            .color(egui::Color32::from_rgb(100, 160, 255))
+                            .name("Organisms"),
+                    );
+                    plot_ui.line(
+                        Line::new(species)
+                            .color(egui::Color32::from_rgb(255, 200, 100))
+                            .name("Species"),
+                    );
+                });
 
-        ui.add_space(4.0);
+            ui.add_space(4.0);
 
-        // Trait evolution — key genetic trends over time
-        ui.label("Key trait evolution (scaled to fit)");
-        let t_attack: PlotPoints = snaps.iter().enumerate()
-            .map(|(i, s)| [i as f64, (s.avg_attack * 100.0) as f64]).collect();
-        let t_armor: PlotPoints = snaps.iter().enumerate()
-            .map(|(i, s)| [i as f64, (s.avg_armor * 100.0) as f64]).collect();
-        let t_photo: PlotPoints = snaps.iter().enumerate()
-            .map(|(i, s)| [i as f64, (s.avg_photo * 100.0) as f64]).collect();
-        let t_body: PlotPoints = snaps.iter().enumerate()
-            .map(|(i, s)| [i as f64, (s.avg_body_size * 100.0) as f64]).collect();
+            // Trait evolution — key genetic trends over time
+            ui.label("Key trait evolution (scaled to fit)");
+            let t_attack: PlotPoints = snaps
+                .iter()
+                .enumerate()
+                .map(|(i, s)| [i as f64, (s.avg_attack * 100.0) as f64])
+                .collect();
+            let t_armor: PlotPoints = snaps
+                .iter()
+                .enumerate()
+                .map(|(i, s)| [i as f64, (s.avg_armor * 100.0) as f64])
+                .collect();
+            let t_photo: PlotPoints = snaps
+                .iter()
+                .enumerate()
+                .map(|(i, s)| [i as f64, (s.avg_photo * 100.0) as f64])
+                .collect();
+            let t_body: PlotPoints = snaps
+                .iter()
+                .enumerate()
+                .map(|(i, s)| [i as f64, (s.avg_body_size * 100.0) as f64])
+                .collect();
 
-        Plot::new("trait_trends")
-            .height(130.0)
-            .legend(Legend::default().position(egui_plot::Corner::LeftTop))
-            .show(ui, |plot_ui| {
-                plot_ui.line(Line::new(t_attack)
-                    .color(egui::Color32::from_rgb(230, 100, 100)).name("Attack ×100"));
-                plot_ui.line(Line::new(t_armor)
-                    .color(egui::Color32::from_rgb(180, 180, 180)).name("Armor ×100"));
-                plot_ui.line(Line::new(t_photo)
-                    .color(egui::Color32::from_rgb(90, 200, 90)).name("Photo ×100"));
-                plot_ui.line(Line::new(t_body)
-                    .color(egui::Color32::from_rgb(200, 170, 230)).name("Body size ×100"));
-            });
+            Plot::new("trait_trends")
+                .height(130.0)
+                .legend(Legend::default().position(egui_plot::Corner::LeftTop))
+                .show(ui, |plot_ui| {
+                    plot_ui.line(
+                        Line::new(t_attack)
+                            .color(egui::Color32::from_rgb(230, 100, 100))
+                            .name("Attack ×100"),
+                    );
+                    plot_ui.line(
+                        Line::new(t_armor)
+                            .color(egui::Color32::from_rgb(180, 180, 180))
+                            .name("Armor ×100"),
+                    );
+                    plot_ui.line(
+                        Line::new(t_photo)
+                            .color(egui::Color32::from_rgb(90, 200, 90))
+                            .name("Photo ×100"),
+                    );
+                    plot_ui.line(
+                        Line::new(t_body)
+                            .color(egui::Color32::from_rgb(200, 170, 230))
+                            .name("Body size ×100"),
+                    );
+                });
 
-        ui.add_space(4.0);
+            ui.add_space(4.0);
 
-        // Symbiosis — linked-pair count and evolved average rate
-        ui.label("Symbiosis (pairs + avg rate)");
-        let sym_pairs: PlotPoints = snaps.iter().enumerate()
-            .map(|(i, s)| [i as f64, s.symbiotic_pairs as f64]).collect();
-        let sym_rate: PlotPoints = snaps.iter().enumerate()
-            .map(|(i, s)| [i as f64, (s.avg_symbiosis_rate * 100.0) as f64]).collect();
+            // Symbiosis — linked-pair count and evolved average rate
+            ui.label("Symbiosis (pairs + avg rate)");
+            let sym_pairs: PlotPoints = snaps
+                .iter()
+                .enumerate()
+                .map(|(i, s)| [i as f64, s.symbiotic_pairs as f64])
+                .collect();
+            let sym_rate: PlotPoints = snaps
+                .iter()
+                .enumerate()
+                .map(|(i, s)| [i as f64, (s.avg_symbiosis_rate * 100.0) as f64])
+                .collect();
 
-        Plot::new("symbiosis_trend")
-            .height(110.0)
-            .legend(Legend::default().position(egui_plot::Corner::LeftTop))
-            .show(ui, |plot_ui| {
-                plot_ui.line(Line::new(sym_pairs)
-                    .color(egui::Color32::from_rgb(150, 220, 255)).name("Linked pairs"));
-                plot_ui.line(Line::new(sym_rate)
-                    .color(egui::Color32::from_rgb(255, 180, 140)).name("Avg rate ×100 (−100 parasite, +100 donor)"));
-            });
+            Plot::new("symbiosis_trend")
+                .height(110.0)
+                .legend(Legend::default().position(egui_plot::Corner::LeftTop))
+                .show(ui, |plot_ui| {
+                    plot_ui.line(
+                        Line::new(sym_pairs)
+                            .color(egui::Color32::from_rgb(150, 220, 255))
+                            .name("Linked pairs"),
+                    );
+                    plot_ui.line(
+                        Line::new(sym_rate)
+                            .color(egui::Color32::from_rgb(255, 180, 140))
+                            .name("Avg rate ×100 (−100 parasite, +100 donor)"),
+                    );
+                });
 
-        ui.add_space(4.0);
+            ui.add_space(4.0);
 
-        // Food supply and average lifespan
-        ui.label("Food supply and average lifespan");
-        let food: PlotPoints = snaps.iter().enumerate()
-            .map(|(i, s)| [i as f64, s.food as f64]).collect();
-        let lifespan: PlotPoints = snaps.iter().enumerate()
-            .map(|(i, s)| [i as f64, s.avg_lifespan as f64]).collect();
+            // Food supply and average lifespan
+            ui.label("Food supply and average lifespan");
+            let food: PlotPoints = snaps
+                .iter()
+                .enumerate()
+                .map(|(i, s)| [i as f64, s.food as f64])
+                .collect();
+            let lifespan: PlotPoints = snaps
+                .iter()
+                .enumerate()
+                .map(|(i, s)| [i as f64, s.avg_lifespan as f64])
+                .collect();
 
-        Plot::new("food_lifespan")
-            .height(110.0)
-            .legend(Legend::default().position(egui_plot::Corner::LeftTop))
-            .show(ui, |plot_ui| {
-                plot_ui.line(Line::new(food)
-                    .color(egui::Color32::from_rgb(180, 230, 90)).name("Food"));
-                plot_ui.line(Line::new(lifespan)
-                    .color(egui::Color32::from_rgb(220, 180, 255)).name("Lifespan"));
-            });
-    });
+            Plot::new("food_lifespan")
+                .height(110.0)
+                .legend(Legend::default().position(egui_plot::Corner::LeftTop))
+                .show(ui, |plot_ui| {
+                    plot_ui.line(
+                        Line::new(food)
+                            .color(egui::Color32::from_rgb(180, 230, 90))
+                            .name("Food"),
+                    );
+                    plot_ui.line(
+                        Line::new(lifespan)
+                            .color(egui::Color32::from_rgb(220, 180, 255))
+                            .name("Lifespan"),
+                    );
+                });
+        });
 }
 
 fn events_tab(
@@ -1371,13 +1664,25 @@ fn events_tab(
         ui.heading("Mass extinction");
         ui.label("Immediate, destructive. 2s global cooldown between events.");
         ui.horizontal_wrapped(|ui| {
-            if ui.button("☄  Asteroid  (X)").on_hover_text("Kill 70% of organisms randomly").clicked() {
+            if ui
+                .button("☄  Asteroid  (X)")
+                .on_hover_text("Kill 70% of organisms randomly")
+                .clicked()
+            {
                 events.send(WorldEventRequest::Asteroid);
             }
-            if ui.button("❄  Ice age  (I)").on_hover_text("Halve temperature, reduce moisture").clicked() {
+            if ui
+                .button("❄  Ice age  (I)")
+                .on_hover_text("Halve temperature, reduce moisture")
+                .clicked()
+            {
                 events.send(WorldEventRequest::IceAge);
             }
-            if ui.button("🌋 Volcano  (V)").on_hover_text("Kill zone + nutrient boost").clicked() {
+            if ui
+                .button("🌋 Volcano  (V)")
+                .on_hover_text("Kill zone + nutrient boost")
+                .clicked()
+            {
                 events.send(WorldEventRequest::Volcano);
             }
         });
@@ -1387,13 +1692,25 @@ fn events_tab(
         ui.heading("Bloom events");
         ui.label("Positive stimuli. Boom now, crash later.");
         ui.horizontal_wrapped(|ui| {
-            if ui.button("☀  Solar bloom  (B)").on_hover_text("Double light for 30 seconds").clicked() {
+            if ui
+                .button("☀  Solar bloom  (B)")
+                .on_hover_text("Double light for 30 seconds")
+                .clicked()
+            {
                 events.send(WorldEventRequest::SolarBloom);
             }
-            if ui.button("🌧 Nutrient rain  (N)").on_hover_text("Massive food burst across the world").clicked() {
+            if ui
+                .button("🌧 Nutrient rain  (N)")
+                .on_hover_text("Massive food burst across the world")
+                .clicked()
+            {
                 events.send(WorldEventRequest::NutrientRain);
             }
-            if ui.button("✦ Cambrian spark  (J)").on_hover_text("Triple mutation rate for 30 seconds").clicked() {
+            if ui
+                .button("✦ Cambrian spark  (J)")
+                .on_hover_text("Triple mutation rate for 30 seconds")
+                .clicked()
+            {
                 events.send(WorldEventRequest::CambrianSpark);
             }
         });
@@ -1407,18 +1724,28 @@ fn events_tab(
         } else {
             if bloom.solar_ticks > 0 {
                 let secs = bloom.solar_ticks / 30;
-                ui.label(format!("Solar bloom: {}s remaining (light × {:.1})", secs, bloom.solar_bloom));
+                ui.label(format!(
+                    "Solar bloom: {}s remaining (light × {:.1})",
+                    secs, bloom.solar_bloom
+                ));
             }
             if bloom.mutation_ticks > 0 {
                 let secs = bloom.mutation_ticks / 30;
-                ui.label(format!("Cambrian spark: {}s remaining (mutation × {:.1})", secs, bloom.mutation_boost));
+                ui.label(format!(
+                    "Cambrian spark: {}s remaining (mutation × {:.1})",
+                    secs, bloom.mutation_boost
+                ));
             }
         }
 
         ui.add_space(12.0);
         ui.separator();
         ui.heading("Persistence");
-        if ui.button("💾 Save world  (F5)").on_hover_text("Save to sessions/<name>/save.json").clicked() {
+        if ui
+            .button("💾 Save world  (F5)")
+            .on_hover_text("Save to sessions/<name>/save.json")
+            .clicked()
+        {
             events.send(WorldEventRequest::Save);
         }
     });
@@ -1441,8 +1768,11 @@ fn chronicle_tab(ui: &mut egui::Ui, chronicle: &WorldChronicle, hide_seasons: &m
                 // Simple filter: skip season change entries if hidden
                 if hide {
                     let t = &entry.text;
-                    if t.starts_with("Spring") || t.starts_with("Summer")
-                        || t.starts_with("Autumn") || t.starts_with("Winter") {
+                    if t.starts_with("Spring")
+                        || t.starts_with("Summer")
+                        || t.starts_with("Autumn")
+                        || t.starts_with("Winter")
+                    {
                         continue;
                     }
                 }

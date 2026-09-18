@@ -7,8 +7,8 @@
 // clippy's too_many_arguments lint misfires constantly on system signatures.
 #![allow(clippy::too_many_arguments)]
 
-use bevy::prelude::*;
 use bevy::image::{Image, ImageSampler};
+use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::window::PrimaryWindow;
 use bevy_egui::{egui, EguiContexts, EguiUserTextures};
@@ -80,17 +80,10 @@ pub struct FoodSprite;
 #[derive(Component)]
 
 /// Tracks whether we're in detailed or simple rendering mode
-#[derive(Resource)]
+#[derive(Resource, Default)]
 pub struct LodState {
     pub detailed: bool,
 }
-
-impl Default for LodState {
-    fn default() -> Self {
-        Self { detailed: false }
-    }
-}
-
 
 #[derive(Resource)]
 pub struct UiFont(pub Handle<Font>);
@@ -143,7 +136,8 @@ fn setup_shared_meshes(
     shared.circle = Some(meshes.add(Circle::new(1.0)));
     shared.food_circle = Some(meshes.add(Circle::new(1.0)));
     shared.food_material = Some(materials.add(ColorMaterial::from(Color::srgb(0.2, 0.8, 0.2))));
-    shared.outline_material = Some(materials.add(ColorMaterial::from(Color::srgba(0.0, 0.0, 0.0, 0.6))));
+    shared.outline_material =
+        Some(materials.add(ColorMaterial::from(Color::srgba(0.0, 0.0, 0.0, 0.6))));
 }
 
 #[derive(Component)]
@@ -170,10 +164,7 @@ fn setup_camera(mut commands: Commands, config: Res<SimConfig>, asset_server: Re
 }
 
 /// Keyboard speed controls: Space = pause, [ = slower, ] = faster
-fn speed_control_system(
-    keys: Res<ButtonInput<KeyCode>>,
-    mut speed: ResMut<SimSpeed>,
-) {
+fn speed_control_system(keys: Res<ButtonInput<KeyCode>>, mut speed: ResMut<SimSpeed>) {
     if keys.just_pressed(KeyCode::Space) {
         speed.paused = !speed.paused;
     }
@@ -217,7 +208,9 @@ fn click_select_system(
         return;
     };
 
-    let Some(cursor_pos) = window.cursor_position() else { return };
+    let Some(cursor_pos) = window.cursor_position() else {
+        return;
+    };
 
     // Convert screen position to world position
     let window_size = Vec2::new(window.width(), window.height());
@@ -363,29 +356,49 @@ fn sync_organism_transforms(
         (With<Organism>, Without<OrganismSprite>),
     >,
     mut organisms_with_sprite: Query<
-        (&Position, &Energy, &BodySize, &ActionFlash, &mut Transform, &mut Visibility),
+        (
+            &Position,
+            &Energy,
+            &BodySize,
+            &ActionFlash,
+            &mut Transform,
+            &mut Visibility,
+        ),
         (With<Organism>, With<OrganismSprite>),
     >,
-    camera: Query<(&Transform, &OrthographicProjection), (With<MainCamera>, Without<Organism>, Without<SelectionRing>)>,
+    camera: Query<
+        (&Transform, &OrthographicProjection),
+        (With<MainCamera>, Without<Organism>, Without<SelectionRing>),
+    >,
     config: Res<SimConfig>,
     mut species_colors: ResMut<SpeciesColors>,
     selected: Res<SelectedOrganism>,
-    mut selection_rings: Query<&mut Transform, (With<SelectionRing>, Without<Organism>, Without<MainCamera>)>,
+    mut selection_rings: Query<
+        &mut Transform,
+        (With<SelectionRing>, Without<Organism>, Without<MainCamera>),
+    >,
 ) {
-    let (zoom_scale, cam_left, cam_right, cam_bottom, cam_top) = if let Ok((cam_t, proj)) = camera.get_single() {
-        let half_w = 960.0 * proj.scale;
-        let half_h = 540.0 * proj.scale;
-        let margin = 20.0 * proj.scale; // slight margin so entities don't pop in/out at edges
-        (
-            proj.scale,
-            cam_t.translation.x - half_w - margin,
-            cam_t.translation.x + half_w + margin,
-            cam_t.translation.y - half_h - margin,
-            cam_t.translation.y + half_h + margin,
-        )
-    } else {
-        (1.0, 0.0, config.world_width as f32, 0.0, config.world_height as f32)
-    };
+    let (zoom_scale, cam_left, cam_right, cam_bottom, cam_top) =
+        if let Ok((cam_t, proj)) = camera.get_single() {
+            let half_w = 960.0 * proj.scale;
+            let half_h = 540.0 * proj.scale;
+            let margin = 20.0 * proj.scale; // slight margin so entities don't pop in/out at edges
+            (
+                proj.scale,
+                cam_t.translation.x - half_w - margin,
+                cam_t.translation.x + half_w + margin,
+                cam_t.translation.y - half_h - margin,
+                cam_t.translation.y + half_h + margin,
+            )
+        } else {
+            (
+                1.0,
+                0.0,
+                config.world_width as f32,
+                0.0,
+                config.world_height as f32,
+            )
+        };
 
     let use_detailed = zoom_scale < 0.6;
 
@@ -462,13 +475,14 @@ fn sync_organism_transforms(
             // Only active organisms get outlines
             if !is_plant {
                 if let Some(outline_mat) = &shared_meshes.outline_material {
-                    let outline = commands.spawn((
-                        Mesh2d(mesh),
-                        MeshMaterial2d(outline_mat.clone()),
-                        Transform::from_xyz(0.0, 0.0, -0.1)
-                            .with_scale(Vec3::splat(1.3)),
-                        OrganismOutline,
-                    )).id();
+                    let outline = commands
+                        .spawn((
+                            Mesh2d(mesh),
+                            MeshMaterial2d(outline_mat.clone()),
+                            Transform::from_xyz(0.0, 0.0, -0.1).with_scale(Vec3::splat(1.3)),
+                            OrganismOutline,
+                        ))
+                        .id();
                     commands.entity(entity).add_child(outline);
                 }
             }
@@ -477,8 +491,10 @@ fn sync_organism_transforms(
 
     // Update existing transforms — frustum cull off-screen organisms
     for (pos, energy, body_size, flash, mut transform, mut vis) in &mut organisms_with_sprite {
-        let in_view = pos.0.x >= cam_left && pos.0.x <= cam_right
-            && pos.0.y >= cam_bottom && pos.0.y <= cam_top;
+        let in_view = pos.0.x >= cam_left
+            && pos.0.x <= cam_right
+            && pos.0.y >= cam_bottom
+            && pos.0.y <= cam_top;
 
         if !in_view {
             *vis = Visibility::Hidden;
@@ -523,7 +539,11 @@ fn sync_food_transforms(
 
     // Toggle visibility on existing food sprites
     for mut vis in &mut food_with_sprite {
-        *vis = if food_visible { Visibility::Inherited } else { Visibility::Hidden };
+        *vis = if food_visible {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        };
     }
 
     // Don't spawn new food sprites if zoomed out
@@ -531,15 +551,18 @@ fn sync_food_transforms(
         return;
     }
 
-    let Some(mesh) = &shared_meshes.food_circle else { return };
-    let Some(material) = &shared_meshes.food_material else { return };
+    let Some(mesh) = &shared_meshes.food_circle else {
+        return;
+    };
+    let Some(material) = &shared_meshes.food_material else {
+        return;
+    };
 
     for (entity, pos) in &food_without_sprite {
         commands.entity(entity).insert((
             Mesh2d(mesh.clone()),
             MeshMaterial2d(material.clone()),
-            Transform::from_xyz(pos.0.x, pos.0.y, 0.5)
-                .with_scale(Vec3::splat(1.5)),
+            Transform::from_xyz(pos.0.x, pos.0.y, 0.5).with_scale(Vec3::splat(1.5)),
             FoodSprite,
         ));
     }
@@ -555,9 +578,14 @@ fn update_death_markers(
     shared_meshes: Res<SharedMeshes>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     new_markers: Query<(Entity, &Position, &DeathMarker), Without<DeathMarkerSprite>>,
-    mut existing_markers: Query<(Entity, &mut DeathMarker, &mut Transform), With<DeathMarkerSprite>>,
+    mut existing_markers: Query<
+        (Entity, &mut DeathMarker, &mut Transform),
+        With<DeathMarkerSprite>,
+    >,
 ) {
-    let Some(mesh) = &shared_meshes.circle else { return };
+    let Some(mesh) = &shared_meshes.circle else {
+        return;
+    };
 
     // Spawn visuals for new markers
     for (entity, pos, marker) in &new_markers {
@@ -570,8 +598,7 @@ fn update_death_markers(
         commands.entity(entity).insert((
             Mesh2d(mesh.clone()),
             MeshMaterial2d(material),
-            Transform::from_xyz(pos.0.x, pos.0.y, 0.8)
-                .with_scale(Vec3::splat(2.0)),
+            Transform::from_xyz(pos.0.x, pos.0.y, 0.8).with_scale(Vec3::splat(2.0)),
             DeathMarkerSprite,
         ));
     }
@@ -629,8 +656,7 @@ fn camera_control_system(
     // Shift+S (screenshot) and Shift+M (minimap toggle) don't also pan.
     // Arrow keys are unaffected because they're not used as modifier
     // targets anywhere.
-    let shift_held =
-        keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
+    let shift_held = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
     let speed = 200.0 * projection.scale * dt;
     if (keys.pressed(KeyCode::KeyW) && !shift_held) || keys.pressed(KeyCode::ArrowUp) {
         transform.translation.y += speed;
@@ -741,10 +767,15 @@ fn toggle_trails_system(
 fn draw_infection_indicators_system(
     mut gizmos: Gizmos,
     infected: Query<(&Position, &BodySize, &Infection), With<Organism>>,
-    camera: Query<(&Transform, &OrthographicProjection), (With<MainCamera>, Without<Organism>, Without<SelectionRing>)>,
+    camera: Query<
+        (&Transform, &OrthographicProjection),
+        (With<MainCamera>, Without<Organism>, Without<SelectionRing>),
+    >,
     time: Res<Time>,
 ) {
-    let Ok((cam_t, proj)) = camera.get_single() else { return };
+    let Ok((cam_t, proj)) = camera.get_single() else {
+        return;
+    };
     let half_w = 960.0 * proj.scale;
     let half_h = 540.0 * proj.scale;
     let margin = 40.0 * proj.scale;
@@ -757,8 +788,7 @@ fn draw_infection_indicators_system(
     let pulse = (time.elapsed_secs() * std::f32::consts::TAU).sin() * 0.15 + 0.85;
 
     for (pos, body_size, infection) in &infected {
-        if pos.0.x < cam_left || pos.0.x > cam_right
-            || pos.0.y < cam_bottom || pos.0.y > cam_top {
+        if pos.0.x < cam_left || pos.0.x > cam_right || pos.0.y < cam_bottom || pos.0.y > cam_top {
             continue;
         }
         // Purple, opacity scales with severity
@@ -786,8 +816,12 @@ fn draw_trails_system(
     // Only draw the trail of the currently-selected organism. At 2000 organisms,
     // drawing every trail produced unreadable visual noise; limiting to the
     // selected one turns the feature into a focused inspection tool.
-    let Some(entity) = selected.entity else { return };
-    let Ok((_pos, trail, species)) = organisms.get(entity) else { return };
+    let Some(entity) = selected.entity else {
+        return;
+    };
+    let Ok((_pos, trail, species)) = organisms.get(entity) else {
+        return;
+    };
     if trail.positions.len() < 2 {
         return;
     }
@@ -801,7 +835,6 @@ fn draw_trails_system(
     gizmos.linestrip_2d(trail.positions.iter().copied(), color);
 }
 
-
 /// Detect zoom crossing the LOD threshold and strip sprites so they re-render
 fn lod_change_system(
     mut commands: Commands,
@@ -810,10 +843,7 @@ fn lod_change_system(
     organisms: Query<(Entity, &Children), (With<Organism>, With<OrganismSprite>)>,
     _outlines: Query<Entity, With<OrganismOutline>>,
 ) {
-    let zoom_scale = camera
-        .get_single()
-        .map(|p| p.scale)
-        .unwrap_or(1.0);
+    let zoom_scale = camera.get_single().map(|p| p.scale).unwrap_or(1.0);
 
     let should_be_detailed = zoom_scale < 0.6;
 
@@ -827,7 +857,8 @@ fn lod_change_system(
     // so sync_organism_transforms re-creates them at the new LOD level.
     // Also despawn child entities (body parts, outlines).
     for (entity, children) in &organisms {
-        commands.entity(entity)
+        commands
+            .entity(entity)
             .remove::<OrganismSprite>()
             .remove::<Mesh2d>()
             .remove::<MeshMaterial2d<ColorMaterial>>();
@@ -882,7 +913,11 @@ fn setup_minimap(
 
     // Create a blank RGBA image
     let mut image = Image::new_fill(
-        Extent3d { width: size, height: size, depth_or_array_layers: 1 },
+        Extent3d {
+            width: size,
+            height: size,
+            depth_or_array_layers: 1,
+        },
         TextureDimension::D2,
         &[40, 40, 40, 255],
         TextureFormat::Rgba8UnormSrgb,
@@ -922,7 +957,9 @@ fn update_minimap(
     }
 
     let Some(tile_map) = tile_map else { return };
-    let Some(image) = images.get_mut(&minimap.image_handle) else { return };
+    let Some(image) = images.get_mut(&minimap.image_handle) else {
+        return;
+    };
 
     let size = minimap.size as usize;
     let world_w = config.world_width as f32;
@@ -930,7 +967,9 @@ fn update_minimap(
 
     match *minimap_mode {
         MinimapMode::Normal => {
-            paint_minimap_normal(image, size, world_w, world_h, &tile_map, &config, &organisms);
+            paint_minimap_normal(
+                image, size, world_w, world_h, &tile_map, &config, &organisms,
+            );
         }
         MinimapMode::Heatmap => {
             paint_minimap_heatmap(image, size, world_w, world_h, &organisms);
@@ -942,8 +981,12 @@ fn update_minimap(
                 .entity
                 .and_then(|e| organisms.get(e).ok().map(|(_, _, s)| s.0));
             match focus_species {
-                Some(sp) => paint_minimap_range(image, size, world_w, world_h, &tile_map, &config, &organisms, sp),
-                None => paint_minimap_normal(image, size, world_w, world_h, &tile_map, &config, &organisms),
+                Some(sp) => paint_minimap_range(
+                    image, size, world_w, world_h, &tile_map, &config, &organisms, sp,
+                ),
+                None => paint_minimap_normal(
+                    image, size, world_w, world_h, &tile_map, &config, &organisms,
+                ),
             }
         }
     }
@@ -990,8 +1033,17 @@ fn update_minimap(
             let cx = (pos.0.x / world_w * size as f32) as i32;
             let cy = size as i32 - 1 - (pos.0.y / world_h * size as f32) as i32;
             // Draw plus shape: center + 2 pixels each direction
-            for &(dx, dy) in &[(0, 0), (-2, 0), (-1, 0), (1, 0), (2, 0),
-                               (0, -2), (0, -1), (0, 1), (0, 2)] {
+            for &(dx, dy) in &[
+                (0, 0),
+                (-2, 0),
+                (-1, 0),
+                (1, 0),
+                (2, 0),
+                (0, -2),
+                (0, -1),
+                (0, 1),
+                (0, 2),
+            ] {
                 let x = cx + dx;
                 let y = cy + dy;
                 if x >= 0 && (x as usize) < size && y >= 0 && (y as usize) < size {
@@ -1021,7 +1073,10 @@ fn paint_minimap_normal(
         for px in 0..size {
             let wx = (px as f32 / size as f32 * world_w) as u32;
             let wy = ((size - 1 - py) as f32 / size as f32 * world_h) as u32;
-            let tile = tile_map.get(wx.min(config.world_width - 1), wy.min(config.world_height - 1));
+            let tile = tile_map.get(
+                wx.min(config.world_width - 1),
+                wy.min(config.world_height - 1),
+            );
 
             let (r, g, b) = match tile.terrain {
                 clauvolution_world::TerrainType::DeepWater => (20, 40, 120),
@@ -1106,7 +1161,10 @@ fn paint_minimap_heatmap(
     }
 
     // Find max density for normalization
-    let max_density = plants.iter().zip(predators.iter()).zip(foragers.iter())
+    let max_density = plants
+        .iter()
+        .zip(predators.iter())
+        .zip(foragers.iter())
         .map(|((&p, &pr), &f)| p + pr + f)
         .max()
         .unwrap_or(1)
@@ -1169,7 +1227,10 @@ fn paint_minimap_range(
         for px in 0..size {
             let wx = (px as f32 / size as f32 * world_w) as u32;
             let wy = ((size - 1 - py) as f32 / size as f32 * world_h) as u32;
-            let tile = tile_map.get(wx.min(config.world_width - 1), wy.min(config.world_height - 1));
+            let tile = tile_map.get(
+                wx.min(config.world_width - 1),
+                wy.min(config.world_height - 1),
+            );
             let (r, g, b) = match tile.terrain {
                 clauvolution_world::TerrainType::DeepWater => (20, 40, 120),
                 clauvolution_world::TerrainType::ShallowWater => (40, 80, 160),
@@ -1330,7 +1391,9 @@ fn cycle_species_member_system(
         return;
     }
 
-    let Some(cur_entity) = selected.entity else { return };
+    let Some(cur_entity) = selected.entity else {
+        return;
+    };
     let Ok((_, cur_species)) = species_query.get(cur_entity) else {
         // selected organism died; nothing sensible to cycle within
         return;

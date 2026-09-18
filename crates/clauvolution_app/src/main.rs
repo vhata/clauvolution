@@ -3,13 +3,13 @@ mod script;
 use bevy::core::{TaskPoolOptions, TaskPoolPlugin, TaskPoolThreadAssignmentPolicy};
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{save_to_disk, Screenshot};
-use clauvolution_body::BodyPlugin;
 use bevy::window::PrimaryWindow;
+use clauvolution_body::BodyPlugin;
 use clauvolution_core::*;
-use clauvolution_sim::save;
 use clauvolution_genome::InnovationCounter;
+use clauvolution_phylogeny::{PhyloTree, PhylogenyPlugin, WorldChronicle};
 use clauvolution_render::{MainCamera, RenderPlugin};
-use clauvolution_phylogeny::{PhylogenyPlugin, PhyloTree, WorldChronicle};
+use clauvolution_sim::save;
 use clauvolution_sim::SimPlugin;
 use clauvolution_ui::UiPlugin;
 use clauvolution_world::{self, TileMap, WorldPlugin};
@@ -49,11 +49,15 @@ fn compute_worker_cap() -> usize {
 /// No-op when launched from a terminal (the usual `cargo run` path)
 /// because cwd is the project root there, not `/`.
 fn chdir_to_writable_if_bundled() {
-    let Ok(cwd) = std::env::current_dir() else { return };
+    let Ok(cwd) = std::env::current_dir() else {
+        return;
+    };
     if cwd != std::path::Path::new("/") {
         return;
     }
-    let Ok(home) = std::env::var("HOME") else { return };
+    let Ok(home) = std::env::var("HOME") else {
+        return;
+    };
     let dir = std::path::PathBuf::from(home)
         .join("Documents")
         .join("Clauvolution");
@@ -85,56 +89,78 @@ fn main() {
     chdir_to_writable_if_bundled();
     let args: Vec<String> = std::env::args().collect();
     let screenshot_mode = args.iter().any(|a| a == "--screenshot");
-    let load_path = args.iter()
+    let load_path = args
+        .iter()
         .position(|a| a == "--load")
         .and_then(|i| args.get(i + 1).cloned());
-    let seed: Option<u64> = args.iter()
+    let seed: Option<u64> = args
+        .iter()
         .position(|a| a == "--seed")
         .and_then(|i| args.get(i + 1))
         .and_then(|s| s.parse().ok());
-    let headless_ticks: Option<u64> = args.iter()
+    let headless_ticks: Option<u64> = args
+        .iter()
         .position(|a| a == "--headless")
         .and_then(|i| args.get(i + 1))
         .and_then(|s| s.parse().ok());
-    let headless_speed: f32 = args.iter()
+    let headless_speed: f32 = args
+        .iter()
         .position(|a| a == "--speed")
         .and_then(|i| args.get(i + 1))
         .and_then(|s| s.parse().ok())
         .unwrap_or(DEFAULT_HEADLESS_SPEED);
-    let script_path: Option<String> = args.iter()
+    let script_path: Option<String> = args
+        .iter()
         .position(|a| a == "--script")
         .and_then(|i| args.get(i + 1).cloned());
-    let save_as: Option<String> = args.iter()
+    let save_as: Option<String> = args
+        .iter()
         .position(|a| a == "--save-as")
         .and_then(|i| args.get(i + 1).cloned());
-    let dump_history: Option<String> = args.iter()
+    let dump_history: Option<String> = args
+        .iter()
         .position(|a| a == "--dump-history")
         .and_then(|i| args.get(i + 1).cloned());
-    let species_threshold_override: Option<f32> = args.iter()
+    let species_threshold_override: Option<f32> = args
+        .iter()
         .position(|a| a == "--species-threshold")
         .and_then(|i| args.get(i + 1))
         .and_then(|s| s.parse().ok());
 
     let worker_cap = compute_worker_cap();
-    eprintln!("Compute pool capped at {} workers (set CLAU_WORKERS to override)", worker_cap);
+    eprintln!(
+        "Compute pool capped at {} workers (set CLAU_WORKERS to override)",
+        worker_cap
+    );
 
     if let Some(ticks) = headless_ticks {
-        run_headless(ticks, seed, worker_cap, headless_speed, load_path, save_as, dump_history, species_threshold_override);
+        run_headless(
+            ticks,
+            seed,
+            worker_cap,
+            headless_speed,
+            load_path,
+            save_as,
+            dump_history,
+            species_threshold_override,
+        );
         return;
     }
 
     let mut app = App::new();
 
-    app.add_plugins(DefaultPlugins
-        .set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "Clauvolution".to_string(),
-                resolution: (1920.0, 1080.0).into(),
+    app.add_plugins(
+        DefaultPlugins
+            .set(WindowPlugin {
+                primary_window: Some(Window {
+                    title: "Clauvolution".to_string(),
+                    resolution: (1920.0_f32, 1080.0_f32).into(),
+                    ..default()
+                }),
                 ..default()
-            }),
-            ..default()
-        })
-        .set(task_pool_plugin(worker_cap)))
+            })
+            .set(task_pool_plugin(worker_cap)),
+    )
     .add_plugins(CorePlugin)
     .add_plugins(WorldPlugin)
     .add_plugins(BodyPlugin)
@@ -148,7 +174,13 @@ fn main() {
     .insert_resource(SpeciesThresholdOverride(species_threshold_override))
     .add_systems(
         Startup,
-        (apply_seed_override, startup_system, apply_species_threshold, set_window_title).chain(),
+        (
+            apply_seed_override,
+            startup_system,
+            apply_species_threshold,
+            set_window_title,
+        )
+            .chain(),
     );
 
     if screenshot_mode {
@@ -159,9 +191,16 @@ fn main() {
     if let Some(path) = script_path {
         match load_script(std::path::Path::new(&path)) {
             Ok(script) => {
-                eprintln!("Loaded script with {} action(s) from {}", script.actions.len(), path);
-                app.insert_resource(ScriptState { script, next_action: 0 })
-                    .add_systems(Update, script_runner_system);
+                eprintln!(
+                    "Loaded script with {} action(s) from {}",
+                    script.actions.len(),
+                    path
+                );
+                app.insert_resource(ScriptState {
+                    script,
+                    next_action: 0,
+                })
+                .add_systems(Update, script_runner_system);
             }
             Err(e) => {
                 eprintln!("Failed to load script: {}", e);
@@ -179,10 +218,7 @@ struct SeedOverride(Option<u64>);
 /// If --seed N was passed on the command line, stamp it into SimConfig before
 /// startup_system reads it to seed the terrain and SimRng. Otherwise the
 /// default random seed from SimConfig::default() stands.
-fn apply_seed_override(
-    seed_override: Res<SeedOverride>,
-    mut config: ResMut<SimConfig>,
-) {
+fn apply_seed_override(seed_override: Res<SeedOverride>, mut config: ResMut<SimConfig>) {
     if let Some(seed) = seed_override.0 {
         config.terrain_seed = seed;
         info!("Using seed from CLI: {}", seed);
@@ -206,10 +242,15 @@ fn startup_system(
     if let Some(ref path) = load_path.0 {
         let save_path = std::path::Path::new(path).join("save.json");
         if save_path.exists() {
-            load_saved_world(commands, config, innovation, stats, tick, season, phylo, chronicle, &save_path);
+            load_saved_world(
+                commands, config, innovation, stats, tick, season, phylo, chronicle, &save_path,
+            );
             return;
         } else {
-            warn!("Save file not found: {}, starting fresh", save_path.display());
+            warn!(
+                "Save file not found: {}, starting fresh",
+                save_path.display()
+            );
         }
     }
     fresh_world(commands, config, innovation);
@@ -231,7 +272,12 @@ fn load_saved_world(
         return;
     };
 
-    info!("Loading world from {} ({} organisms, {} food)", save_path.display(), state.organisms.len(), state.food.len());
+    info!(
+        "Loading world from {} ({} organisms, {} food)",
+        save_path.display(),
+        state.organisms.len(),
+        state.food.len()
+    );
 
     // Restore state
     tick.0 = state.tick;
@@ -244,7 +290,8 @@ fn load_saved_world(
 
     // Generate terrain from seed — same seed = same terrain
     let mut rng = rand::rngs::StdRng::seed_from_u64(config.terrain_seed);
-    let tile_map = clauvolution_world::TileMap::generate(config.world_width, config.world_height, &mut rng);
+    let tile_map =
+        clauvolution_world::TileMap::generate(config.world_width, config.world_height, &mut rng);
     commands.insert_resource(tile_map);
 
     // Reseed SimRng from the saved seed. (Mid-run save/load diverges from
@@ -283,7 +330,12 @@ fn setup_world(
     // Same seed → same simulation trajectory.
     let mut sim_rng = SimRng::from_seed(config.terrain_seed);
     clauvolution_world::spawn_initial_food(&mut commands, &config, &tile_map, &mut sim_rng.0);
-    clauvolution_sim::spawn_initial_population(&mut commands, &config, &mut innovation, &mut sim_rng.0);
+    clauvolution_sim::spawn_initial_population(
+        &mut commands,
+        &config,
+        &mut innovation,
+        &mut sim_rng.0,
+    );
     commands.insert_resource(tile_map);
     commands.insert_resource(sim_rng);
 
@@ -376,7 +428,10 @@ fn screenshot_system(
             transform.translation.y = config.world_height as f32 / 2.0;
         }
 
-        let path = session.screenshot_path(&step.label).to_string_lossy().to_string();
+        let path = session
+            .screenshot_path(&step.label)
+            .to_string_lossy()
+            .to_string();
         info!("Capturing screenshot: {}", path);
 
         commands
@@ -388,10 +443,7 @@ fn screenshot_system(
     }
 }
 
-fn set_window_title(
-    session: Res<Session>,
-    mut windows: Query<&mut Window, With<PrimaryWindow>>,
-) {
+fn set_window_title(session: Res<Session>, mut windows: Query<&mut Window, With<PrimaryWindow>>) {
     if let Ok(mut window) = windows.get_single_mut() {
         window.title = format!("Clauvolution — {}", session.name);
     }
@@ -412,9 +464,12 @@ fn run_headless(
     use bevy::app::ScheduleRunnerPlugin;
 
     let start = std::time::Instant::now();
-    eprintln!("Headless run: {} ticks{} at {}× virtual-time", ticks,
+    eprintln!(
+        "Headless run: {} ticks{} at {}× virtual-time",
+        ticks,
         seed.map(|s| format!(", seed {}", s)).unwrap_or_default(),
-        speed);
+        speed
+    );
 
     let mut app = App::new();
 
@@ -460,7 +515,14 @@ fn run_headless(
         .insert_resource(SpeciesThresholdOverride(species_threshold))
         .add_systems(
             Startup,
-            (apply_seed_override, startup_system, set_headless_speed, apply_species_threshold, unbound_history).chain(),
+            (
+                apply_seed_override,
+                startup_system,
+                set_headless_speed,
+                apply_species_threshold,
+                unbound_history,
+            )
+                .chain(),
         );
 
     // Counter system that exits after N FixedUpdate ticks from whatever
@@ -646,7 +708,10 @@ fn print_headless_summary(
     // strategy breakdown below exactly.
     let latest = history.snapshots.last();
     eprintln!("=== Headless summary ===");
-    eprintln!("Total organisms (final): {}", latest.map(|s| s.organisms).unwrap_or(0));
+    eprintln!(
+        "Total organisms (final): {}",
+        latest.map(|s| s.organisms).unwrap_or(0)
+    );
     eprintln!("Species (final):         {}", stats.species_count);
     eprintln!("Max generation:          {}", stats.max_generation);
     eprintln!("Total births:            {}", stats.total_births);
@@ -670,7 +735,10 @@ fn print_headless_summary(
         eprintln!("  Attack:              {:.2}", latest.avg_attack);
         eprintln!("  Armor:               {:.2}", latest.avg_armor);
         eprintln!("  Photosynthesis:      {:.0}%", latest.avg_photo * 100.0);
-        eprintln!("  Disease resistance:  {:.0}%", latest.avg_disease_resistance * 100.0);
+        eprintln!(
+            "  Disease resistance:  {:.0}%",
+            latest.avg_disease_resistance * 100.0
+        );
         eprintln!("  Symbiosis rate:      {:+.2}", latest.avg_symbiosis_rate);
         eprintln!("  Symbiotic pairs:     {}", latest.symbiotic_pairs);
         eprintln!("  Avg lifespan:        {:.0} ticks", latest.avg_lifespan);

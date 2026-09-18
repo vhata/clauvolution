@@ -78,22 +78,17 @@ One finding is one thing that can be independently fixed and independently verif
 Both kinds of review start from the same checks. Run them at the reviewed commit and record each result in the header table.
 
 ```bash
+scripts/check.sh                                   # format check, clippy with warnings denied, cargo test
 cargo build --release
-cargo clippy --all-targets
-cargo test --workspace
 cargo run --release -- --headless 1000 --seed 42
 cargo run --release -- --screenshot
 ```
 
-Record the clippy warning count as a number, not just pass or fail, so the next review can compare against it:
+`scripts/check.sh` is the same gate CI runs on every pull request (see `docs/QUALITY.md`), so at any reviewed commit on `main` it should pass; record pass or fail. There is no clippy warning count to record because warnings are denied, and a warning that has been silenced with a targeted `#[allow]` is worth a look during the review.
 
-```bash
-cargo clippy --all-targets --message-format=short 2>&1 | grep '^warning: ' | grep -vc generated
-```
+The headless run prints a summary: final population, species count, max generation, births, deaths by cause, strategy breakdown, trait averages, and the predation funnel. Record that summary in full. Comparing it against the previous review's is how a silent change in simulation dynamics shows up, and a run that dies out or hangs is itself a finding. The scheduled probe workflow keeps the same summaries for the audit seeds as artifacts, which gives a review a longer baseline than one run. `--screenshot` runs the scripted tour and exits; it must complete and write its images under `sessions/<name>/`.
 
-The headless run prints a summary: final population, species count, max generation, births, deaths by cause, strategy breakdown, trait averages, and the predation funnel. Record that summary in full. Comparing it against the previous review's is how a silent change in simulation dynamics shows up, and a run that dies out or hangs is itself a finding. `--screenshot` runs the scripted tour and exits; it must complete and write its images under `sessions/<name>/`.
-
-`cargo test --workspace` currently runs no tests, so it confirms that every crate still compiles as a test target and nothing more. Record that plainly rather than reporting a green suite. A `Test` finding that adds real coverage changes what this check is worth.
+`cargo test --workspace` runs the unit tests that exist, which are few; the test policy in `docs/QUALITY.md` says which changes are expected to add them. Record the test count alongside pass or fail so a review can see whether coverage is growing. A `Test` finding that adds real coverage changes what this check is worth.
 
 A check that passed at the previous review and fails now is a finding.
 
