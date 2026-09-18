@@ -42,7 +42,7 @@ update_spatial_hash           ← rebuild the spatial hash from every Position (
 update_food_snapshot          ← collect (entity, position, energy) of all food into FoodSnapshot
 sensing_and_brain_system      ← for each organism: gather inputs, evaluate brain, write outputs (par_iter_mut)
 action_system                 ← execute brain outputs (move, eat, signal, update memory)
-predation_system              ← attack intents → damage → kills (energy pyramid: 10%)
+predation_system              ← attack intents → damage → kills (energy pyramid: 10%); victim gets `Killed(Predation)`
 photosynthesis_system         ← sun energy for plants, factoring plant density competition (second pass par_iter_mut)
 niche_construction_system     ← organisms modify the tiles they occupy
 disease_transmission_system   ← background infections + proximity spread
@@ -50,7 +50,7 @@ disease_effects_system        ← per-tick drain, direct mortality chance, timer
 symbiosis_tracking_system     ← nearest-neighbour streak per organism (par_iter_mut)
 symbiosis_transfer_system     ← energy exchange between mutual pairs past the link threshold
 metabolism_system             ← energy costs (quadratic in body/armor/claws/speed), aging (par_iter_mut)
-death_system                  ← energy ≤ 0 → categorise cause → despawn
+death_system                  ← energy ≤ 0, health ≤ 0, or `Killed` → cause from the marker, else old age/disease/starvation → despawn
 reproduction_system           ← eligible parents → crossover + mutate → spawn child
 species_classification_system ← NEAT compatibility distance with hysteresis (every 5s)
 record_population_history     ← 1Hz snapshot into PopulationHistory ring buffer

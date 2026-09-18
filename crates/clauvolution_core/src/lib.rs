@@ -603,6 +603,14 @@ pub struct SpeciesId(pub u64);
 #[derive(Component, Default)]
 pub struct GroupSize(pub u32);
 
+/// An organism that died this tick and is waiting for `death_system` to
+/// despawn it. Carries the cause so attribution is recorded at the kill, not
+/// inferred from health afterwards. Systems that run between the kill and
+/// `death_system` (photosynthesis, symbiosis transfer) filter on
+/// `Without<Killed>` so a corpse earns nothing.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct Killed(pub DeathCause);
+
 /// Brief visual marker spawned where an organism dies
 #[derive(Component)]
 pub struct DeathMarker {

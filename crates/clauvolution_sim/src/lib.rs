@@ -80,10 +80,19 @@ const PLANT_DENSITY_PENALTY: f32 = 0.3;
 ///   2.0 — initial, plants dominate 90%+
 ///   1.0 — 50% cut, plants still 91% but more starvation
 ///   0.7 — 65% cut, back to 92% plants — too lenient
-///   0.5 — (current) 75% cut: breaks monoculture (~72/26/1% split).
-///         Starvation becomes dominant death cause but that's the correct
-///         signal — foragers earn their place by out-eating the shortfall.
-const PHOTO_OUTPUT_MULTIPLIER: f32 = 0.5;
+///   0.5 — 75% cut: broke monoculture (~72/26/1% split) at the time.
+///   The values above were measured while killed photosynthesisers kept
+///   photosynthesising and could be killed again (see the `Killed` marker in
+///   DECISIONS.md), so they describe a different sim. With kills final:
+///   0.5 — plants extinct by 5000 ticks on one of four seeds, 29 left on seed 42
+///   0.75 — plants survive everywhere; predators 3-32
+///   1.0 — (current) plants survive everywhere. Seed 42 at 5000 ticks over
+///         five runs: plants 1165-1468, foragers 530-825, predators 2-49.
+///         Same-seed runs are not reproducible at this length, so single
+///         runs carry that spread. Seeds 1 and 2 still drift to plant
+///         monoculture and predators fade slowly on every seed; that is an
+///         attractor question for the design doc, not this constant.
+const PHOTO_OUTPUT_MULTIPLIER: f32 = 1.0;
 
 /// Minimum real-time seconds between extinction/bloom events (prevents spam).
 const WORLD_EVENT_COOLDOWN_SECS: f32 = 2.0;
@@ -609,8 +618,7 @@ fn predation_system(
         (Entity, &Position, &mut Energy, &mut Health, &mut ActionFlash, &Genome, &BodySize, &BrainOutput),
         With<Organism>,
     >,
-    _commands: Commands,
-    _stats: ResMut<SimStats>,
+    mut commands: Commands,
     mut predation_stats: ResMut<PredationStats>,
 ) {
     // Collect attack intents
@@ -641,9 +649,14 @@ fn predation_system(
                 continue;
             }
 
-            if let Ok((_, target_pos, target_energy, _, _, target_genome, target_body_size, _)) =
+            if let Ok((_, target_pos, target_energy, target_health, _, target_genome, target_body_size, _)) =
                 organisms.get(target_entity)
             {
+                // A target at zero health is already dead (killed earlier this
+                // tick, or dying of old age) and is not prey.
+                if target_health.0 <= 0.0 {
+                    continue;
+                }
                 let dist = (target_pos.0 - *attacker_pos).length();
                 if dist > *attack_range {
                     continue;
@@ -686,13 +699,19 @@ fn predation_system(
         if let Ok((_, _, mut victim_energy, mut victim_health, _, _, _, _)) = organisms.get_mut(victim) {
             victim_energy.0 = 0.0;
             victim_health.0 = 0.0;
+            // The marker is what makes the kill final: the systems between here
+            // and death_system skip it, and death_system despawns it with this
+            // cause. Zeroing energy and health alone let a photosynthesiser
+            // refill in the same tick and survive at zero health to be killed
+            // and paid for again (see DECISIONS.md).
+            commands.entity(victim).insert(Killed(DeathCause::Predation));
         }
     }
 }
 
 fn photosynthesis_system(
     tile_map: Res<TileMap>,
-    mut organisms: Query<(&Position, &mut Energy, &Genome), With<Organism>>,
+    mut organisms: Query<(&Position, &mut Energy, &Genome), (With<Organism>, Without<Killed>)>,
     config: Res<SimConfig>,
     season: Res<Season>,
     bloom: Res<BloomEffects>,
@@ -908,7 +927,9 @@ fn symbiosis_tracking_system(
 /// each tick; negative rates reverse the flow. Net effect on A per
 /// tick is `(rate_b - rate_a) * SYMBIOSIS_TRANSFER_RATE`.
 fn symbiosis_transfer_system(
-    organisms: Query<(Entity, &Genome, &Symbiosis), With<Organism>>,
+    // A killed organism drops out of pairing here, so its partner neither pays
+    // nor receives this tick and no energy moves to or from a corpse.
+    organisms: Query<(Entity, &Genome, &Symbiosis), (With<Organism>, Without<Killed>)>,
     mut energies: Query<&mut Energy, With<Organism>>,
     config: Res<SimConfig>,
 ) {
@@ -1018,21 +1039,20 @@ fn metabolism_system(
 
 fn death_system(
     mut commands: Commands,
-    organisms: Query<(Entity, &Energy, &Health, &Position, &Age, Option<&Infection>), With<Organism>>,
+    organisms: Query<(Entity, &Energy, &Health, &Position, &Age, Option<&Infection>, Option<&Killed>), With<Organism>>,
     mut stats: ResMut<SimStats>,
     mut fitness: ResMut<FitnessTracker>,
 ) {
-    for (entity, energy, health, pos, age, infection) in &organisms {
-        if energy.0 <= 0.0 {
-            // Determine cause of death — priority: predation > old age > disease > starvation
-            let cause = if health.0 <= 0.0 {
-                DeathCause::Predation
-            } else if age.0 > 3000 {
-                DeathCause::OldAge
-            } else if infection.is_some() {
-                DeathCause::Disease
-            } else {
-                DeathCause::Starvation
+    for (entity, energy, health, pos, age, infection, killed) in &organisms {
+        if energy.0 <= 0.0 || health.0 <= 0.0 || killed.is_some() {
+            // A kill records its own cause on the `Killed` marker. Anything
+            // else died of depletion, attributed by priority: old age (health
+            // decayed to zero after 3000 ticks) > disease > starvation.
+            let cause = match killed {
+                Some(k) => k.0,
+                None if age.0 > 3000 => DeathCause::OldAge,
+                None if infection.is_some() => DeathCause::Disease,
+                None => DeathCause::Starvation,
             };
             stats.deaths_by_cause[cause as usize] += 1;
 
@@ -1040,7 +1060,7 @@ fn death_system(
             commands.spawn((
                 DeathMarker {
                     timer: 0.5,
-                    was_predated: health.0 <= 0.0,
+                    was_predated: cause == DeathCause::Predation,
                 },
                 Position(pos.0),
             ));
