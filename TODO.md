@@ -19,6 +19,10 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
   - Starting point: Only matters if the sim is ever shared, and it needs performance work first, so confirm the goal before starting.
   - Source: docs/ROADMAP.md (Backlog), 2026-09-16
   - Related: `gpu-brain-compute-shader`, `gpu-instanced-rendering`
+- [TOOLING] `ci-scripted-tour-software-renderer` — **Try running the scripted tour in CI under a software renderer.** The smoke job exercises headless mode only, so a change that breaks the window, egui panels, or screenshot path is caught by nobody until a human runs a release build.
+  - Starting point: Mesa's `llvmpipe` (`LIBGL_ALWAYS_SOFTWARE=1` or Vulkan `lavapipe`) on `ubuntu-latest`, running `--script tours/demo.json` and asserting the PNGs were written. Expect flakiness; `docs/QUALITY.md` lists it as out of scope for the first CI pass.
+  - Source: tooling/quality-gates branch, 2026-09-18
+  - Related: `screenshot-tour-egui-path` (review backlog)
 
 ### Unprioritized
 
@@ -35,9 +39,6 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 - [BRAIN] `convergent-detection-noise` — **Assess convergent evolution detection cost and noise.** Detection scans every species on each classification tick, and early in a run the results may be noisy enough to be misleading.
   - Starting point: Measure how often it fires in the first few thousand ticks before deciding between a cheaper scan, a warm-up delay, or leaving it alone.
   - Source: CLAUDE.md (Known rough edges), 2026-09-16
-- [TOOLING] `clippy-baseline-toolchain` — **Make the clippy baseline real.** The count command in `docs/CODE_REVIEW_GUIDE.md` greps for lines starting with `warning:` under `--message-format=short`, which only matches the per-crate summary lines it then excludes, so it always prints 0. The installed nightly (rustc 1.89, 2025-06-01) reports 74 warnings on `main`, mostly `uninlined_format_args`.
-  - Starting point: Fix the command (drop `--message-format=short` or match `: warning:`), decide whether to add a `rust-toolchain.toml`, then either fix the warnings or record the true count as the baseline for the next incremental review.
-  - Source: all four review-backlog branches of 2026-09-17
 - [TOOLING] `script-tour-virtual-time-after-speed` — **Decide whether `--script` tour timings are virtual or wall-clock seconds.** `script_runner_system` keys `at_seconds` to `Time<Virtual>`, so now that GUI speed scales virtual time every trigger after a `set_speed` action fires `multiplier` times sooner in wall time. `tours/readme.json` at 8x evolves for roughly 330 ticks before its screenshots instead of several thousand.
   - Starting point: Either retune the bundled tours or key `at_seconds` to `Time<Real>` and let tours state the speed they want.
   - Source: review/headless-gui-parity branch, 2026-09-17

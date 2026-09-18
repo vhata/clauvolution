@@ -31,7 +31,17 @@ cargo run --release -- --headless 1000 --species-threshold 1.5  # same override,
 
 `CLAU_WORKERS=<n>` caps the compute thread pool (default 6) in both modes. Flags are parsed by hand; unknown flags are ignored silently.
 
-Requires Rust (latest stable) and a GPU with Metal / Vulkan / DX12 support.
+Requires Rust (the version pinned in `rust-toolchain.toml`, installed by `rustup` automatically) and a GPU with Metal / Vulkan / DX12 support.
+
+## Development
+
+```bash
+scripts/setup.sh      # install the git hooks (needs lefthook: brew install lefthook)
+scripts/check.sh      # format check, clippy with warnings denied, tests; same gates as CI
+scripts/smoke.sh      # release build plus a short headless run, as CI runs it
+```
+
+The toolchain is pinned in `rust-toolchain.toml`; `rustup` installs it on first use. What is checked, where, and why is in [docs/QUALITY.md](docs/QUALITY.md).
 
 ## Controls
 

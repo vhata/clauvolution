@@ -12,6 +12,7 @@ An evolution simulator built in Rust and Bevy 0.15. Organisms with NEAT neural n
 - **The user merges.** The agent merges only when explicitly told to in that turn, with a squash merge that keeps the full PR body.
 - **Concurrent work uses git worktrees**, one per branch, named after the work's slug. Check open PRs, `git worktree list`, and `git branch -a` before claiming anything.
 - Commit regularly within the branch. No leaving work uncommitted.
+- **Run `scripts/check.sh` before opening or updating a pull request.** It runs the same format, lint, and test gates as CI. `scripts/setup.sh` installs the git hooks that run them automatically. See `docs/QUALITY.md` for what is gated and why.
 - No `Co-Authored-By` trailers in commit messages. Credits live in the README.
 - When adding a new simulation dynamic, budget a follow-up tuning pass. Instrument first so the Graphs tab can show the dynamic's effect, then tune.
 - Prefer editing existing files to creating new ones.
@@ -29,6 +30,7 @@ Three guides define the rest of the workflow. Load each only when its trigger fi
 - **`README.md`**: build and run commands, CLI flags, controls.
 - **`docs/ARCHITECTURE.md`**: crate layout, the simulation tick, ECS patterns, where-to-find-X table.
 - **`docs/DECISIONS.md`**: non-obvious design choices and their tradeoffs. Read before changing a tuning constant or a mechanism that looks odd.
+- **`docs/QUALITY.md`**: the quality gates (format, lint, tests, headless smoke, scheduled probe), where each runs, and the test policy.
 - **`docs/FEATURES.md`**: everything the sim currently does, grouped and one-lined.
 - **`docs/ROADMAP.md`**: guiding motivation, themes, ongoing concerns.
 - **`docs/design/`**: detailed design docs for bigger features.
