@@ -55,6 +55,15 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
   - Starting point: A wetter world grows more vegetation and so more food entities, and every food entity is indexed in the spatial hash that every neighbour query walks, so `spatial-hash-organisms-only` is the first thing to try. Measure food counts and organism counts per tick on both commits before changing anything. Also check whether the opening-burst slow phase (present before the moisture fix too, at about 8 s for the first 100 ticks) is the same cause.
   - Source: rebase of review/headless-gui-parity onto main, 2026-09-17
   - Related: `spatial-hash-organisms-only`, `photosynthesis-density-cache`
+- [SIM] `energy-clamp-waste` — **Decide what happens to income above `max_organism_energy`.** The energy ledger shows the 120-energy clamp destroying roughly as much energy as foragers eat: 7.40M destroyed against 7.62M eaten over 5000 ticks on seed 42, 6.15M against 2.86M on seed 1, where photosynthesis is the main income. A forager near the cap that eats a 25-energy item keeps almost none of it.
+  - Starting point: Options are a higher or body-scaled cap, letting excess raise reproduction readiness instead of vanishing, or accepting the loss as satiety and saying so in DECISIONS. Belongs with the phase 1 tuning pass in `docs/design/simulation-rules.md`, where food items shrink to a supplement; the ledger's clamp flow is the measurement.
+  - Source: roadmap/energy-ledger branch, 2026-09-18
+- [SIM] `founding-boom-food-regen` — **Tame the founding boom at its actual driver, food regeneration.** Per-biome seeding showed that founder energy and the tick-0 food stock only move the opening predator boom; `food_regeneration_system` refills toward `max_food_density` in proportion to the deficit while the population is still flat, and the boom then runs on regenerated food.
+  - Starting point: Deferred to phase 1 of `docs/design/simulation-rules.md`, where terrain food items become a supplement and `max_food_density` is what gets turned. The 12-run early-tick table is in the "Per-biome seeding" DECISIONS entry.
+  - Source: roadmap/per-biome-seeding branch, 2026-09-18
+- [SIM] `photosynthesiser-predicate` — **Collapse the remaining copies of the "is this a plant" rule into one predicate.** `classify_strategy` replaced two of the sites the review listed; three remain in `clauvolution_sim` with three different thresholds (0.2 for density counting, 0.01 for the yield gate, 0.1 in niche construction) and four unlisted copies exist in `clauvolution_render` and `clauvolution_ui`.
+  - Starting point: A `Genome::is_photosynthesiser()` plus one decision about the thresholds, which is the raw review findings `plant-classification-rule-copied` and `photosynthesis-gate-mismatch` together. Phase 1's four-way strategy classification will touch every one of these sites, so do it there or just before.
+  - Source: roadmap/per-biome-seeding branch, 2026-09-18
 
 ## Needs proof of concept
 
@@ -158,3 +167,7 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 - [PERF] `spatial-hash-organisms-only` — **Index only organisms in the spatial hash.** `update_spatial_hash` inserts every `Position`, food included, so every neighbour query wades through food entities and discards them through failed `get()` lookups.
   - Starting point: Add a `With<Organism>` filter to the rebuild query after confirming none of the five readers (sensing, predation, disease, symbiosis, reproduction) relies on food being present; none do today.
   - Source: review/spatial-hash-fixed-tick branch, 2026-09-17
+- [PERF] `reproduction-linear-scans` — **Replace the linear scans in `reproduction_system`.** `already_mated.contains` and `mate_candidates.iter().find` scan vectors per organism, so mate search is quadratic in population; at 6000 organisms the carrying-capacity experiment measured 2.5x to 3.4x the tick cost of 2000.
+  - Starting point: A `HashSet` for `already_mated` and an index for candidates. This is the first performance cost the population-ceiling raise in phase 1 of `docs/design/simulation-rules.md` will hit.
+  - Source: roadmap/emergent-carrying-capacity branch, 2026-09-18
+  - Related: `split-reproduction-system`, `reproduction-genome-clone`, `rayon-remaining-systems`
