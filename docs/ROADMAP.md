@@ -235,6 +235,8 @@ Headless mode (Theme 4) is the fast version of this loop: `cargo run --release -
 - **Lock-in is early.** Where plants cross 80% of the population they do so between 42 and 372 sim-seconds (ticks 1260 to 11160); seed 3 on both runs and seed 42 on run 1 never cross it. The 5000-tick view in the corpse-fountain branch was too short to see the plant creep finish.
 - **Same-seed runs are reproducible on some seeds and not others.** Seeds 7, 99, 314, 1000 produced bit-identical summaries on their two runs; seeds 1, 2, 3, 42 diverged, seed 42 from 68% to 91% plants. The determinism probe, two simultaneous runs of seed 42, came out bit-identical to each other at 88% plants and 6 predators, a third distinct outcome for the seed after 68% and 91%. Across the whole audit, runs that started at the same moment matched and runs that started at different moments did not: the four seeds that diverged are the four whose first run was in the first batch after launch. Tracked as `determinism-claim-recheck` in `TODO.md`.
 
+**Direction:** the response to this audit is [`docs/design/simulation-rules.md`](design/simulation-rules.md). Each of its phases ends with the audit re-run and a new dated block here.
+
 **Observational trigger:** when a running sim trends toward any of these, it's time to tune. The Graphs tab has current-state readouts for plant/forager/predator ratios and death cause breakdown to make this visible.
 
 ## Code health
@@ -251,6 +253,7 @@ Concrete tech-debt items live in `TODO.md`; review-derived work lives in `review
 
 Larger design pieces that deserve their own document:
 
+- [Simulation rules: direction and design](design/simulation-rules.md) — the approved direction for the sim's rules after the 2026-09-18 audit: energy ledger, emergent carrying capacity, per-biome seeding, trait-led speciation, a diet axis, and biomes as pressure and barrier, in phases
 - [Creature Portrait — detailed inspect visualization](design/creature-portrait.md) — large, detailed rendering of selected organism with brain DAG (v1 shipped; v2 polish is tracked in `TODO.md` as `creature-portrait-v2-polish`)
 
 ---
