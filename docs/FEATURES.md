@@ -52,7 +52,7 @@ One-liner list of what Clauvolution does, grouped by area. For the design ration
 - **Dynamic LOD** — organism sprites are simple circles when zoomed out, detailed body parts when zoomed in
 - **Photosynthesisers as ground cover** — render behind active organisms without outlines
 - **Action flash** — organisms pulse briefly when eating, attacking, or reproducing
-- **Death markers** — red flash for predation kills, amber for starvation/old age; fades over ~0.5s
+- **Death markers** — red flash for predation kills, amber for every other cause (starvation, old age, disease, world events); fades over ~0.5s
 - **Organism trails (T)** — toggle a gizmos linestrip behind the selected organism showing its last ~2 seconds of movement
 - **Initial diversity seeding** — 30% of starting population are photosynthesisers (bootstraps food chain)
 
@@ -103,7 +103,7 @@ One-liner list of what Clauvolution does, grouped by area. For the design ration
 
 ## Tuning instrumentation
 
-- **Death cause categorisation** — every death attributed to Starvation / Predation / Old age / Disease
+- **Death cause categorisation** — every death attributed to Starvation / Predation / Old age / Disease / Event (asteroid, volcano); the per-cause totals sum to total deaths
 - **Infection stats** — count, percentage of population, spread over time
 - **Trait averages over time** — disease resistance, body size, speed, attack, armor, photo — all plotted
 - **Current-stats readouts in Graphs tab** — pop/food/species/lifespan/infected/per-strategy counts at a glance

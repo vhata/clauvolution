@@ -11,7 +11,7 @@ use clauvolution_genome::{Genome, InnovationCounter, NUM_INPUTS, NUM_MEMORY};
 use clauvolution_phylogeny::{PhyloTree, SpeciesStrategy, SpeciesTraits, WorldChronicle};
 use clauvolution_world::{update_spatial_hash, SpatialHash, TileMap};
 use rand::Rng;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 // -----------------------------------------------------------------------------
 // Disease tuning constants
@@ -286,13 +286,15 @@ fn mass_extinction_input_system(
     if matches!(req, WorldEventRequest::Asteroid) {
         info!("MASS EXTINCTION: Asteroid impact!");
         let mut killed = 0u32;
-        for (entity, _, _) in &organisms {
+        for (entity, pos, _) in &organisms {
             if rng.gen::<f32>() < 0.7 {
+                commands.spawn((DeathMarker { timer: 0.5, was_predated: false }, Position(pos.0)));
                 commands.entity(entity).try_despawn_recursive();
                 killed += 1;
             }
         }
         stats.total_deaths += killed as u64;
+        stats.deaths_by_cause[DeathCause::Event as usize] += killed as u64;
         chronicle.log(tick.0, format!("ASTEROID IMPACT! {} organisms killed", killed));
         triggered = true;
     }
@@ -321,11 +323,13 @@ fn mass_extinction_input_system(
         for (entity, pos, _) in &organisms {
             let dist = ((pos.0.x - center_x).powi(2) + (pos.0.y - center_y).powi(2)).sqrt();
             if dist < radius {
+                commands.spawn((DeathMarker { timer: 0.5, was_predated: false }, Position(pos.0)));
                 commands.entity(entity).try_despawn_recursive();
                 killed += 1;
             }
         }
         stats.total_deaths += killed as u64;
+        stats.deaths_by_cause[DeathCause::Event as usize] += killed as u64;
 
         // Boost nutrients in affected area
         if let Some(ref mut tm) = tile_map {
@@ -621,14 +625,19 @@ fn predation_system(
         .collect();
     predation_stats.attacks_attempted += attackers.len() as u64;
 
-    // (killer, victim, victim_energy) — energy transfer computed at kill time
+    // (killer, victim, victim_energy) — energy transfer computed at kill time.
+    // A victim is claimed at most once per tick: the first attacker to land a
+    // kill takes the energy transfer, and later attackers skip that target and
+    // keep scanning. Without this, several attackers could each be paid 10% of
+    // the same victim's energy and each count a kill. See DECISIONS.md.
     let mut kills: Vec<(Entity, Entity, f32)> = Vec::new();
+    let mut claimed_victims: HashSet<Entity> = HashSet::new();
 
     for (attacker_entity, attacker_pos, attack_str, attack_range, attacker_size) in &attackers {
         let nearby = spatial_hash.query_radius(*attacker_pos, *attack_range);
 
         for &target_entity in &nearby {
-            if target_entity == *attacker_entity {
+            if target_entity == *attacker_entity || claimed_victims.contains(&target_entity) {
                 continue;
             }
 
@@ -659,6 +668,7 @@ fn predation_system(
                     // This is thermodynamics — most energy is lost as heat.
                     let energy_gained = target_energy.0 * 0.1;
                     kills.push((*attacker_entity, target_entity, energy_gained));
+                    claimed_victims.insert(target_entity);
                     break;
                 }
             }
@@ -1051,6 +1061,13 @@ fn death_system(
     }
 }
 
+/// Fraction of the parent's size-scaled reproduction cost that becomes the
+/// child's starting energy; the rest is the overhead of building a body.
+/// At body_size 1.0 this gives 32 energy, the fixed value every child
+/// received before the cost and the child's energy were tied together.
+/// See DECISIONS.md "Child starting energy is a fraction of what the parent paid".
+const CHILD_ENERGY_FRACTION: f32 = 0.8;
+
 fn reproduction_system(
     mut commands: Commands,
     config: Res<SimConfig>,
@@ -1075,7 +1092,8 @@ fn reproduction_system(
         })
         .collect();
 
-    let mut new_organisms: Vec<(Vec2, Genome, u64, u32)> = Vec::new();
+    // (position, genome, parent species, generation, starting energy)
+    let mut new_organisms: Vec<(Vec2, Genome, u64, u32, f32)> = Vec::new();
     let current_pop = organisms.iter().len();
     let max_pop = 2000usize;
     let mut already_mated: Vec<Entity> = Vec::new();
@@ -1133,18 +1151,21 @@ fn reproduction_system(
                 (pos.0.y + offset.y).rem_euclid(config.world_height as f32),
             );
 
-            new_organisms.push((child_pos, child_genome, species.0, generation.0 + 1));
+            // The child receives a fixed fraction of what this parent paid, so
+            // a birth never creates energy regardless of the parent's size.
+            let child_energy = repro_cost * CHILD_ENERGY_FRACTION;
+            new_organisms.push((child_pos, child_genome, species.0, generation.0 + 1, child_energy));
             already_mated.push(entity);
         }
     }
 
-    for (child_pos, child_genome, parent_species, child_gen) in new_organisms {
+    for (child_pos, child_genome, parent_species, child_gen, child_energy) in new_organisms {
         let brain = Brain::from_genome(&child_genome);
         let body_size = child_genome.body_size;
 
         commands.spawn((
             Organism,
-            Energy(config.reproduction_energy_cost * 0.8),
+            Energy(child_energy),
             Health(1.0),
             Position(child_pos),
             Velocity(Vec2::ZERO),
@@ -1310,7 +1331,13 @@ fn species_classification_system(
         }
     }
 
-    stats.species_count = species_reps.len() as u32;
+    // Report the number of populated species. In practice this equals
+    // species_reps.len(): a representative is at distance 0 from itself and
+    // so always stays in its own species, and a new species is created with
+    // the organism that founded it, so no species ends a pass empty.
+    // species_counts is still the quantity meant here, and species_reps is
+    // rebuilt from living organisms every pass, so nothing needs pruning.
+    stats.species_count = species_counts.len() as u32;
 
     // Detect convergent evolution — only log when lineage count increases
     let convergences = phylo.detect_convergence();

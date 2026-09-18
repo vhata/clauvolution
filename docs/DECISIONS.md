@@ -14,6 +14,18 @@ Not an exhaustive list of every tweak — just the decisions where someone readi
 **Why:** thermodynamically honest — most energy is lost as heat in real ecosystems. Also functions as a balance mechanism: predators can't sustain themselves indefinitely on abundant prey, preventing predator-dominated attractors.
 **Accepted tradeoff:** predators need dense prey to thrive; in sparse populations they struggle. This is realistic but can mean predator lineages fail on some seeds.
 
+### One kill per victim per tick — first attacker wins
+**Chosen:** `predation_system` tracks the victims claimed during the current tick. The first attacker to land a kill on a target takes the 10% energy transfer; later attackers skip that target and carry on scanning for another one.
+**Alternatives:** split the transfer between every attacker that picked the victim; pay every attacker in full (the previous behaviour, by omission).
+**Why:** several attackers can pick the same victim in one tick. Before this rule each of them was paid 10% of the victim's unmodified energy and each pushed a kill, so one death was paid several times over and `PredationStats.kills` exceeded predation deaths (4724 kills against 1946 predation deaths at the baseline seed of the 2026-09-17 review). Splitting the transfer would also conserve energy, but the payout would then depend on how many neighbours happened to fire in the same tick, which is noise rather than a selective signal. First-wins keeps the payout a fixed fraction of the victim's energy, and the attacker that loses the race is free to find another target in the same tick.
+**Accepted tradeoff:** which attacker wins is query iteration order, not a contest of size or speed. At one tick of resolution this is indistinguishable from simultaneity, and the loser pays nothing for the attempt.
+
+### Child starting energy is a fraction of what the parent paid
+**Chosen:** a child is born with `CHILD_ENERGY_FRACTION` (0.8) of the parent's actual reproduction cost, which is `reproduction_energy_cost × (0.5 + body_size × 0.5)`. At body size 1.0 that is 32 energy, the value every child received before; at the 0.3 floor it is 20.8.
+**Alternatives:** a fixed child energy regardless of parent size (the previous behaviour); the child receives the full cost with no overhead; neither cost nor child energy scaled with size.
+**Why:** the parent's cost scaled with body size but the child's energy was a fixed `reproduction_energy_cost × 0.8` = 32. Below body size 1.0 the parent paid less than the child received, so every birth created energy from nothing (2 at size 0.5, 6 at the 0.3 floor); above 1.0 the sign flipped and reproduction taxed large bodies. That is a gradient toward small bodies that no decision had chosen, and it sat underneath every observation about body-size drift elsewhere in this document. Tying the child to the parent's actual payment makes each birth conserve or lose energy at every size.
+**Accepted tradeoff:** small-bodied children start with less energy than before and have less runway to their first meal, so small lineages lose a subsidy they had been evolving under. Watch the body-size average after this change; the 2026-09-17 review baseline sat at 0.81 for `--headless 1000 --seed 42`.
+
 ### Quadratic costs for body, armor, claws, speed
 **Chosen:** metabolism cost scales as `trait²` for these four traits.
 **Alternatives:** linear costs, tiered cliffs, no extra cost.

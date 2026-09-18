@@ -189,18 +189,25 @@ pub enum DeathCause {
     Predation = 1,
     OldAge = 2,
     Disease = 3,
+    /// Killed by a world event (asteroid impact, volcanic eruption).
+    Event = 4,
 }
 
+/// Number of `DeathCause` variants; the length of every per-cause array.
+pub const DEATH_CAUSE_COUNT: usize = 5;
+
+/// Run-wide counters. Live population and food counts are not kept here;
+/// `record_population_history` recounts them once per second into
+/// `PopulationHistory`, and readers take the latest snapshot from there.
 #[derive(Resource, Default)]
 pub struct SimStats {
-    pub total_organisms: u32,
-    pub total_food: u32,
     pub total_births: u64,
     pub total_deaths: u64,
     pub max_generation: u32,
     pub species_count: u32,
-    /// Deaths categorised by cause, indexed by DeathCause as usize
-    pub deaths_by_cause: [u64; 4],
+    /// Deaths categorised by cause, indexed by DeathCause as usize.
+    /// The entries sum to `total_deaths`.
+    pub deaths_by_cause: [u64; DEATH_CAUSE_COUNT],
 }
 
 /// Instrumentation counters for the attack path. Rolled up over a whole run
@@ -314,6 +321,7 @@ pub struct PopSnapshot {
     pub deaths_predation: u32,
     pub deaths_old_age: u32,
     pub deaths_disease: u32,
+    pub deaths_event: u32,
     // Average evolved traits (for tuning)
     pub avg_body_size: f32,
     pub avg_speed: f32,
@@ -340,7 +348,7 @@ pub struct PopulationHistory {
     pub visible: bool,
     prev_births: u64,
     prev_deaths: u64,
-    prev_deaths_by_cause: [u64; 4],
+    prev_deaths_by_cause: [u64; DEATH_CAUSE_COUNT],
 }
 
 impl Default for PopulationHistory {
@@ -351,7 +359,7 @@ impl Default for PopulationHistory {
             visible: true,
             prev_births: 0,
             prev_deaths: 0,
-            prev_deaths_by_cause: [0; 4],
+            prev_deaths_by_cause: [0; DEATH_CAUSE_COUNT],
         }
     }
 }
@@ -368,6 +376,7 @@ impl PopulationHistory {
         let dp = (stats.deaths_by_cause[1] - self.prev_deaths_by_cause[1]) as u32;
         let da = (stats.deaths_by_cause[2] - self.prev_deaths_by_cause[2]) as u32;
         let dd = (stats.deaths_by_cause[3] - self.prev_deaths_by_cause[3]) as u32;
+        let de = (stats.deaths_by_cause[4] - self.prev_deaths_by_cause[4]) as u32;
         self.prev_deaths_by_cause = stats.deaths_by_cause;
 
         self.snapshots.push(PopSnapshot {
@@ -387,6 +396,7 @@ impl PopulationHistory {
             deaths_predation: dp,
             deaths_old_age: da,
             deaths_disease: dd,
+            deaths_event: de,
             avg_body_size: snapshot.avg_body_size,
             avg_speed: snapshot.avg_speed,
             avg_armor: snapshot.avg_armor,
@@ -597,7 +607,7 @@ pub struct GroupSize(pub u32);
 #[derive(Component)]
 pub struct DeathMarker {
     pub timer: f32,
-    pub was_predated: bool, // true = killed by predator, false = starvation/old age
+    pub was_predated: bool, // true = killed by predator, false = starvation/old age/disease/event
 }
 
 /// Tracks parentage for lineage display
