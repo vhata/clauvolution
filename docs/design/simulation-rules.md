@@ -1,0 +1,165 @@
+# Simulation rules: direction and design
+
+**Status:** approved in discussion 2026-09-18, awaiting implementation
+**Source:** step 3 of `plans/2026-09-17-simulation-rules-rethink.md`
+**Baseline:** `docs/audits/2026-09-18-attractor-audit/` on commit 984aedd
+
+This document sets the direction for the simulation's rules and decomposes it into phases. Each phase is one or more ordinary units of work through branches and pull requests, each with its own `docs/DECISIONS.md` entries and its own audit. The crate layout, schedules, and ECS shape are out of scope; nothing found in the review or the audit argues for changing them.
+
+## Why
+
+Three complaints started this: the sim stagnates, organisms are not noticeably divergent, and the world seems too small for real niches or biomes. Between 2026-09-17 and 2026-09-18 the four review-backlog fixes and the corpse energy fountain fix removed every known way the sim was lying about itself, and the attractor audit then measured it honestly for the first time. The attractors were not artefacts. On 16 runs across eight seeds at 15k ticks, 11 ended above 85% plants and none below 68%; predators peaked in the first few sim-seconds and collapsed on almost every run; body size settled between 0.47 and 0.60 everywhere.
+
+Reading the current rules against that result explains it. The food web has no herbivore level: foragers eat terrain-spawned food items, not living plants, and predators attack any organism, for whom a plant is the easiest prey there is. Nothing needs anything else to exist. Terrain is a resource map that acts on where food appears, not on what kind of body can live there, so the same lineages are simply denser where food is denser. A global population cap of 2000 couples every region to every other. The speciation distance is dominated by an unnormalised body term, so species are trait-led by accident. And no instrument could see energy being created, which is how three minting bugs survived every tuning pass.
+
+## What a good run looks like
+
+From the discussion that produced this document. After ten or fifteen minutes of watching:
+
+- **Ecosystems, not populations.** Species need each other. Remove one level and the level below overruns its food and crashes. Too many hunters and the hunters starve. The balance is fine and visible.
+- **Different biomes hold different ecosystems.** Desert, forest, and ocean support different kinds of life because they cost different bodies different amounts to live in.
+- **Species that visibly differ.** Two species can be pointed at and the reason they are not the same can be seen: what they eat, where they live, what they look like.
+- **Not the same plant soup every run.** Divergence across runs matters, but only as a consequence of the three points above, not as a goal in itself.
+
+Ranked: geography first, legibility close behind, coexistence over time welcome but secondary.
+
+## Decisions
+
+| Question | Decision | Rejected | Why |
+| --- | --- | --- | --- |
+| What makes biomes hold different life | Trait pressure (heat tolerance, aquatic axis, terrain-aware movement cost) and barriers arising from that pressure | Resource differences only; explicit dispersal limits; a bigger world alone | Resource differences give the same species at different densities. Explicit limits are a rule about movement rather than a property of the world. Distance alone does not separate regimes that lock in globally at 2000 organisms. |
+| How species come to need each other | A diet axis on the genome, herbivore to carnivore, making digestion a specialisation | Universal attack tuned harder; diet axis plus plant defences in one step | No tuning gives a trophic pyramid when the apex can also graze. Plant defences are the first follow-on once the axis is watchable. |
+| What a species is | Trait-led: body term normalised to 0..1 and weighted 1.0; NEAT terms at 0.5 each | Brain-led; balanced | A species should be a way of making a living that can be seen from outside. The diet and biome traits will carry the ecological meaning. Brain terms stay so a behavioural split can still become a species. |
+| Energy accounting | A visible ledger: per-flow accumulators, a residual line on the Graphs tab and in the headless summary, a debug assertion on the residual | Debug assertion only; a finite environment energy pool | The residual is the bug detector that would have caught all three minting bugs; the flows are a tuning instrument. A finite pool is a different sim. |
+| Carrying capacity | Emergent from energy; the hard cap becomes a high safety ceiling that logs when it engages | Keep the global cap; cap per region | The global cap is a hidden shared resource coupling every region. A per-region cap invents a boundary the sim does not otherwise have. |
+| Initial conditions | Founders seeded per biome with modest starting energy | Leave the founding boom; stage founders by trophic level | The boom decides the regime before anything adapts. Staging programmes the pyramid into the opening, against the project's principle. |
+| Barriers | Terrain as barrier, body as key: movement cost by terrain and body plan, generator tuned toward continents | Explicit dispersal limits; a bigger world alone | Same mechanism as the trait pressure seen from the movement side, and a barrier visible on the minimap is one a lineage can be watched crossing. World size stays at 512 until this is measured; a bigger world is a follow-on. |
+| Sequencing | Foundations first, then diet, then geography | Geography first; dynamics in impact order with instruments as needed | The project's rule is instrument, then add the dynamic, then tune. A two-strategy soup gives biomes little to sort; grazers and hunters give them a pyramid to place. |
+
+## Phase 0: foundations
+
+Four independent pieces, each its own branch. None is a new dynamic; all are instruments or corrections, and they touch different systems, so they can proceed in parallel.
+
+### Energy ledger
+
+An `EnergyLedger` resource in `clauvolution_core` with one accumulator per flow: photosynthesis income, food eaten, predation transfer, symbiosis transfer, metabolism, reproduction spent by parents, reproduction received by children, energy lost at death, and energy destroyed at the `max_organism_energy` clamp. Each system that already moves energy adds to the matching accumulator at the point it moves it. A `ledger_system` at the end of the `FixedUpdate` chain sums live organism energy, compares the change since the previous tick against the net of the flows, and records the residual.
+
+The Graphs tab gets a flows chart and a residual line; the headless summary gets a ledger block with cumulative flows and the largest residual seen. The residual is a `debug_assert!` at near zero and a chronicle warning in release builds.
+
+Done when the residual is zero to floating-point rounding over a 5000-tick run on three seeds, and the flows block appears in the headless summary.
+
+### Emergent carrying capacity
+
+Remove the 2000-organism cap from `reproduction_system`. Add `SimConfig.population_ceiling` at 6000 whose only effect is to block births and write a chronicle entry each time it engages, so it cannot quietly become the rule again.
+
+Done when a 15k-tick run on the audit seeds never touches the ceiling and the population plateaus at a level the ledger's photosynthesis and food flows account for.
+
+### Per-biome seeding
+
+`spawn_initial_population` places founders in proportion to each biome's land area, with a floor per biome so no biome starts empty, and gives every founder energy near `reproduction_energy_threshold` rather than well above it. The first minutes become colonisation rather than a feeding frenzy on free energy.
+
+Done when the first 300 ticks of a seed-42 run show no predator peak above the founding predator count in the population history.
+
+### Speciation normalisation
+
+In `compatibility_distance`, divide the body term by the number of traits and by each trait's range so it lies in 0..1, weight it at 1.0, and weight the three NEAT terms at 0.5 each. Give each scalar trait its own crossover blend factor instead of one shared factor, so offspring can combine one parent's speed with the other's armour. Sweep the threshold once to recover a species count in the audit's range.
+
+Done when species count at 15k ticks on the audit seeds is between roughly 10 and 30, and the `docs/DECISIONS.md` entry records the weights and the sweep.
+
+## Phase 1: the diet axis
+
+One new dynamic with a tuning pass.
+
+### Mechanism
+
+The genome gains `diet` in -1..1, mutating like any other scalar trait. It sets two digestion efficiencies: plant tissue at `((1 - diet) / 2)²` and animal tissue at `((1 + diet) / 2)²`. A specialist at either end digests one kind fully; a generalist at zero digests a quarter of each. The middle is a real cost, so the axis has two attractors of its own and omnivory has to earn its place.
+
+### Two kinds of eating
+
+An attack on a photosynthesiser becomes a graze. The grazer takes a bite, a fixed fraction of the plant's energy scaled by the grazer's plant efficiency, and the plant lives on with less. Plants become a renewable food rather than a one-shot meal, which is what lets a grazer population persist on a plant population. An attack on anything else stays a kill, with the existing 10% transfer scaled by the attacker's animal efficiency. Terrain food items count as plant tissue and their regeneration is reduced so that living plants become the primary food; whether they go entirely is decided in the tuning pass.
+
+### What changes elsewhere
+
+Strategy classification becomes plant, grazer, hunter, and omnivore, from photosynthesis rate and diet. Population history, the Graphs strategy plot, the headless summary, species naming, and the audit summary script follow. The ledger's transfer flow splits into grazing and predation. Brain inputs stay as they are; a "nearest photosynthesiser" sense is a follow-on if grazers cannot find food.
+
+### Tuning pass
+
+Three knobs: bite fraction, the efficiency exponent, and food-item regeneration. The bite fraction starts small, because the risk is plants going extinct before grazers specialise. Watched through the ledger flows and the four-way strategy plot.
+
+### Done when
+
+On the audit seeds at 15k ticks, plants, grazers, and hunters all persist on most seeds. And the interdependence test: a headless run with animal digestion forced to zero shows grazers overrunning plants and crashing. That is the "you need wolves to keep the deer in check" claim made checkable, and its numbers go in `docs/DECISIONS.md`.
+
+## Phase 2: biomes as pressure and barrier
+
+One dynamic in three parts with a tuning pass.
+
+### Trait pressure
+
+Two new genome traits: `heat_tolerance` in -1..1 and `aquatic` in 0..1. Every tile gets a heat value from biome and elevation: sand hot, high rock cold, forest and grassland temperate, water neutral. Metabolism pays a per-tick multiplier that grows with the distance between the tile's heat and the organism's tolerance, so a lineage that lives where it is suited is cheaper to run. Photosynthesis light per biome and vegetation regrowth already differ and stay as they are.
+
+### Terrain-aware movement
+
+The flat ten-times deep-water cost becomes a cost table by terrain and body: water cheap for high `aquatic` with fins and ruinous without, rock steep for large bodies, sand moderate and hot. Oceans and ranges become barriers for most lineages and habitat for the ones that pay to specialise. This replaces one special case with the general rule.
+
+### A world with continents
+
+The terrain generator is tuned so passable land forms several masses separated by deep water and split by rock. A unit test in `clauvolution_world` asserts at least two large passable land components on the default seed. Phase 0's per-biome seeding then gives each mass its own founders.
+
+### What you see
+
+Population by biome as a Graphs series, tolerance and aquatic values in Inspect, and one chronicle event: the first time a species has members on a landmass it did not start on. The existing species range heatmap already shows the geography. A regime-separation number, the mean share of each species' members that live in its dominant biome, goes to the Graphs tab and the headless summary.
+
+### Tuning pass
+
+The steepness of the heat multiplier and the movement cost table, against the ledger and the per-biome plot.
+
+### Done when
+
+On most audit seeds at 15k ticks, at least two biomes have different dominant species, the separation number is well above what a shuffled species-to-organism assignment gives, and at least one crossing event appears in the chronicle per run.
+
+## Phase 3: follow-ons
+
+In rough order:
+
+- **Plant defences** as evolvable traits that cost energy (toxins, thorns), giving plants and grazers an arms race of their own.
+- **A bigger world**, once phase 2 shows what separation looks like at 512 and the performance work below makes it affordable.
+- **A "nearest photosynthesiser" brain input** if grazers cannot find food with the existing senses.
+- **Long-term climate shift** from the roadmap, which becomes far more interesting once tolerance traits exist for it to push against.
+
+## Cross-cutting
+
+### Performance is on the critical path
+
+Emergent carrying capacity and continents both push population up, and the per-tick cost roughly doubled when the moisture fix grew more vegetation and more food. The existing `TODO.md` items `spatial-hash-organisms-only`, `photosynthesis-density-cache`, and `rayon-remaining-systems` are prerequisites for phases 1 and 2 rather than optional improvements, and `moisture-fix-tick-cost` is the measurement that says how far there is to go.
+
+### Measurement
+
+Every phase ends with `scripts/attractor_audit.sh` on the same eight seeds, two runs each, and a dated block in the roadmap's attractor-states section beside the previous ones. Same-seed divergence (`determinism-claim-recheck`) stays a stated caveat on every comparison until it is resolved.
+
+### Risks
+
+- The diet axis could send plants extinct faster before grazers specialise. The bite fraction starts small and the ledger shows the grazing flow directly.
+- Barriers can isolate a founding population into extinction. That is an acceptable outcome, but it must be visible, hence the crossing event and the per-biome plot.
+- Trait-led speciation plus three new traits could over-speciate. The threshold is swept once after each phase, and the weights are recorded each time.
+- Each new trait is a new brain-agnostic dimension of selection. If lineages converge on the trait optimum without behavioural change, that is a finding about the brain inputs, not a failure of the phase.
+
+### Out of scope
+
+Crate layout, schedules, the ECS shape, the render and UI structure, and everything in `review/BACKLOG.md`. This design is about rules.
+
+## Open questions
+
+Small enough to settle in the implementing pull request:
+
+- Whether terrain food items survive phase 1 at all, or only as a seasonal supplement.
+- The exact heat value per biome and how elevation contributes, which the phase 2 tuning pass decides.
+- Whether the ledger residual warning in release builds should be a chronicle entry or a header indicator.
+
+## References
+
+- `plans/2026-09-17-simulation-rules-rethink.md`: the plan this document completes.
+- `docs/audits/2026-09-18-attractor-audit/README.md`: the baseline.
+- `docs/ROADMAP.md`: attractor states, ecosystem tuning, Theme 2 dynamics.
+- `docs/DECISIONS.md`: energy pyramid, quadratic costs, species threshold, `Killed` marker, photosynthesis multiplier revision.
+- `review/2026-09-17-0756-full.md`: findings `compatibility-body-term-unbounded`, `crossover-single-blend-factor`, `mate-energy-unscaled-and-unpaid`.
