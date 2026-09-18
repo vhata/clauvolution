@@ -357,8 +357,7 @@ pub fn food_regeneration_system(
     mut sim_rng: ResMut<SimRng>,
 ) {
     let current_food = food_query.iter().len() as f32;
-    let max_food =
-        config.world_width as f32 * config.world_height as f32 * config.initial_food_density;
+    let max_food = config.world_width as f32 * config.world_height as f32 * config.max_food_density;
 
     let deficit_ratio = ((max_food - current_food) / max_food).max(0.0);
     let seasonal_regen = config.food_regen_rate * season.food_regen_multiplier();

@@ -337,13 +337,16 @@ fn setup_world(
     // Same seed → same simulation trajectory.
     let mut sim_rng = SimRng::from_seed(config.terrain_seed);
     clauvolution_world::spawn_initial_food(&mut commands, &config, &tile_map, &mut sim_rng.0);
-    let total_energy = clauvolution_sim::spawn_initial_population(
+    let founders = clauvolution_sim::spawn_initial_population(
         &mut commands,
         &config,
+        &tile_map,
         &mut innovation,
         &mut sim_rng.0,
     );
-    ledger.reset_baseline(total_energy);
+    ledger.reset_baseline(founders.total_energy);
+    info!("{founders}");
+    commands.insert_resource(founders);
     commands.insert_resource(tile_map);
     commands.insert_resource(sim_rng);
 
@@ -686,6 +689,7 @@ fn headless_tick_counter(
     config: Res<clauvolution_core::SimConfig>,
     save_at_end: Res<HeadlessSaveAtEnd>,
     dump_path: Option<Res<HeadlessDumpHistoryPath>>,
+    founders: Option<Res<clauvolution_sim::FounderReport>>,
     mut events: EventWriter<clauvolution_core::WorldEventRequest>,
     mut exit: EventWriter<AppExit>,
     // 0 = running, 1 = summary printed + save requested, 2 = waited a frame
@@ -704,7 +708,7 @@ fn headless_tick_counter(
     }
     match *phase {
         0 => {
-            print_headless_summary(&stats, &predation, &history, &ledger, &config);
+            print_headless_summary(&stats, &predation, &history, &ledger, &config, founders.as_deref());
             if let Some(dp) = &dump_path {
                 match dump_history_csv(&dp.0, &history) {
                     Ok(_) => eprintln!("Wrote {} snapshots to {}", history.snapshots.len(), dp.0),
@@ -734,12 +738,16 @@ fn print_headless_summary(
     history: &clauvolution_core::PopulationHistory,
     ledger: &clauvolution_core::EnergyLedger,
     config: &clauvolution_core::SimConfig,
+    founders: Option<&clauvolution_sim::FounderReport>,
 ) {
     eprintln!();
     // Population is read from the last 1Hz snapshot so it matches the
     // strategy breakdown below exactly.
     let latest = history.snapshots.last();
     eprintln!("=== Headless summary ===");
+    if let Some(f) = founders {
+        eprintln!("{f}");
+    }
     eprintln!(
         "Total organisms (final): {}",
         latest.map(|s| s.organisms).unwrap_or(0)

@@ -214,7 +214,15 @@ pub struct SimConfig {
     pub world_width: u32,
     pub world_height: u32,
     pub initial_population: u32,
+    /// Food items placed at tick 0, as a fraction of world tiles before the
+    /// per-tile nutrient filter. Lowering it alone does not tame the founding
+    /// boom (regeneration refills toward `max_food_density`); see
+    /// `docs/DECISIONS.md`, "Per-biome seeding".
     pub initial_food_density: f32,
+    /// Ceiling for `food_regeneration_system`, as a fraction of world tiles.
+    /// Separate from `initial_food_density` so the starting stock and the
+    /// regeneration ceiling can be tuned apart; equal today.
+    pub max_food_density: f32,
     pub food_regen_rate: f32,
     pub mutation_rate: f32,
     pub mutation_strength: f32,
@@ -245,6 +253,7 @@ impl Default for SimConfig {
             world_height: 512,
             initial_population: 400,
             initial_food_density: 0.1,
+            max_food_density: 0.1,
             food_regen_rate: 0.01,
             mutation_rate: 0.3,
             mutation_strength: 0.5,
