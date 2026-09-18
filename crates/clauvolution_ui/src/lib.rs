@@ -9,7 +9,7 @@ use clauvolution_core::*;
 use clauvolution_genome::{Genome, SegmentType, Symmetry, NUM_INPUTS, NUM_OUTPUTS};
 use clauvolution_phylogeny::{PhyloNode, PhyloTree, SpeciesStrategy, WorldChronicle};
 use clauvolution_world::TileMap;
-use egui_plot::{Legend, Line, Plot, PlotPoints};
+use egui_plot::{HLine, Legend, Line, Plot, PlotPoints};
 
 pub struct UiPlugin;
 
@@ -1300,6 +1300,20 @@ fn graphs_tab(ui: &mut egui::Ui, history: &PopulationHistory) {
             ui.label("Sym rate");
             ui.monospace(format!("{:>+5.2}", latest.avg_symbiosis_rate));
             ui.end_row();
+
+            ui.label("Energy");
+            ui.monospace(format!("{:>6.0}", latest.energy_total));
+            ui.label("Residual");
+            let residual_text = format!("{:>8.4}", latest.ledger_max_residual);
+            if latest.ledger_max_residual as f64 > EnergyLedger::TOLERANCE {
+                ui.colored_label(
+                    egui::Color32::from_rgb(255, 120, 120),
+                    egui::RichText::new(residual_text).monospace(),
+                );
+            } else {
+                ui.monospace(residual_text);
+            }
+            ui.end_row();
         });
 
     ui.add_space(6.0);
@@ -1619,6 +1633,139 @@ fn graphs_tab(ui: &mut egui::Ui, history: &PopulationHistory) {
                         Line::new(sym_rate)
                             .color(egui::Color32::from_rgb(255, 180, 140))
                             .name("Avg rate ×100 (−100 parasite, +100 donor)"),
+                    );
+                });
+
+            ui.add_space(4.0);
+
+            // Energy ledger: where the world's energy comes from and goes each
+            // second. Income and costs are split so each chart keeps a usable
+            // scale; symbiosis is a transfer and sits with income for visibility.
+            ui.label("Energy income per second");
+            let flow = |f: fn(&EnergyFlows) -> f64| -> PlotPoints {
+                snaps
+                    .iter()
+                    .enumerate()
+                    .map(|(i, s)| [i as f64, f(&s.energy_flows)])
+                    .collect()
+            };
+            let in_photo = flow(|f| f.photosynthesis);
+            let in_food = flow(|f| f.food);
+            let in_pred = flow(|f| f.predation);
+            let in_repro = flow(|f| f.reproduction_received);
+            let in_sym = flow(|f| f.symbiosis);
+
+            Plot::new("energy_income")
+                .height(130.0)
+                .legend(Legend::default().position(egui_plot::Corner::LeftTop))
+                .show(ui, |plot_ui| {
+                    plot_ui.line(
+                        Line::new(in_photo)
+                            .color(egui::Color32::from_rgb(90, 200, 90))
+                            .name("Photosynthesis"),
+                    );
+                    plot_ui.line(
+                        Line::new(in_food)
+                            .color(egui::Color32::from_rgb(180, 230, 90))
+                            .name("Food eaten"),
+                    );
+                    plot_ui.line(
+                        Line::new(in_pred)
+                            .color(egui::Color32::from_rgb(230, 100, 100))
+                            .name("Predation (to killer)"),
+                    );
+                    plot_ui.line(
+                        Line::new(in_repro)
+                            .color(egui::Color32::from_rgb(200, 170, 230))
+                            .name("Born with"),
+                    );
+                    plot_ui.line(
+                        Line::new(in_sym)
+                            .color(egui::Color32::from_rgb(150, 220, 255))
+                            .name("Symbiosis (transfer)"),
+                    );
+                });
+
+            ui.add_space(4.0);
+
+            ui.label("Energy costs per second");
+            let out_metab = flow(|f| f.metabolism);
+            let out_move = flow(|f| f.movement);
+            let out_disease = flow(|f| f.disease);
+            let out_repro = flow(|f| f.reproduction_spent);
+            let out_death = flow(|f| f.death);
+            let out_clamp = flow(|f| f.clamp);
+
+            Plot::new("energy_costs")
+                .height(130.0)
+                .legend(Legend::default().position(egui_plot::Corner::LeftTop))
+                .show(ui, |plot_ui| {
+                    plot_ui.line(
+                        Line::new(out_metab)
+                            .color(egui::Color32::from_rgb(230, 180, 90))
+                            .name("Metabolism"),
+                    );
+                    plot_ui.line(
+                        Line::new(out_move)
+                            .color(egui::Color32::from_rgb(120, 200, 220))
+                            .name("Movement"),
+                    );
+                    plot_ui.line(
+                        Line::new(out_disease)
+                            .color(egui::Color32::from_rgb(180, 80, 220))
+                            .name("Disease"),
+                    );
+                    plot_ui.line(
+                        Line::new(out_repro)
+                            .color(egui::Color32::from_rgb(200, 170, 230))
+                            .name("Reproduction paid"),
+                    );
+                    plot_ui.line(
+                        Line::new(out_death)
+                            .color(egui::Color32::from_rgb(180, 180, 180))
+                            .name("Lost at death"),
+                    );
+                    plot_ui.line(
+                        Line::new(out_clamp)
+                            .color(egui::Color32::from_rgb(255, 140, 40))
+                            .name("Clamped at max"),
+                    );
+                });
+
+            ui.add_space(4.0);
+
+            // The residual is the energy the flows above do not explain. It
+            // should hug zero; the reference line is the tolerance.
+            ui.label("Ledger residual (largest per tick in each second)");
+            let residual: PlotPoints = snaps
+                .iter()
+                .enumerate()
+                .map(|(i, s)| [i as f64, s.ledger_max_residual as f64])
+                .collect();
+            let drift: PlotPoints = snaps
+                .iter()
+                .enumerate()
+                .map(|(i, s)| [i as f64, s.ledger_cumulative_residual as f64])
+                .collect();
+
+            Plot::new("ledger_residual")
+                .height(110.0)
+                .legend(Legend::default().position(egui_plot::Corner::LeftTop))
+                .show(ui, |plot_ui| {
+                    plot_ui.hline(
+                        HLine::new(EnergyLedger::TOLERANCE)
+                            .color(egui::Color32::from_rgb(255, 120, 120))
+                            .name("Tolerance"),
+                    );
+                    plot_ui.line(
+                        Line::new(residual)
+                            .color(egui::Color32::from_rgb(255, 200, 100))
+                            .name("Max |residual| per tick"),
+                    );
+                    plot_ui.line(
+                        Line::new(drift)
+                            .color(egui::Color32::from_rgb(120, 200, 220))
+                            .name("Cumulative residual"),
                     );
                 });
 

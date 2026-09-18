@@ -74,7 +74,7 @@ One-liner list of what Clauvolution does, grouped by area. For the design ration
 - **Tabbed right panel** (Inspect / Phylo / Graphs / Chronicle / Events / Help):
   - **Inspect** — selected organism stats: species/strategy/parent, energy/health bars, body/brain collapsibles, infection state
   - **Phylo** — collapsible lineage tree with strategy badges, declining indicators, recently-extinct section; click a species name to select a living member
-  - **Graphs** — `egui_plot` line charts for population by strategy, death cause breakdown, infection rate & evolved resistance, trait evolution, pop vs species, food & lifespan. Current-stats readout and average-traits grid.
+  - **Graphs** — `egui_plot` line charts for population by strategy, death cause breakdown, infection rate & evolved resistance, trait evolution, pop vs species, symbiosis, energy income and costs per second, ledger residual, food & lifespan. Current-stats readout and average-traits grid.
   - **Chronicle** — scrollable event log with "hide seasons" filter
   - **Events** — buttons for all extinction/bloom events with cooldown feedback; save-world button; active effects readout
   - **Help** — collapsible sections explaining everything
@@ -90,7 +90,7 @@ One-liner list of what Clauvolution does, grouped by area. For the design ration
 
 ## Tooling
 
-- **Headless mode** — `--headless N` runs N ticks without rendering/UI, prints end-of-run summary (strategy counts, death cause breakdown, trait averages, predation funnel). `--speed N` multiplies virtual time (default 10×, ceiling is CPU-bound at ~85 ticks/sec). `--save-as <name>` writes a save file at end; `--load sessions/<name>` resumes from one. Combine for: evolve headless → save → reload in GUI → script a tour.
+- **Headless mode** — `--headless N` runs N ticks without rendering/UI, prints end-of-run summary (strategy counts, death cause breakdown, trait averages, predation funnel, energy ledger). `--speed N` multiplies virtual time (default 10×, ceiling is CPU-bound at ~85 ticks/sec). `--save-as <name>` writes a save file at end; `--load sessions/<name>` resumes from one. Combine for: evolve headless → save → reload in GUI → script a tour.
 - **Seeded runs** — `--seed N` seeds all sim randomness. Deterministic for ~50 ticks (Bevy task pool parallelism causes later divergence — not yet fully reproducible).
 - **Save/load** — F5 saves full world state to session directory; `--load sessions/<name>` restores
 - **Named sessions** — each run gets a unique cosmic three-word name; logs + screenshots + saves live in `sessions/<name>/`
@@ -107,3 +107,4 @@ One-liner list of what Clauvolution does, grouped by area. For the design ration
 - **Infection stats** — count, percentage of population, spread over time
 - **Trait averages over time** — disease resistance, body size, speed, attack, armor, photo — all plotted
 - **Current-stats readouts in Graphs tab** — pop/food/species/lifespan/infected/per-strategy counts at a glance
+- **Energy ledger** — every flow that moves organism energy (photosynthesis, food, predation, symbiosis, metabolism, movement, disease, reproduction paid and received, energy lost at death, energy destroyed at the `max_organism_energy` clamp) is accumulated per tick and per run in `EnergyLedger`. `ledger_system` compares the change in total live energy against the net of the flows; the residual is zero to f32 rounding when nothing mints or destroys energy unrecorded. Shown as income/cost charts and a residual line on the Graphs tab, as a block in the headless summary, and as columns in `--dump-history`. Past tolerance it is a `debug_assert!` and a rate-limited chronicle warning.

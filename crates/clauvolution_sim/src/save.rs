@@ -384,12 +384,15 @@ fn validate_save_state(state: &mut SaveState) {
     }
 }
 
-/// Reconstruct organisms from save data
-pub fn spawn_saved_organisms(commands: &mut Commands, organisms: &[SaveOrganism]) {
+/// Reconstruct organisms from save data. Returns the total energy spawned
+/// so the caller can set the `EnergyLedger` baseline.
+pub fn spawn_saved_organisms(commands: &mut Commands, organisms: &[SaveOrganism]) -> f64 {
+    let mut total_energy = 0.0f64;
     for org in organisms {
         let genome = save_to_genome(&org.genome);
         let brain = Brain::from_genome(&genome);
         let body_size = genome.body_size;
+        total_energy += org.energy as f64;
 
         commands
             .spawn((
@@ -415,8 +418,10 @@ pub fn spawn_saved_organisms(commands: &mut Commands, organisms: &[SaveOrganism]
                 TrailHistory::default(),
                 BrainActivations::default(),
                 Symbiosis::default(),
+                EnergyFlows::default(),
             ));
     }
+    total_energy
 }
 
 pub fn spawn_saved_food(commands: &mut Commands, food: &[SaveFood]) {

@@ -131,6 +131,17 @@ const SYMBIOSIS_RANGE: f32 = 6.0;
 ///   0.15 — (current) reverted. No point in the extra magnitude.
 const SYMBIOSIS_TRANSFER_RATE: f32 = 0.15;
 
+/// Credit `amount` to `energy`, capped at `cap`, and return the part the cap
+/// discarded so the caller can book it under `EnergyFlows::clamp`. Every
+/// `.min(max_organism_energy)` on income goes through here so the ledger
+/// sees what the clamp destroys.
+fn credit_clamped(energy: &mut Energy, amount: f32, cap: f32) -> f32 {
+    let unclamped = energy.0 + amount;
+    let clamped = unclamped.min(cap);
+    energy.0 = clamped;
+    unclamped - clamped
+}
+
 pub struct SimPlugin;
 
 impl Plugin for SimPlugin {
@@ -163,6 +174,7 @@ impl Plugin for SimPlugin {
                 metabolism_system,
                 death_system,
                 reproduction_system,
+                ledger_system,
                 species_classification_system,
                 record_population_history,
                 record_trail_history,
@@ -304,7 +316,7 @@ fn mass_extinction_input_system(
     mut commands: Commands,
     mut cooldown: ResMut<ExtinctionCooldown>,
     time: Res<Time>,
-    organisms: Query<(Entity, &Position, &Energy), With<Organism>>,
+    organisms: Query<(Entity, &Position, &Energy, &EnergyFlows), With<Organism>>,
     mut tile_map: Option<ResMut<TileMap>>,
     mut stats: ResMut<SimStats>,
     tick: Res<TickCounter>,
@@ -312,6 +324,7 @@ fn mass_extinction_input_system(
     config: Res<SimConfig>,
     mut bloom: ResMut<BloomEffects>,
     mut sim_rng: ResMut<SimRng>,
+    mut ledger: ResMut<EnergyLedger>,
 ) {
     cooldown.0.tick(time.delta());
 
@@ -335,7 +348,7 @@ fn mass_extinction_input_system(
     if matches!(req, WorldEventRequest::Asteroid) {
         info!("MASS EXTINCTION: Asteroid impact!");
         let mut killed = 0u32;
-        for (entity, pos, _) in &organisms {
+        for (entity, pos, energy, flows) in &organisms {
             if rng.gen::<f32>() < 0.7 {
                 commands.spawn((
                     DeathMarker {
@@ -345,6 +358,11 @@ fn mass_extinction_input_system(
                     Position(pos.0),
                 ));
                 commands.entity(entity).try_despawn_recursive();
+                // This runs in Update, between ticks, so the per-organism
+                // flows are already zeroed; folding them in anyway keeps the
+                // books right if that ever changes.
+                ledger.tick.add(flows);
+                ledger.tick.death += energy.0 as f64;
                 killed += 1;
             }
         }
@@ -381,7 +399,7 @@ fn mass_extinction_input_system(
         let radius = 40.0;
 
         let mut killed = 0u32;
-        for (entity, pos, _) in &organisms {
+        for (entity, pos, energy, flows) in &organisms {
             let dist = ((pos.0.x - center_x).powi(2) + (pos.0.y - center_y).powi(2)).sqrt();
             if dist < radius {
                 commands.spawn((
@@ -392,6 +410,8 @@ fn mass_extinction_input_system(
                     Position(pos.0),
                 ));
                 commands.entity(entity).try_despawn_recursive();
+                ledger.tick.add(flows);
+                ledger.tick.death += energy.0 as f64;
                 killed += 1;
             }
         }
@@ -650,6 +670,7 @@ fn action_system(
     >,
     food_snapshot: Res<FoodSnapshot>,
     mut commands: Commands,
+    mut ledger: ResMut<EnergyLedger>,
 ) {
     let foods = &food_snapshot.entries;
 
@@ -694,6 +715,7 @@ fn action_system(
         let move_cost =
             movement.length() * config.movement_energy_cost * body_size.0 * terrain_cost;
         energy.0 -= move_cost;
+        ledger.tick.movement += move_cost as f64;
 
         // Eating food
         if output.eat > 0.0 {
@@ -705,8 +727,10 @@ fn action_system(
                 }
                 let dist = (pos.0 - food_pos).length();
                 if dist < eat_range {
-                    energy.0 =
-                        (energy.0 + food_energy * mouth_bonus).min(config.max_organism_energy);
+                    let gained = food_energy * mouth_bonus;
+                    ledger.tick.clamp +=
+                        credit_clamped(&mut energy, gained, config.max_organism_energy) as f64;
+                    ledger.tick.food += gained as f64;
                     eaten_food.push(food_entity);
                     flash.action = ActionType::Eating;
                     flash.timer = 0.3;
@@ -740,6 +764,7 @@ fn predation_system(
     >,
     mut commands: Commands,
     mut predation_stats: ResMut<PredationStats>,
+    mut ledger: ResMut<EnergyLedger>,
 ) {
     // Collect attack intents
     let attackers: Vec<(Entity, Vec2, f32, f32, f32)> = organisms
@@ -822,13 +847,21 @@ fn predation_system(
         if let Ok((_, _, mut killer_energy, _, mut killer_flash, _, _, _)) =
             organisms.get_mut(killer)
         {
-            killer_energy.0 = (killer_energy.0 + energy_gained).min(config.max_organism_energy);
+            ledger.tick.clamp += credit_clamped(
+                &mut killer_energy,
+                energy_gained,
+                config.max_organism_energy,
+            ) as f64;
+            ledger.tick.predation += energy_gained as f64;
             killer_flash.action = ActionType::Attacking;
             killer_flash.timer = 0.3;
         }
         if let Ok((_, _, mut victim_energy, mut victim_health, _, _, _, _)) =
             organisms.get_mut(victim)
         {
+            // Whatever the victim still holds leaves the world here; the
+            // killer's share was booked above as a separate flow.
+            ledger.tick.death += victim_energy.0 as f64;
             victim_energy.0 = 0.0;
             victim_health.0 = 0.0;
             // The marker is what makes the kill final: the systems between here
@@ -845,7 +878,10 @@ fn predation_system(
 
 fn photosynthesis_system(
     tile_map: Res<TileMap>,
-    mut organisms: Query<(&Position, &mut Energy, &Genome), (With<Organism>, Without<Killed>)>,
+    mut organisms: Query<
+        (&Position, &mut Energy, &mut EnergyFlows, &Genome),
+        (With<Organism>, Without<Killed>),
+    >,
     config: Res<SimConfig>,
     season: Res<Season>,
     bloom: Res<BloomEffects>,
@@ -855,7 +891,7 @@ fn photosynthesis_system(
     // First pass: count plants per tile for density competition.
     // Plants on the same tile shade each other — prevents green-world monoculture.
     let mut plants_per_tile: HashMap<(u32, u32), u32> = HashMap::new();
-    for (pos, _, genome) in organisms.iter() {
+    for (pos, _, _, genome) in organisms.iter() {
         if genome.photosynthesis_rate > 0.2 && genome.has_photo_surface() {
             let tx = (pos.0.x as u32).min(tile_map.width - 1);
             let ty = (pos.0.y as u32).min(tile_map.height - 1);
@@ -871,10 +907,12 @@ fn photosynthesis_system(
     //   20 plants:     0.21
     //
     // Parallelised: the HashMap is read-only in this pass (first pass is
-    // done). Each organism only writes its own Energy. Safe for par_iter_mut.
+    // done). Each organism only writes its own Energy and its own
+    // EnergyFlows record; the shared EnergyLedger resource is never touched
+    // from here. Safe for par_iter_mut.
     organisms
         .par_iter_mut()
-        .for_each(|(pos, mut energy, genome)| {
+        .for_each(|(pos, mut energy, mut flows, genome)| {
             if genome.photosynthesis_rate > 0.01 && genome.has_photo_surface() {
                 let tile = tile_map.tile_at_pos(pos.0);
                 let photo_area = genome.total_photo_surface_area();
@@ -891,7 +929,9 @@ fn photosynthesis_system(
                     * light_mult
                     * density_factor
                     * PHOTO_OUTPUT_MULTIPLIER;
-                energy.0 = (energy.0 + gained).min(config.max_organism_energy);
+                flows.clamp +=
+                    credit_clamped(&mut energy, gained, config.max_organism_energy) as f64;
+                flows.photosynthesis += gained as f64;
             }
         });
 }
@@ -994,6 +1034,7 @@ fn disease_effects_system(
     mut infected: Query<(Entity, &mut Energy, &mut Infection, &Genome), With<Organism>>,
     config: Res<SimConfig>,
     mut sim_rng: ResMut<SimRng>,
+    mut ledger: ResMut<EnergyLedger>,
 ) {
     let rng = &mut sim_rng.0;
     for (entity, mut energy, mut infection, genome) in &mut infected {
@@ -1014,12 +1055,14 @@ fn disease_effects_system(
             * drain_factor
             * DISEASE_DRAIN_MULTIPLIER;
         energy.0 -= drain;
+        ledger.tick.disease += drain as f64;
 
         // Direct mortality chance per tick — ignores energy reserves so
         // photosynthesisers can't just sun-bathe through an infection.
         // Zero only energy (not health) so death_system attributes to Disease.
         let mortality = DISEASE_MORTALITY_RATE * infection.severity * mortality_factor;
         if rng.gen::<f32>() < mortality {
+            ledger.tick.death += energy.0 as f64;
             energy.0 = 0.0;
         }
 
@@ -1079,6 +1122,7 @@ fn symbiosis_transfer_system(
     organisms: Query<(Entity, &Genome, &Symbiosis), (With<Organism>, Without<Killed>)>,
     mut energies: Query<&mut Energy, With<Organism>>,
     config: Res<SimConfig>,
+    mut ledger: ResMut<EnergyLedger>,
 ) {
     let mut pairs: Vec<(Entity, Entity, f32, f32)> = Vec::new();
     let mut handled: std::collections::HashSet<Entity> = std::collections::HashSet::new();
@@ -1114,12 +1158,25 @@ fn symbiosis_transfer_system(
 
     for (a, b, rate_a, rate_b) in pairs {
         let net_a = (rate_b - rate_a) * SYMBIOSIS_TRANSFER_RATE;
-        if let Ok(mut e) = energies.get_mut(a) {
-            e.0 = (e.0 + net_a).clamp(0.0, config.max_organism_energy);
-        }
-        if let Ok(mut e) = energies.get_mut(b) {
-            e.0 = (e.0 - net_a).clamp(0.0, config.max_organism_energy);
-        }
+        let (payer, receiver, amount) = if net_a >= 0.0 {
+            (b, a, net_a)
+        } else {
+            (a, b, -net_a)
+        };
+        let Ok([mut payer_energy, mut receiver_energy]) = energies.get_many_mut([payer, receiver])
+        else {
+            continue;
+        };
+        // The payer gives only what it holds. Both sides used to be clamped
+        // at zero after the transfer, which credited the receiver with the
+        // full amount while the payer lost less than that, minting the
+        // difference; the ledger made the leak visible. A payer drained to
+        // zero dies in death_system this tick either way.
+        let paid = amount.min(payer_energy.0.max(0.0));
+        payer_energy.0 -= paid;
+        ledger.tick.clamp +=
+            credit_clamped(&mut receiver_energy, paid, config.max_organism_energy) as f64;
+        ledger.tick.symbiosis += paid as f64;
     }
 }
 
@@ -1130,6 +1187,7 @@ fn metabolism_system(
             &mut Energy,
             &mut Health,
             &mut Age,
+            &mut EnergyFlows,
             &BodySize,
             &Genome,
             &GroupSize,
@@ -1140,9 +1198,11 @@ fn metabolism_system(
     // Parallelised: per-organism reads+writes only, no cross-organism data
     // dependency, no shared mutable state. Bevy's task pool (capped via
     // CLAU_WORKERS) does the fan-out. Same safety reasoning as
-    // sensing_and_brain_system — each iteration gets its own Mut<T>.
+    // sensing_and_brain_system — each iteration gets its own Mut<T>. The
+    // ledger is written through the organism's own EnergyFlows record, never
+    // the shared resource.
     organisms.par_iter_mut().for_each(
-        |(mut energy, mut health, mut age, body_size, genome, group_size)| {
+        |(mut energy, mut health, mut age, mut flows, body_size, genome, group_size)| {
             age.0 += 1;
 
             // Body size costs quadratically — being big is VERY expensive
@@ -1175,6 +1235,7 @@ fn metabolism_system(
             cost *= age_factor;
 
             energy.0 -= cost;
+            flows.metabolism += cost as f64;
 
             // Health regenerates slower with age.
             // Skip regen if already at zero — a fatally-wounded organism shouldn't
@@ -1190,6 +1251,7 @@ fn metabolism_system(
             if age.0 > 3000 {
                 health.0 -= 0.002;
                 if health.0 <= 0.0 {
+                    flows.death += energy.0 as f64;
                     energy.0 = 0.0; // triggers death
                 }
             }
@@ -1206,6 +1268,7 @@ fn death_system(
             &Health,
             &Position,
             &Age,
+            &EnergyFlows,
             Option<&Infection>,
             Option<&Killed>,
         ),
@@ -1213,9 +1276,16 @@ fn death_system(
     >,
     mut stats: ResMut<SimStats>,
     mut fitness: ResMut<FitnessTracker>,
+    mut ledger: ResMut<EnergyLedger>,
 ) {
-    for (entity, energy, health, pos, age, infection, killed) in &organisms {
+    for (entity, energy, health, pos, age, flows, infection, killed) in &organisms {
         if energy.0 <= 0.0 || health.0 <= 0.0 || killed.is_some() {
+            // The despawn takes this organism's per-tick flow record with it
+            // before ledger_system can sum it, so fold it in here, then book
+            // whatever energy it still held (negative if metabolism overdrew).
+            ledger.tick.add(flows);
+            ledger.tick.death += energy.0 as f64;
+
             // A kill records its own cause on the `Killed` marker. Anything
             // else died of depletion, attributed by priority: old age (health
             // decayed to zero after 3000 ticks) > disease > starvation.
@@ -1281,6 +1351,7 @@ fn reproduction_system(
     mut stats: ResMut<SimStats>,
     bloom: Res<BloomEffects>,
     mut sim_rng: ResMut<SimRng>,
+    mut ledger: ResMut<EnergyLedger>,
 ) {
     let mut rng = &mut sim_rng.0;
 
@@ -1313,6 +1384,7 @@ fn reproduction_system(
         let repro_threshold = config.reproduction_energy_threshold * (0.5 + body_size.0 * 0.5);
         if output.reproduce > 0.5 && energy.0 > repro_threshold {
             energy.0 -= repro_cost;
+            ledger.tick.reproduction_spent += repro_cost as f64;
             flash.action = ActionType::Reproducing;
             flash.timer = 0.3;
 
@@ -1376,6 +1448,7 @@ fn reproduction_system(
     for (child_pos, child_genome, parent_species, child_gen, child_energy) in new_organisms {
         let brain = Brain::from_genome(&child_genome);
         let body_size = child_genome.body_size;
+        ledger.tick.reproduction_received += child_energy as f64;
 
         commands
             .spawn((
@@ -1403,12 +1476,57 @@ fn reproduction_system(
                 TrailHistory::default(),
                 BrainActivations::default(),
                 Symbiosis::default(),
+                EnergyFlows::default(),
             ));
 
         stats.total_births += 1;
         if child_gen > stats.max_generation {
             stats.max_generation = child_gen;
         }
+    }
+}
+
+/// Close the tick's energy books. Runs after every system that moves
+/// organism energy and before the recorders read the ledger. Sums the live
+/// total and the per-organism `EnergyFlows` records that the parallel systems
+/// wrote (zeroing them for the next tick), then asks the ledger for the
+/// residual: the change in total energy since the previous tick minus the
+/// net of the recorded flows. Zero, up to f32 rounding, means every energy
+/// movement in the tick was booked; anything larger is a missing or
+/// double-counted flow and would have caught the 2026-09-17 minting bugs.
+fn ledger_system(
+    tick: Res<TickCounter>,
+    mut ledger: ResMut<EnergyLedger>,
+    mut organisms: Query<(&Energy, &mut EnergyFlows), With<Organism>>,
+    mut chronicle: ResMut<WorldChronicle>,
+) {
+    let mut total = 0.0f64;
+    let mut summed = EnergyFlows::default();
+    for (energy, mut flows) in &mut organisms {
+        total += energy.0 as f64;
+        summed.add(&flows);
+        flows.clear();
+    }
+    ledger.tick.add(&summed);
+
+    let tick_flows = ledger.tick;
+    let had_baseline = ledger.has_baseline();
+    let residual = ledger.close_tick(total);
+
+    debug_assert!(
+        residual.abs() <= EnergyLedger::TOLERANCE,
+        "energy ledger residual {residual:+.4} at tick {} exceeds tolerance {} (baseline set: {had_baseline}); tick flows: {tick_flows:?}",
+        tick.0,
+        EnergyLedger::TOLERANCE,
+    );
+    if residual.abs() > EnergyLedger::TOLERANCE && ledger.should_warn(tick.0) {
+        chronicle.log(
+            tick.0,
+            format!(
+                "Energy ledger out of balance: residual {:+.3} this tick, {} ticks over tolerance so far",
+                residual, ledger.breaches
+            ),
+        );
     }
 }
 
@@ -1623,6 +1741,7 @@ fn record_population_history(
     food: Query<&Food>,
     mut history: ResMut<PopulationHistory>,
     fitness: Res<FitnessTracker>,
+    mut ledger: ResMut<EnergyLedger>,
 ) {
     timer.0.tick(time.delta());
     if !timer.0.just_finished() {
@@ -1700,6 +1819,7 @@ fn record_population_history(
 
     history.record(
         &stats,
+        &mut ledger,
         PopSnapshotInput {
             tick: tick.0,
             organisms: org_count,
@@ -1740,13 +1860,17 @@ fn record_trail_history(
     }
 }
 
+/// Spawn the founding population. Returns the total energy spawned so the
+/// caller can set the `EnergyLedger` baseline.
 pub fn spawn_initial_population(
     commands: &mut Commands,
     config: &SimConfig,
     innovation: &mut InnovationCounter,
     rng: &mut impl Rng,
-) {
+) -> f64 {
     let photo_count = config.initial_population / 3; // 30% photosynthesizers
+    let founder_energy = config.max_organism_energy * 0.5;
+    let mut total_energy = 0.0f64;
 
     for i in 0..config.initial_population {
         let x = rng.gen_range(0.0..config.world_width as f32);
@@ -1761,10 +1885,11 @@ pub fn spawn_initial_population(
         let brain = Brain::from_genome(&genome);
         let body_size = genome.body_size;
 
+        total_energy += founder_energy as f64;
         commands
             .spawn((
                 Organism,
-                Energy(config.max_organism_energy * 0.5),
+                Energy(founder_energy),
                 Health(1.0),
                 Position(Vec2::new(x, y)),
                 Velocity(Vec2::ZERO),
@@ -1785,8 +1910,10 @@ pub fn spawn_initial_population(
                 TrailHistory::default(),
                 BrainActivations::default(),
                 Symbiosis::default(),
+                EnergyFlows::default(),
             ));
     }
+    total_energy
 }
 
 /// F5 saves the world to the session directory
