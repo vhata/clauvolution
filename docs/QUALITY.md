@@ -174,6 +174,13 @@ Settled with the user on 2026-09-18, after the first draft of this document.
 - **Probe length**: weekly runs use the full audit shape for best signal; push runs use 5000 ticks as the time-versus-benefit compromise.
 - **Scripted tour in CI**: not now. Filed as a low-priority TODO.
 
-## Open question
+## Branch protection
 
-**Branch protection.** A GitHub setting on `main` that makes the merge button refuse until named checks (`check` and `smoke`) have passed on the PR's latest commit. Without it, CI is advisory and the "red does not merge" rule relies on the person clicking. With it, the rule is mechanical, and it also protects against merging a PR whose last push has not finished running. It can also block direct pushes to `main`, which this project does not want because plans are committed to `main` directly; the recommendation is to require the two checks and leave pushes alone. It is a repository setting, reversible in the same place, and does not change any file in this PR. Decide once CI has been green on this PR at least once.
+Enabled on `main` on 2026-09-18, as a classic branch protection rule: the `check` and `smoke` jobs must pass before a pull request can be merged, the rule is not enforced for administrators, and there are no push restrictions, review requirements, or "branch must be up to date" requirement.
+
+Two consequences follow from how GitHub applies required status checks, and both are intended:
+
+- Required checks also apply to commits pushed directly, so without an exemption a plan committed straight to `main` would be rejected. Not enforcing the rule for administrators is what keeps direct pushes working for the repository owner, whose credentials every push here uses.
+- The same exemption means the merge button offers an administrator a "merge without waiting for requirements" bypass on a red pull request. It is an extra deliberate click with a warning, not the default, which is the right amount of friction for a solo project.
+
+Force pushes and branch deletion on `main` are refused for everyone.
