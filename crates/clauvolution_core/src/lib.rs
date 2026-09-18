@@ -42,6 +42,12 @@ pub struct Session {
     pub dir: PathBuf,
 }
 
+impl Default for Session {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Session {
     pub fn new() -> Self {
         let mut name = Self::generate_name();
@@ -596,7 +602,7 @@ impl SpeciesColors {
     pub fn get_or_create(&mut self, species_id: u64) -> Color {
         *self.colors.entry(species_id).or_insert_with(|| {
             let hue = self.next_hue;
-            self.next_hue = (self.next_hue + 0.618033988) % 1.0; // golden ratio for good spread
+            self.next_hue = (self.next_hue + 0.618_034) % 1.0; // golden ratio for good spread
             Color::hsl(hue * 360.0, 0.7, 0.6)
         })
     }
@@ -774,15 +780,9 @@ pub struct FoodSnapshot {
     pub entries: Vec<(Entity, Vec2, f32)>,
 }
 
-/// Whether organism trails are rendered
-#[derive(Resource)]
+/// Whether organism trails are rendered. Off by default; opt in with T.
+#[derive(Resource, Default)]
 pub struct TrailsVisible(pub bool);
-
-impl Default for TrailsVisible {
-    fn default() -> Self {
-        Self(false) // off by default — opt in with T
-    }
-}
 
 #[derive(Component)]
 pub struct Food;

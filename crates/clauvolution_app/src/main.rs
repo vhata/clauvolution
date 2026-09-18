@@ -154,7 +154,7 @@ fn main() {
             .set(WindowPlugin {
                 primary_window: Some(Window {
                     title: "Clauvolution".to_string(),
-                    resolution: (1920.0, 1080.0).into(),
+                    resolution: (1920.0_f32, 1080.0_f32).into(),
                     ..default()
                 }),
                 ..default()

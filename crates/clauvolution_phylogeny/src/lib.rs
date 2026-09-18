@@ -429,11 +429,7 @@ impl PhyloTree {
             pop_b.cmp(&pop_a).then(a.0.cmp(&b.0))
         });
 
-        let mut roots_shown = 0;
-        for (_root_id, mut members) in sorted_lineages {
-            if roots_shown >= max_display {
-                break;
-            }
+        for (_root_id, mut members) in sorted_lineages.into_iter().take(max_display) {
             members.sort_by(|a, b| {
                 b.current_population
                     .cmp(&a.current_population)
@@ -443,7 +439,6 @@ impl PhyloTree {
             // Show the biggest member as the root line
             let first = members[0];
             lines.push(self.format_species_line(first, 0, current_tick));
-            roots_shown += 1;
 
             // Always show ALL children — no cap on children
             for sibling in members.iter().skip(1) {

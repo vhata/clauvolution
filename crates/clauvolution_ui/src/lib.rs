@@ -49,7 +49,7 @@ fn scale_ui_fonts(mut contexts: EguiContexts) {
         .map(|f| f.size)
         .unwrap_or(EGUI_DEFAULT_BODY);
     let factor = TARGET_BODY_SIZE / current_body;
-    for (_, font_id) in style.text_styles.iter_mut() {
+    for font_id in style.text_styles.values_mut() {
         font_id.size *= factor;
     }
     ctx.set_style(style);
@@ -104,21 +104,11 @@ pub enum RightTab {
     Help,
 }
 
-#[derive(Resource)]
+#[derive(Resource, Default)]
 pub struct UiState {
     pub right_tab: RightTab,
     pub egui_wants_keyboard: bool,
     pub chronicle_hide_seasons: bool,
-}
-
-impl Default for UiState {
-    fn default() -> Self {
-        Self {
-            right_tab: RightTab::default(),
-            egui_wants_keyboard: false,
-            chronicle_hide_seasons: false,
-        }
-    }
 }
 
 fn help_tab(ui: &mut egui::Ui) {
@@ -771,7 +761,7 @@ fn inspect_tab(
         egui::CollapsingHeader::new("Symbiosis link").default_open(true).show(ui, |ui| {
             if symbiosis.link_ticks >= SYMBIOSIS_LINK_THRESHOLD && symbiosis.link_target.is_some() {
                 ui.label(format!("Tracking partner for {} ticks", symbiosis.link_ticks));
-            } else if let Some(_) = symbiosis.link_target {
+            } else if symbiosis.link_target.is_some() {
                 ui.label(format!("Courting ({} / {} ticks)", symbiosis.link_ticks, SYMBIOSIS_LINK_THRESHOLD));
             } else {
                 ui.label("No nearby partner");
@@ -907,7 +897,7 @@ fn draw_creature_portrait(
     painter.add(egui::Shape::ellipse_stroke(
         center,
         EVec2::new(torso_w, torso_h),
-        Stroke::new(1.5, torso_outline),
+        Stroke::new(1.5_f32, torso_outline),
     ));
 
     // Front-layer segments — eyes, mouth, claws, limbs.
@@ -999,7 +989,7 @@ fn draw_segment_shape(
             painter.add(egui::Shape::ellipse_stroke(
                 pos,
                 EVec2::new(s * 1.2, s * 0.7),
-                Stroke::new(0.8, darken(blended, 0.4)),
+                Stroke::new(0.8_f32, darken(blended, 0.4)),
             ));
         }
         SegmentType::Claw => {
@@ -1013,7 +1003,7 @@ fn draw_segment_shape(
             painter.add(egui::Shape::convex_polygon(
                 vec![tip, left, right],
                 Color32::from_rgb(200, 80, 80),
-                Stroke::new(0.8, Color32::from_rgb(100, 30, 30)),
+                Stroke::new(0.8_f32, Color32::from_rgb(100, 30, 30)),
             ));
         }
         SegmentType::Fin => {
@@ -1027,7 +1017,7 @@ fn draw_segment_shape(
             painter.add(egui::Shape::convex_polygon(
                 vec![tip, left, right],
                 Color32::from_rgba_unmultiplied(120, 180, 220, 180),
-                Stroke::new(0.8, Color32::from_rgb(60, 100, 140)),
+                Stroke::new(0.8_f32, Color32::from_rgb(60, 100, 140)),
             ));
         }
         SegmentType::Eye => {
@@ -1037,7 +1027,7 @@ fn draw_segment_shape(
             painter.circle_stroke(
                 pos,
                 s * 0.6,
-                Stroke::new(0.8, Color32::from_rgb(70, 70, 70)),
+                Stroke::new(0.8_f32, Color32::from_rgb(70, 70, 70)),
             );
             // Pupil offset slightly toward gaze direction
             let dx = angle.cos();
@@ -1206,7 +1196,7 @@ fn draw_brain_viz(
         painter.circle_stroke(
             pos,
             node_radius,
-            Stroke::new(0.8, Color32::from_rgb(90, 90, 100)),
+            Stroke::new(0.8_f32, Color32::from_rgb(90, 90, 100)),
         );
     }
 
@@ -1384,7 +1374,7 @@ fn graphs_tab(ui: &mut egui::Ui, history: &PopulationHistory) {
             // TextStyle::Body, and at our global 16px scale they overlap the
             // chart lines. This undoes the global UI_SCALE for this scroll
             // area only; the stats grid above stays at 16px.
-            for (_, font_id) in ui.style_mut().text_styles.iter_mut() {
+            for font_id in ui.style_mut().text_styles.values_mut() {
                 font_id.size /= UI_SCALE;
             }
 

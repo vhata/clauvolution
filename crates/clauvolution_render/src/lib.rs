@@ -80,15 +80,9 @@ pub struct FoodSprite;
 #[derive(Component)]
 
 /// Tracks whether we're in detailed or simple rendering mode
-#[derive(Resource)]
+#[derive(Resource, Default)]
 pub struct LodState {
     pub detailed: bool,
-}
-
-impl Default for LodState {
-    fn default() -> Self {
-        Self { detailed: false }
-    }
 }
 
 #[derive(Resource)]

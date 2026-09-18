@@ -98,7 +98,7 @@ pub struct PendingScreenshot {
 }
 
 /// Capture goes through two phases: first wait a few frames for the scene
-/// + egui to have rendered into the image, then spawn a Readback and
+/// and egui to have rendered into the image, then spawn a Readback and
 /// wait for its observer to fire. The second phase is tracked so callers
 /// (e.g. the script runner) can tell a capture is "still in flight" right
 /// up until the PNG actually hits disk.
@@ -257,7 +257,7 @@ fn save_bgra_as_png(
     // COPY_BYTES_PER_ROW_ALIGNMENT (256 bytes). So if width * 4 isn't
     // already a multiple of 256, each row in the buffer has trailing
     // padding bytes we need to skip when reassembling the image.
-    if bgra.len() as u32 % height != 0 {
+    if !(bgra.len() as u32).is_multiple_of(height) {
         return Err(format!(
             "byte count {} not divisible by height {}",
             bgra.len(),
@@ -280,7 +280,7 @@ fn save_bgra_as_png(
     for row in 0..height {
         let row_start = (row * padded_row) as usize;
         let row_end = row_start + real_row as usize;
-        for px in bgra[row_start..row_end].chunks_exact(4) {
+        for px in bgra[row_start..row_end].as_chunks::<4>().0 {
             rgba.push(px[2]);
             rgba.push(px[1]);
             rgba.push(px[0]);

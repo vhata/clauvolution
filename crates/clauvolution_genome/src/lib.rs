@@ -13,6 +13,8 @@ impl Plugin for GenomePlugin {
 pub struct InnovationCounter(pub u64);
 
 impl InnovationCounter {
+    // Not an iterator: this hands out fresh NEAT innovation numbers and never ends.
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> u64 {
         let n = self.0;
         self.0 += 1;

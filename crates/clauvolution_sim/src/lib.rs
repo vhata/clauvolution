@@ -931,7 +931,7 @@ fn disease_transmission_system(
 
     // 1. Background spontaneous infection — keeps disease present even when
     // populations would otherwise clear all pathogens.
-    if tick.0 % DISEASE_BACKGROUND_PERIOD_TICKS == 0 {
+    if tick.0.is_multiple_of(DISEASE_BACKGROUND_PERIOD_TICKS) {
         for (entity, _, genome) in &healthy {
             if rng.gen::<f32>() < DISEASE_BACKGROUND_RATE * (1.0 - genome.disease_resistance) {
                 commands.entity(entity).insert(Infection {
@@ -1052,7 +1052,7 @@ fn symbiosis_tracking_system(
                 }
                 if let Ok(other_pos) = all_positions.get(other) {
                     let dist2 = (other_pos.0 - pos.0).length_squared();
-                    if best.map_or(true, |(_, d)| dist2 < d) {
+                    if best.is_none_or(|(_, d)| dist2 < d) {
                         best = Some((other, dist2));
                     }
                 }
@@ -1540,7 +1540,7 @@ fn species_classification_system(
     for (_, _, _old_species) in &org_data {
         // Use assigned species, not old
     }
-    for (_, assigned_id) in &assignments {
+    for assigned_id in assignments.values() {
         *species_counts.entry(*assigned_id).or_insert(0) += 1;
     }
     // Detect extinctions before updating
@@ -1732,7 +1732,7 @@ fn record_trail_history(
     if !trails_visible.0 {
         return;
     }
-    if tick.0 % 3 != 0 {
+    if !tick.0.is_multiple_of(3) {
         return;
     }
     for (pos, mut trail) in &mut organisms {
