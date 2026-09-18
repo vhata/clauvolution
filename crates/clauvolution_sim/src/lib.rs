@@ -1329,6 +1329,12 @@ fn death_system(
 /// See DECISIONS.md "Child starting energy is a fraction of what the parent paid".
 const CHILD_ENERGY_FRACTION: f32 = 0.8;
 
+/// A population-ceiling episode ends once the population has fallen below
+/// this fraction of `SimConfig::population_ceiling`. Without the hysteresis a
+/// population hovering just under the ceiling would open and close an
+/// episode every few ticks and fill the chronicle with entries.
+const CEILING_RELEASE_FRACTION: f32 = 0.95;
+
 fn reproduction_system(
     mut commands: Commands,
     config: Res<SimConfig>,
@@ -1352,6 +1358,8 @@ fn reproduction_system(
     bloom: Res<BloomEffects>,
     mut sim_rng: ResMut<SimRng>,
     mut ledger: ResMut<EnergyLedger>,
+    tick: Res<TickCounter>,
+    mut chronicle: ResMut<WorldChronicle>,
 ) {
     let mut rng = &mut sim_rng.0;
 
@@ -1367,22 +1375,33 @@ fn reproduction_system(
     // (position, genome, parent species, generation, starting energy)
     let mut new_organisms: Vec<(Vec2, Genome, u64, u32, f32)> = Vec::new();
     let current_pop = organisms.iter().len();
-    let max_pop = 2000usize;
+    // `population_ceiling` is the only birth limiter. The population is
+    // meant to settle where the energy flows put it, and under the current
+    // rules it does not (see DECISIONS.md "Emergent carrying capacity"), so
+    // every engagement is recorded: the chronicle and the headless summary
+    // say how often the ceiling was the thing deciding the population.
+    let ceiling = config.population_ceiling as usize;
+    let mut blocked_births = 0u64;
     let mut already_mated: Vec<Entity> = Vec::new();
 
     for (entity, pos, mut energy, mut flash, genome, output, body_size, species, generation) in
         &mut organisms
     {
-        if current_pop + new_organisms.len() >= max_pop {
-            break;
-        }
         if already_mated.contains(&entity) {
             continue;
         }
         // Reproduction cost scales with body size — small organisms can't reproduce for free
         let repro_cost = config.reproduction_energy_cost * (0.5 + body_size.0 * 0.5);
         let repro_threshold = config.reproduction_energy_threshold * (0.5 + body_size.0 * 0.5);
-        if output.reproduce > 0.5 && energy.0 > repro_threshold {
+        let wants_child = output.reproduce > 0.5 && energy.0 > repro_threshold;
+        if current_pop + new_organisms.len() >= ceiling {
+            // Blocked parents keep their energy; only the birth is refused.
+            if wants_child {
+                blocked_births += 1;
+            }
+            continue;
+        }
+        if wants_child {
             energy.0 -= repro_cost;
             ledger.tick.reproduction_spent += repro_cost as f64;
             flash.action = ActionType::Reproducing;
@@ -1442,6 +1461,32 @@ fn reproduction_system(
                 child_energy,
             ));
             already_mated.push(entity);
+        }
+    }
+
+    // One chronicle entry per engagement episode, not per blocked tick.
+    if blocked_births > 0 {
+        stats.ceiling_blocked_births += blocked_births;
+        if stats.ceiling_engaged_since.is_none() {
+            stats.ceiling_engaged_since = Some(tick.0);
+            stats.ceiling_episodes += 1;
+            chronicle.log(tick.0, format!(
+                "POPULATION CEILING! {} organisms hit the {} safety ceiling; births blocked (episode {})",
+                current_pop, ceiling, stats.ceiling_episodes
+            ));
+        }
+    } else if let Some(since) = stats.ceiling_engaged_since {
+        let release_below = (ceiling as f32 * CEILING_RELEASE_FRACTION) as usize;
+        if current_pop < release_below {
+            stats.ceiling_engaged_since = None;
+            chronicle.log(
+                tick.0,
+                format!(
+                    "Population ceiling released after {} ticks; {} organisms remain",
+                    tick.0 - since,
+                    current_pop
+                ),
+            );
         }
     }
 
