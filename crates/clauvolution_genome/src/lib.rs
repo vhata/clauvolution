@@ -194,6 +194,57 @@ impl BodySegmentGene {
 
 // --- Full genome ---
 
+// --- Scalar trait bounds ---
+
+/// Inclusive clamp range of one scalar trait. Mutation clamps to it and the
+/// body term of `compatibility_distance` divides by its span, so the two
+/// never disagree about how wide a trait is.
+#[derive(Clone, Copy, Debug)]
+pub struct TraitBounds {
+    pub min: f32,
+    pub max: f32,
+}
+
+impl TraitBounds {
+    pub const fn new(min: f32, max: f32) -> Self {
+        Self { min, max }
+    }
+
+    pub fn span(&self) -> f32 {
+        self.max - self.min
+    }
+
+    pub fn clamp(&self, value: f32) -> f32 {
+        value.clamp(self.min, self.max)
+    }
+}
+
+pub const BODY_SIZE_BOUNDS: TraitBounds = TraitBounds::new(0.3, 2.0);
+pub const SPEED_FACTOR_BOUNDS: TraitBounds = TraitBounds::new(0.2, 3.0);
+pub const SENSE_RANGE_BOUNDS: TraitBounds = TraitBounds::new(10.0, 150.0);
+pub const AQUATIC_ADAPTATION_BOUNDS: TraitBounds = TraitBounds::new(0.0, 1.0);
+pub const PHOTOSYNTHESIS_RATE_BOUNDS: TraitBounds = TraitBounds::new(0.0, 1.0);
+pub const ARMOR_BOUNDS: TraitBounds = TraitBounds::new(0.0, 1.0);
+pub const ATTACK_POWER_BOUNDS: TraitBounds = TraitBounds::new(0.0, 1.0);
+pub const DISEASE_RESISTANCE_BOUNDS: TraitBounds = TraitBounds::new(0.0, 1.0);
+pub const SYMBIOSIS_RATE_BOUNDS: TraitBounds = TraitBounds::new(-1.0, 1.0);
+
+/// Number of scalar traits on the genome (every field after `body_segments`).
+pub const SCALAR_TRAIT_COUNT: usize = 9;
+
+/// Bounds of each scalar trait, in the same order as `Genome::scalar_traits`.
+pub const SCALAR_TRAIT_BOUNDS: [TraitBounds; SCALAR_TRAIT_COUNT] = [
+    BODY_SIZE_BOUNDS,
+    SPEED_FACTOR_BOUNDS,
+    SENSE_RANGE_BOUNDS,
+    AQUATIC_ADAPTATION_BOUNDS,
+    PHOTOSYNTHESIS_RATE_BOUNDS,
+    ARMOR_BOUNDS,
+    ATTACK_POWER_BOUNDS,
+    DISEASE_RESISTANCE_BOUNDS,
+    SYMBIOSIS_RATE_BOUNDS,
+];
+
 #[derive(Component, Clone, Debug)]
 pub struct Genome {
     pub neurons: Vec<NeuronGene>,
@@ -428,6 +479,21 @@ impl Genome {
         self.sense_range + eye_bonus
     }
 
+    /// The scalar traits in `SCALAR_TRAIT_BOUNDS` order.
+    pub fn scalar_traits(&self) -> [f32; SCALAR_TRAIT_COUNT] {
+        [
+            self.body_size,
+            self.speed_factor,
+            self.sense_range,
+            self.aquatic_adaptation,
+            self.photosynthesis_rate,
+            self.armor,
+            self.attack_power,
+            self.disease_resistance,
+            self.symbiosis_rate,
+        ]
+    }
+
     /// Mutate this genome in place
     pub fn mutate(
         &mut self,
@@ -473,39 +539,39 @@ impl Genome {
         // Mutate body traits
         if rng.gen::<f32>() < rate {
             self.body_size += normal.sample(rng) as f32 * 0.2;
-            self.body_size = self.body_size.clamp(0.3, 2.0);
+            self.body_size = BODY_SIZE_BOUNDS.clamp(self.body_size);
         }
         if rng.gen::<f32>() < rate {
             self.speed_factor += normal.sample(rng) as f32 * 0.2;
-            self.speed_factor = self.speed_factor.clamp(0.2, 3.0);
+            self.speed_factor = SPEED_FACTOR_BOUNDS.clamp(self.speed_factor);
         }
         if rng.gen::<f32>() < rate {
             self.sense_range += normal.sample(rng) as f32 * 5.0;
-            self.sense_range = self.sense_range.clamp(10.0, 150.0);
+            self.sense_range = SENSE_RANGE_BOUNDS.clamp(self.sense_range);
         }
         if rng.gen::<f32>() < rate {
             self.aquatic_adaptation += normal.sample(rng) as f32 * 0.1;
-            self.aquatic_adaptation = self.aquatic_adaptation.clamp(0.0, 1.0);
+            self.aquatic_adaptation = AQUATIC_ADAPTATION_BOUNDS.clamp(self.aquatic_adaptation);
         }
         if rng.gen::<f32>() < rate {
             self.photosynthesis_rate += normal.sample(rng) as f32 * 0.05;
-            self.photosynthesis_rate = self.photosynthesis_rate.clamp(0.0, 1.0);
+            self.photosynthesis_rate = PHOTOSYNTHESIS_RATE_BOUNDS.clamp(self.photosynthesis_rate);
         }
         if rng.gen::<f32>() < rate {
             self.armor += normal.sample(rng) as f32 * 0.05;
-            self.armor = self.armor.clamp(0.0, 1.0);
+            self.armor = ARMOR_BOUNDS.clamp(self.armor);
         }
         if rng.gen::<f32>() < rate {
             self.attack_power += normal.sample(rng) as f32 * 0.05;
-            self.attack_power = self.attack_power.clamp(0.0, 1.0);
+            self.attack_power = ATTACK_POWER_BOUNDS.clamp(self.attack_power);
         }
         if rng.gen::<f32>() < rate {
             self.disease_resistance += normal.sample(rng) as f32 * 0.05;
-            self.disease_resistance = self.disease_resistance.clamp(0.0, 1.0);
+            self.disease_resistance = DISEASE_RESISTANCE_BOUNDS.clamp(self.disease_resistance);
         }
         if rng.gen::<f32>() < rate {
             self.symbiosis_rate += normal.sample(rng) as f32 * 0.1;
-            self.symbiosis_rate = self.symbiosis_rate.clamp(-1.0, 1.0);
+            self.symbiosis_rate = SYMBIOSIS_RATE_BOUNDS.clamp(self.symbiosis_rate);
         }
 
         // Mutate existing body segments
@@ -678,29 +744,42 @@ impl Genome {
             segs
         };
 
-        let t = rng.gen::<f32>();
+        // Each scalar trait draws its own blend factor, so a child can carry
+        // one parent's speed and the other's armour instead of lying on the
+        // straight line between them in trait space.
+        let mut blend = |a: f32, b: f32| {
+            let t = rng.gen::<f32>();
+            a * t + b * (1.0 - t)
+        };
         Genome {
             neurons: child_neurons,
             connections: child_connections,
             body_segments: child_segments,
-            body_size: self.body_size * t + other.body_size * (1.0 - t),
-            speed_factor: self.speed_factor * t + other.speed_factor * (1.0 - t),
-            sense_range: self.sense_range * t + other.sense_range * (1.0 - t),
-            aquatic_adaptation: self.aquatic_adaptation * t + other.aquatic_adaptation * (1.0 - t),
-            photosynthesis_rate: self.photosynthesis_rate * t
-                + other.photosynthesis_rate * (1.0 - t),
-            armor: self.armor * t + other.armor * (1.0 - t),
-            attack_power: self.attack_power * t + other.attack_power * (1.0 - t),
-            disease_resistance: self.disease_resistance * t + other.disease_resistance * (1.0 - t),
-            symbiosis_rate: self.symbiosis_rate * t + other.symbiosis_rate * (1.0 - t),
+            body_size: blend(self.body_size, other.body_size),
+            speed_factor: blend(self.speed_factor, other.speed_factor),
+            sense_range: blend(self.sense_range, other.sense_range),
+            aquatic_adaptation: blend(self.aquatic_adaptation, other.aquatic_adaptation),
+            photosynthesis_rate: blend(self.photosynthesis_rate, other.photosynthesis_rate),
+            armor: blend(self.armor, other.armor),
+            attack_power: blend(self.attack_power, other.attack_power),
+            disease_resistance: blend(self.disease_resistance, other.disease_resistance),
+            symbiosis_rate: blend(self.symbiosis_rate, other.symbiosis_rate),
         }
     }
 
-    /// Compute compatibility distance between two genomes (for speciation)
+    /// Compatibility distance between two genomes, used for speciation.
+    ///
+    /// Four terms, each roughly 0..1 before weighting: excess and disjoint
+    /// connection counts over the larger gene count, the mean weight
+    /// difference of matching connections, and the body term from
+    /// `body_trait_distance`. The body term carries weight 1.0 and the three
+    /// NEAT terms 0.5 each, so species are trait-led. See
+    /// `docs/DECISIONS.md`, "Species classification".
     pub fn compatibility_distance(&self, other: &Genome) -> f32 {
-        let c1 = 1.0;
-        let c2 = 1.0;
-        let c3 = 0.4;
+        let c1 = 0.5;
+        let c2 = 0.5;
+        let c3 = 0.5;
+        let c_body = 1.0;
 
         let mut s_sorted: Vec<&ConnectionGene> = self.connections.iter().collect();
         let mut o_sorted: Vec<&ConnectionGene> = other.connections.iter().collect();
@@ -736,19 +815,145 @@ impl Genome {
             0.0
         };
 
-        let body_diff = (self.body_size - other.body_size).abs()
-            + (self.speed_factor - other.speed_factor).abs()
-            + (self.sense_range - other.sense_range).abs() * 0.01
-            + (self.aquatic_adaptation - other.aquatic_adaptation).abs()
-            + (self.photosynthesis_rate - other.photosynthesis_rate).abs()
-            + (self.armor - other.armor).abs()
-            + (self.attack_power - other.attack_power).abs()
-            + (self.disease_resistance - other.disease_resistance).abs() * 0.5
-            + (self.symbiosis_rate - other.symbiosis_rate).abs() * 0.3;
-
         (c1 * excess as f32 / n)
             + (c2 * disjoint as f32 / n)
             + (c3 * avg_weight_diff)
-            + body_diff * 0.5
+            + c_body * self.body_trait_distance(other)
+    }
+
+    /// Mean over the scalar traits of the absolute difference divided by the
+    /// trait's clamp span, so one trait at opposite ends of its range
+    /// contributes `1 / SCALAR_TRAIT_COUNT` and the whole term lies in 0..1.
+    /// Each per-trait share is capped at 1.0 so values outside the bounds
+    /// (founders, old saves) cannot push the term above 1.0.
+    pub fn body_trait_distance(&self, other: &Genome) -> f32 {
+        let a = self.scalar_traits();
+        let b = other.scalar_traits();
+        let sum: f32 = a
+            .iter()
+            .zip(b.iter())
+            .zip(SCALAR_TRAIT_BOUNDS.iter())
+            .map(|((x, y), bounds)| ((x - y).abs() / bounds.span()).min(1.0))
+            .sum();
+        sum / SCALAR_TRAIT_COUNT as f32
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand::rngs::StdRng;
+    use rand::SeedableRng;
+
+    fn base_genome(seed: u64) -> Genome {
+        let mut innovation = InnovationCounter(0);
+        let mut rng = StdRng::seed_from_u64(seed);
+        Genome::new_minimal(&mut innovation, &mut rng)
+    }
+
+    /// Set trait `index` (in `SCALAR_TRAIT_BOUNDS` order) to `value`.
+    fn set_trait(genome: &mut Genome, index: usize, value: f32) {
+        match index {
+            0 => genome.body_size = value,
+            1 => genome.speed_factor = value,
+            2 => genome.sense_range = value,
+            3 => genome.aquatic_adaptation = value,
+            4 => genome.photosynthesis_rate = value,
+            5 => genome.armor = value,
+            6 => genome.attack_power = value,
+            7 => genome.disease_resistance = value,
+            8 => genome.symbiosis_rate = value,
+            _ => panic!("no scalar trait at index {index}"),
+        }
+    }
+
+    #[test]
+    fn scalar_traits_match_bounds_order() {
+        let mut genome = base_genome(1);
+        for (index, bounds) in SCALAR_TRAIT_BOUNDS.iter().enumerate() {
+            set_trait(&mut genome, index, bounds.max);
+            assert_eq!(genome.scalar_traits()[index], bounds.max, "trait {index}");
+        }
+    }
+
+    #[test]
+    fn identical_genomes_have_zero_distance() {
+        let a = base_genome(7);
+        let b = a.clone();
+        assert_eq!(a.compatibility_distance(&b), 0.0);
+        assert_eq!(a.body_trait_distance(&b), 0.0);
+    }
+
+    #[test]
+    fn one_trait_across_its_full_range_contributes_one_over_n() {
+        let expected = 1.0 / SCALAR_TRAIT_COUNT as f32;
+        for (index, bounds) in SCALAR_TRAIT_BOUNDS.iter().enumerate() {
+            let mut a = base_genome(3);
+            let mut b = a.clone();
+            set_trait(&mut a, index, bounds.min);
+            set_trait(&mut b, index, bounds.max);
+            let body = a.body_trait_distance(&b);
+            assert!(
+                (body - expected).abs() < 1e-6,
+                "trait {index}: body term {body}"
+            );
+            // Brains are identical, so the NEAT terms are zero and the total
+            // is the body term alone.
+            let total = a.compatibility_distance(&b);
+            assert!(
+                (total - expected).abs() < 1e-6,
+                "trait {index}: total {total}"
+            );
+        }
+    }
+
+    #[test]
+    fn body_term_never_exceeds_one() {
+        let mut a = base_genome(5);
+        let mut b = a.clone();
+        for (index, bounds) in SCALAR_TRAIT_BOUNDS.iter().enumerate() {
+            set_trait(&mut a, index, bounds.min);
+            set_trait(&mut b, index, bounds.max);
+        }
+        assert!((a.body_trait_distance(&b) - 1.0).abs() < 1e-6);
+
+        // Values outside the clamp bounds (founders, old saves) are capped
+        // per trait rather than pushing the term past 1.0.
+        for (index, bounds) in SCALAR_TRAIT_BOUNDS.iter().enumerate() {
+            set_trait(&mut a, index, bounds.min - 10.0 * bounds.span());
+            set_trait(&mut b, index, bounds.max + 10.0 * bounds.span());
+        }
+        assert!(a.body_trait_distance(&b) <= 1.0);
+    }
+
+    #[test]
+    fn crossover_blends_each_trait_independently() {
+        let mut fast_soft = base_genome(11);
+        fast_soft.speed_factor = SPEED_FACTOR_BOUNDS.max;
+        fast_soft.armor = ARMOR_BOUNDS.min;
+        let mut slow_hard = fast_soft.clone();
+        slow_hard.speed_factor = SPEED_FACTOR_BOUNDS.min;
+        slow_hard.armor = ARMOR_BOUNDS.max;
+
+        let mut rng = StdRng::seed_from_u64(99);
+        let mut off_line = 0;
+        for _ in 0..500 {
+            let child = fast_soft.crossover(&slow_hard, &mut rng);
+            // With a single shared blend factor t, the child's normalised
+            // position along the speed axis and the armour axis would be
+            // equal (t and 1 - t respectively, summing to 1). Independent
+            // factors let the child sit near parent A's speed and parent
+            // B's armour at the same time.
+            let speed_pos =
+                (child.speed_factor - SPEED_FACTOR_BOUNDS.min) / SPEED_FACTOR_BOUNDS.span();
+            let armor_pos = (child.armor - ARMOR_BOUNDS.min) / ARMOR_BOUNDS.span();
+            if speed_pos > 0.8 && armor_pos > 0.8 {
+                off_line += 1;
+            }
+        }
+        assert!(
+            off_line > 0,
+            "no offspring combined A's speed with B's armour in 500 trials"
+        );
     }
 }

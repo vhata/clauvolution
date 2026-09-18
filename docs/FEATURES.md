@@ -6,7 +6,7 @@ One-liner list of what Clauvolution does, grouped by area. For the design ration
 
 - **Per-organism NEAT neural networks** — 22 sensory inputs, 9 outputs, 3 recurrent memory slots
 - **Emergent behaviour** — no scripted actions; movement, feeding, attack, reproduction all evolve from selection
-- **Genetic system** — neurons, connections, body segments, traits; mutation + crossover + structural innovations (add-neuron, add-connection)
+- **Genetic system** — neurons, connections, body segments, traits; mutation + crossover + structural innovations (add-neuron, add-connection). Crossover blends each scalar trait with its own factor, so a child can take one parent's speed and the other's armour
 - **Body segments** — torso, limb, fin, eye, mouth, photo surface, claw, armor plate; each affects gameplay
 - **Sexual reproduction** — genome crossover with nearby same-species mates; asexual fallback if no mate
 - **Predation** — attack + damage calculation (claws vs armor, size advantage); 10% trophic energy transfer (thermodynamic energy pyramid)
@@ -22,7 +22,7 @@ One-liner list of what Clauvolution does, grouped by area. For the design ration
 
 ## Speciation & tracking
 
-- **Species classification** — NEAT compatibility distance with hysteresis; re-evaluated every 5 seconds
+- **Species classification** — NEAT compatibility distance with hysteresis; re-evaluated every 5 seconds. Trait-led: the body term is normalised to 0..1 across the nine scalar traits and weighted 1.0, the three NEAT brain terms 0.5 each
 - **Phylogenetic tree** — ancestry tracking with parent/child lineage grouping
 - **Species naming** — three-word trait-based names (habitat + descriptor + strategy noun); children inherit two-of-three from parent
 - **Parent species tracking** — inspect panel shows organism's lineage
