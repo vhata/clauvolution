@@ -35,6 +35,28 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 - [BRAIN] `convergent-detection-noise` — **Assess convergent evolution detection cost and noise.** Detection scans every species on each classification tick, and early in a run the results may be noisy enough to be misleading.
   - Starting point: Measure how often it fires in the first few thousand ticks before deciding between a cheaper scan, a warm-up delay, or leaving it alone.
   - Source: CLAUDE.md (Known rough edges), 2026-09-16
+- [SIM] `predation-corpse-energy-fountain` — **Stop killed photosynthesisers from being killed and paid for again.** `photosynthesis_system` runs after `predation_system` and is not gated on health, so a plant whose health an attacker set to 0 refills energy in the same tick, survives, and is killed and paid for again on later ticks. Kills still exceed predation deaths after the multi-attacker fix (6423 vs 2740 at `--headless 1000 --seed 42`), and predators are being fed from corpses.
+  - Starting point: A diagnostic run counted 1297 of 3039 kills landing on targets already at health 0, 1959 of them photosynthesisers. Gating photosynthesis on `health > 0` and skipping health-0 targets collapsed plants 758 to 48 and raised predators 44 to 641 in one run, so the corpse income is load-bearing for the current ecology. `symbiosis_transfer_system` can top up corpses too. Needs its own PR plus a tuning pass, and it belongs before any green-world tuning.
+  - Source: review/sim-accounting-fixes branch, 2026-09-17
+- [TOOLING] `clippy-baseline-toolchain` — **Make the clippy baseline real.** The count command in `docs/CODE_REVIEW_GUIDE.md` greps for lines starting with `warning:` under `--message-format=short`, which only matches the per-crate summary lines it then excludes, so it always prints 0. The installed nightly (rustc 1.89, 2025-06-01) reports 74 warnings on `main`, mostly `uninlined_format_args`.
+  - Starting point: Fix the command (drop `--message-format=short` or match `: warning:`), decide whether to add a `rust-toolchain.toml`, then either fix the warnings or record the true count as the baseline for the next incremental review.
+  - Source: all four review-backlog branches of 2026-09-17
+- [TOOLING] `script-tour-virtual-time-after-speed` — **Decide whether `--script` tour timings are virtual or wall-clock seconds.** `script_runner_system` keys `at_seconds` to `Time<Virtual>`, so now that GUI speed scales virtual time every trigger after a `set_speed` action fires `multiplier` times sooner in wall time. `tours/readme.json` at 8x evolves for roughly 330 ticks before its screenshots instead of several thousand.
+  - Starting point: Either retune the bundled tours or key `at_seconds` to `Time<Real>` and let tours state the speed they want.
+  - Source: review/headless-gui-parity branch, 2026-09-17
+- [PERSIST] `determinism-claim-recheck` — **Re-verify the "diverges after ~50 ticks" determinism claim.** Two branches each saw consecutive `--headless 1000 --seed 42` runs on `main` come out bit-identical, contradicting `docs/DECISIONS.md` and `docs/ROADMAP.md`; yet with the spatial hash rebuilt inside the fixed tick, two runs of the same command differed widely.
+  - Starting point: Establish what is deterministic today and what the fixed-tick hash rebuild changed. If same-seed runs are reproducible, the roadmap's integration tests become possible now. Update the docs either way.
+  - Source: review/headless-gui-parity and review/spatial-hash-fixed-tick branches, 2026-09-17
+- [WORLD] `biome-threshold-retune` — **Revisit the biome thresholds now that moisture spans 0..1.** With `Tile::from_elevation_moisture` still at 0.25 and 0.6, Rock is rare to absent on low-lying seeds and Grassland roughly quadrupled on seed 42. Land fraction also varies about twofold between seeds (172k land tiles on seed 42, 90k on seed 3), which confounds plant-share comparisons.
+  - Starting point: Part of the tuning pass after the 8-seed 15k-tick audit is re-run on the merged fixes. The world crate's unit test prints per-biome counts.
+  - Source: review/moisture-range-normalisation branch, 2026-09-17
+- [UI] `header-show-species-threshold` — **Show the effective species threshold in the UI.** With `--species-threshold` now honoured in GUI mode, the only evidence that it applied is a startup log line.
+  - Starting point: A small label in the header or the Phylo tab reading `SimConfig`.
+  - Source: review/headless-gui-parity branch, 2026-09-17
+- [PERF] `moisture-fix-tick-cost` — **Find out why the moisture fix doubled the per-tick cost.** `cargo run --release -- --headless 300 --seed 42` takes about 9 s at c8fac9d (spatial hash fix only) and about 20 s at 1ab42ab (moisture fix merged); at speed 1 it takes 21 s, so the sim is now CPU-bound below real time during the opening burst. Ticks 30 to 100 cost roughly 200 ms each before settling to about 20 ms.
+  - Starting point: A wetter world grows more vegetation and so more food entities, and every food entity is indexed in the spatial hash that every neighbour query walks, so `spatial-hash-organisms-only` is the first thing to try. Measure food counts and organism counts per tick on both commits before changing anything. Also check whether the opening-burst slow phase (present before the moisture fix too, at about 8 s for the first 100 ticks) is the same cause.
+  - Source: rebase of review/headless-gui-parity onto main, 2026-09-17
+  - Related: `spatial-hash-organisms-only`, `photosynthesis-density-cache`
 
 ## Needs proof of concept
 
@@ -135,3 +157,6 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 - [PERSIST] `persist-terrain-state` — **Save terrain state instead of regenerating it from the seed.** Niche construction changes to vegetation density, moisture, and nutrients are silently lost on save and load, so a loaded world is not the world that was saved.
   - Starting point: Decide whether to persist the full tilemap or only the fields organisms modify.
   - Source: CLAUDE.md (Known rough edges), 2026-09-16
+- [PERF] `spatial-hash-organisms-only` — **Index only organisms in the spatial hash.** `update_spatial_hash` inserts every `Position`, food included, so every neighbour query wades through food entities and discards them through failed `get()` lookups.
+  - Starting point: Add a `With<Organism>` filter to the rebuild query after confirming none of the five readers (sensing, predation, disease, symbiosis, reproduction) relies on food being present; none do today.
+  - Source: review/spatial-hash-fixed-tick branch, 2026-09-17
