@@ -57,11 +57,11 @@ def main(d):
             share = "-"
         print(f"| {seed} | {run} | {r['plants']} | {r['foragers']} | {r['predators']} | {share} | {r['species']} | {r['deaths']} | {r['starv']} | {r['pred']} | {r['old']} | {r['dis']} | {r['kills']} | {r['body']} |")
         if run.startswith("probe"):
-            probes[run] = p.read_text().split("=== Headless summary ===")[-1].rsplit("Headless run complete", 1)[0]
+            probes[run] = p.with_suffix(".csv").read_bytes()
     if len(probes) == 2:
         a, b = probes.values()
         print()
-        print("Determinism probe (two simultaneous runs of the same seed):", "identical summaries" if a == b else "summaries differ")
+        print("Determinism probe (two simultaneous runs of the same seed):", "identical histories" if a == b else "histories differ")
 
 
 if __name__ == "__main__":
