@@ -86,10 +86,12 @@ const PLANT_DENSITY_PENALTY: f32 = 0.3;
 ///   DECISIONS.md), so they describe a different sim. With kills final:
 ///   0.5 — plants extinct by 5000 ticks on one of four seeds, 29 left on seed 42
 ///   0.75 — plants survive everywhere; predators 3-32
-///   1.0 — (current) plants survive everywhere; seed 42 holds ~1165/786/49
-///         plants/foragers/predators at 5000 ticks. Seeds 1 and 2 still
-///         drift to plant monoculture; that is an attractor question for
-///         the design doc, not this constant.
+///   1.0 — (current) plants survive everywhere. Seed 42 at 5000 ticks over
+///         five runs: plants 1165-1468, foragers 530-825, predators 2-49.
+///         Same-seed runs are not reproducible at this length, so single
+///         runs carry that spread. Seeds 1 and 2 still drift to plant
+///         monoculture and predators fade slowly on every seed; that is an
+///         attractor question for the design doc, not this constant.
 const PHOTO_OUTPUT_MULTIPLIER: f32 = 1.0;
 
 /// Minimum real-time seconds between extinction/bloom events (prevents spam).
