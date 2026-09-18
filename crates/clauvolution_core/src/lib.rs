@@ -303,6 +303,8 @@ impl Season {
 /// A snapshot of population metrics at a point in time
 #[derive(Clone, Default)]
 pub struct PopSnapshot {
+    /// Simulation tick at which the snapshot was taken.
+    pub tick: u64,
     pub organisms: u32,
     pub food: u32,
     pub species: u32,
@@ -344,6 +346,8 @@ pub struct FitnessTracker {
 #[derive(Resource)]
 pub struct PopulationHistory {
     pub snapshots: Vec<PopSnapshot>,
+    /// Ring-buffer cap, sized for the Graphs tab. Headless mode raises it to
+    /// `usize::MAX` so `--dump-history` writes the whole run.
     pub max_entries: usize,
     pub visible: bool,
     prev_births: u64,
@@ -380,6 +384,7 @@ impl PopulationHistory {
         self.prev_deaths_by_cause = stats.deaths_by_cause;
 
         self.snapshots.push(PopSnapshot {
+            tick: snapshot.tick,
             organisms: snapshot.organisms,
             food: snapshot.food,
             species: stats.species_count,
@@ -415,6 +420,7 @@ impl PopulationHistory {
 /// Helper struct for passing many values into PopulationHistory::record
 #[derive(Default)]
 pub struct PopSnapshotInput {
+    pub tick: u64,
     pub organisms: u32,
     pub food: u32,
     pub plants: u32,

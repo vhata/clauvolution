@@ -1383,6 +1383,7 @@ fn species_classification_system(
 fn record_population_history(
     time: Res<Time>,
     mut timer: ResMut<PopHistoryTimer>,
+    tick: Res<TickCounter>,
     stats: Res<SimStats>,
     organisms: Query<(Entity, &Genome, &Symbiosis, Option<&Infection>), With<Organism>>,
     food: Query<&Food>,
@@ -1464,6 +1465,7 @@ fn record_population_history(
     let food_count = food.iter().len() as u32;
 
     history.record(&stats, PopSnapshotInput {
+        tick: tick.0,
         organisms: org_count,
         food: food_count,
         plants,
