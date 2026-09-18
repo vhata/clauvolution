@@ -76,7 +76,7 @@ This changes the local toolchain from nightly to stable. Nothing in the code nee
 - **Render, UI, and app-wiring changes** need no tests. They are verified by hand in a release build.
 - **Tuning constant changes** need no tests. They need a headless before-and-after summary in the PR body, which the code review guide already asks for.
 
-An integration test crate that spawns a headless app, runs a few hundred ticks, and asserts invariants (no negative energy, population above zero, ledger balances) is on the roadmap and belongs here once same-seed runs are known to be reproducible. Until `determinism-claim-recheck` in `TODO.md` is resolved, such tests can only assert loose bounds, and loose-bound tests that flake are worse than no tests. The `make smoke` gate covers the "does it still run" half of that idea now.
+An integration test crate that spawns a headless app, runs a few hundred ticks, and asserts invariants (no negative energy, population above zero, ledger balances) is on the roadmap and belongs here once same-seed runs are known to be reproducible. Until `determinism-claim-recheck` in `TODO.md` is resolved, such tests can only assert loose bounds, and loose-bound tests that flake are worse than no tests. The `scripts/smoke.sh` gate covers the "does it still run" half of that idea now.
 
 ### Pre-commit and pre-push hooks
 
