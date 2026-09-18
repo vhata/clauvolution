@@ -10,3 +10,7 @@
 
 # Claude Code local state (agent worktrees, local settings)
 /.claude/
+
+# Quality gate outputs (scripts/smoke.sh, scripts/probe.sh)
+/smoke.txt
+/probe-out/

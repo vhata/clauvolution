@@ -146,6 +146,8 @@ All of this lands on the `tooling/quality-gates` branch, in this order, each ste
 
 Four roadmap branches are open in worktrees. The format sweep will conflict with all of them wherever they touch a reformatted line. The cheapest recovery: after this PR merges, in each worktree run `cargo fmt --all` on the branch, commit, then rebase onto `main`. Two formatted sides of the same file mostly merge cleanly. Their pre-existing clippy warnings will also fail the new gate on rebase; that is a handful of `format!` inlines per branch.
 
+Once `scripts/setup.sh` has installed the hooks, they apply to every worktree, so a commit on one of those branches fails the format check until the branch has been formatted. For the rebase window itself, `LEFTHOOK=0 git commit` skips the hooks for one command; that is the sanctioned use of a bypass, not a habit.
+
 ## Done looks like
 
 - `scripts/check.sh` passes on `main` and the hooks are installed by `scripts/setup.sh`.
