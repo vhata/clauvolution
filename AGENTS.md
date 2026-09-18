@@ -7,6 +7,7 @@ An evolution simulator built in Rust and Bevy 0.15. Organisms with NEAT neural n
 ## Workflow
 
 - **Every unit of work is a branch and a pull request.** Never commit to `main` directly. One PR does one thing; it may contain several commits.
+- **Plans are the one exception.** A plan is planning for work, not work, so it is a markdown file in `plans/` named `YYYY-MM-DD-<slug>.md`, committed directly to `main` with no branch or pull request. Write it, commit it, and stop; the user reads it locally and pushes it. A plan sets out why, the ordered steps, what done looks like for each, what is out of scope, and open questions. Everything a plan describes still goes through branches and pull requests.
 - **PRs are squash merged.** The PR title becomes the commit subject and the PR body becomes the commit body, so write the description as a durable commit message: `## Why` first, then what changed, then any claim or resolution markers, then validation steps. Never merge with a one-line body.
 - **The user merges.** The agent merges only when explicitly told to in that turn, with a squash merge that keeps the full PR body.
 - **Concurrent work uses git worktrees**, one per branch, named after the work's slug. Check open PRs, `git worktree list`, and `git branch -a` before claiming anything.
@@ -31,5 +32,6 @@ Three guides define the rest of the workflow. Load each only when its trigger fi
 - **`docs/FEATURES.md`**: everything the sim currently does, grouped and one-lined.
 - **`docs/ROADMAP.md`**: guiding motivation, themes, ongoing concerns.
 - **`docs/design/`**: detailed design docs for bigger features.
+- **`plans/`**: dated plans for upcoming stretches of work, one file per plan, newest last by filename.
 
 Start with ARCHITECTURE and DECISIONS before reading code for any meaningful change. The decisions doc captures nuance that would otherwise only live in chat history.
