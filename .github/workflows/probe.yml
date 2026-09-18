@@ -1,0 +1,190 @@
+# Long headless runs on main, so a merged change that moves the attractor is
+# noticed within days. Advisory: a red probe is a notification, not a block.
+# Pushes run 8 seeds once at 5000 ticks; the weekly run uses the audit shape
+# (8 seeds, two runs each, 15000 ticks). See docs/QUALITY.md.
+name: Probe
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 3 * * 0'
+  workflow_dispatch:
+    inputs:
+      ticks:
+        description: Ticks per run (default 15000)
+        required: false
+        type: string
+      runs:
+        description: Runs per seed, 1 or 2 (default 2)
+        required: false
+        type: string
+  pull_request:
+    paths:
+      - .github/workflows/probe.yml
+      - scripts/probe.sh
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      ticks: ${{ steps.plan.outputs.ticks }}
+      runs: ${{ steps.plan.outputs.runs }}
+    steps:
+      - id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_TICKS: ${{ github.event.inputs.ticks }}
+          INPUT_RUNS: ${{ github.event.inputs.runs }}
+        run: |
+          case "$EVENT" in
+            schedule)
+              ticks=15000
+              count=2
+              ;;
+            workflow_dispatch)
+              ticks=${INPUT_TICKS:-15000}
+              count=${INPUT_RUNS:-2}
+              ;;
+            *)
+              ticks=5000
+              count=1
+              ;;
+          esac
+          runs="[$(seq -s, 1 "$count")]"
+          echo "plan: event=$EVENT ticks=$ticks runs=$runs"
+          echo "ticks=$ticks" >> "$GITHUB_OUTPUT"
+          echo "runs=$runs" >> "$GITHUB_OUTPUT"
+
+  probe:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        seed: [1, 2, 3, 42, 314, 7, 99, 1000]
+        run: ${{ fromJSON(needs.plan.outputs.runs) }}
+    env:
+      CLAU_WORKERS: 2
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Bevy system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
+
+      - name: Install the pinned toolchain
+        run: |
+          rustup toolchain install
+          rustup show
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release
+
+      - name: Build release
+        run: cargo build --release
+
+      - name: Probe
+        env:
+          SEED: ${{ matrix.seed }}
+          RUN: ${{ matrix.run }}
+          TICKS: ${{ needs.plan.outputs.ticks }}
+        run: scripts/probe.sh "$SEED" "$TICKS" probe-out "seed$SEED-run$RUN"
+
+      - name: Write summary
+        if: always()
+        run: |
+          {
+            echo '| label | seed | ticks | population | plants | foragers | predators | species | verdict |'
+            echo '| --- | --- | --- | --- | --- | --- | --- | --- | --- |'
+            cat probe-out/summary-row.md 2>/dev/null || echo '| (no summary row produced) | | | | | | | | |'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: probe-seed${{ matrix.seed }}-run${{ matrix.run }}
+          path: probe-out/
+          retention-days: 90
+          if-no-files-found: warn
+
+  determinism:
+    # Seed 42 twice, back to back, on the same machine; reports match or
+    # mismatch and never fails the workflow. Data for determinism-claim-recheck.
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      CLAU_WORKERS: 2
+      TICKS: ${{ needs.plan.outputs.ticks }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Bevy system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
+
+      - name: Install the pinned toolchain
+        run: |
+          rustup toolchain install
+          rustup show
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release
+
+      - name: Build release
+        run: cargo build --release
+
+      - name: Run seed 42 twice
+        continue-on-error: true
+        run: |
+          scripts/probe.sh 42 "$TICKS" probe-out probe-a
+          scripts/probe.sh 42 "$TICKS" probe-out probe-b
+
+      - name: Compare
+        if: always()
+        run: |
+          # Drop the lines that legitimately differ between two runs: the
+          # wall-clock timing line and the history dump path.
+          strip() {
+            grep -Ev '^(Headless run complete in|Wrote [0-9]+ snapshots to|Failed to write history CSV to)' "$1"
+          }
+          verdict=mismatch
+          if [ -f probe-out/probe-a.txt ] && [ -f probe-out/probe-b.txt ]; then
+            if diff <(strip probe-out/probe-a.txt) <(strip probe-out/probe-b.txt) > probe-out/determinism.diff; then
+              verdict=match
+            fi
+          else
+            echo '(one or both summaries missing)' > probe-out/determinism.diff
+          fi
+          csv=unknown
+          if [ -f probe-out/probe-a.csv ] && [ -f probe-out/probe-b.csv ]; then
+            if cmp -s probe-out/probe-a.csv probe-out/probe-b.csv; then csv=identical; else csv=differ; fi
+          fi
+          echo "determinism: $verdict (history CSVs $csv)"
+          {
+            echo "## Determinism probe (seed 42, $TICKS ticks, two runs back to back)"
+            echo
+            echo "Summaries: **$verdict**. History CSVs: $csv."
+            if [ "$verdict" != match ]; then
+              echo
+              echo '```diff'
+              cat probe-out/determinism.diff
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: probe-determinism
+          path: probe-out/
+          retention-days: 90
+          if-no-files-found: warn
