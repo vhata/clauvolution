@@ -1,9 +1,9 @@
 use bevy::prelude::*;
+use clauvolution_brain::Brain;
 use clauvolution_core::*;
 use clauvolution_genome::*;
-use clauvolution_brain::Brain;
-use clauvolution_phylogeny::{PhyloTree, PhyloNode, WorldChronicle, SpeciesStrategy};
-use serde::{Serialize, Deserialize};
+use clauvolution_phylogeny::{PhyloNode, PhyloTree, SpeciesStrategy, WorldChronicle};
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 #[derive(Serialize, Deserialize)]
@@ -112,43 +112,58 @@ pub struct SaveChronicleEntry {
 
 fn genome_to_save(g: &Genome) -> SaveGenome {
     SaveGenome {
-        neurons: g.neurons.iter().map(|n| SaveNeuron {
-            id: n.id,
-            neuron_type: match n.neuron_type {
-                NeuronType::Input => 0,
-                NeuronType::Hidden => 1,
-                NeuronType::Output => 2,
-            },
-            activation: match n.activation {
-                ActivationFn::Sigmoid => 0,
-                ActivationFn::Tanh => 1,
-                ActivationFn::Relu => 2,
-            },
-            bias: n.bias,
-        }).collect(),
-        connections: g.connections.iter().map(|c| SaveConnection {
-            innovation: c.innovation,
-            from: c.from,
-            to: c.to,
-            weight: c.weight,
-            enabled: c.enabled,
-        }).collect(),
-        body_segments: g.body_segments.iter().map(|s| SaveBodySegment {
-            segment_type: match s.segment_type {
-                SegmentType::Torso => 0,
-                SegmentType::Limb => 1,
-                SegmentType::Fin => 2,
-                SegmentType::Eye => 3,
-                SegmentType::Mouth => 4,
-                SegmentType::PhotoSurface => 5,
-                SegmentType::Claw => 6,
-                SegmentType::ArmorPlate => 7,
-            },
-            size: s.size,
-            attachment_angle: s.attachment_angle,
-            attachment_slot: s.attachment_slot,
-            symmetry: match s.symmetry { Symmetry::None => 0, Symmetry::Bilateral => 1 },
-        }).collect(),
+        neurons: g
+            .neurons
+            .iter()
+            .map(|n| SaveNeuron {
+                id: n.id,
+                neuron_type: match n.neuron_type {
+                    NeuronType::Input => 0,
+                    NeuronType::Hidden => 1,
+                    NeuronType::Output => 2,
+                },
+                activation: match n.activation {
+                    ActivationFn::Sigmoid => 0,
+                    ActivationFn::Tanh => 1,
+                    ActivationFn::Relu => 2,
+                },
+                bias: n.bias,
+            })
+            .collect(),
+        connections: g
+            .connections
+            .iter()
+            .map(|c| SaveConnection {
+                innovation: c.innovation,
+                from: c.from,
+                to: c.to,
+                weight: c.weight,
+                enabled: c.enabled,
+            })
+            .collect(),
+        body_segments: g
+            .body_segments
+            .iter()
+            .map(|s| SaveBodySegment {
+                segment_type: match s.segment_type {
+                    SegmentType::Torso => 0,
+                    SegmentType::Limb => 1,
+                    SegmentType::Fin => 2,
+                    SegmentType::Eye => 3,
+                    SegmentType::Mouth => 4,
+                    SegmentType::PhotoSurface => 5,
+                    SegmentType::Claw => 6,
+                    SegmentType::ArmorPlate => 7,
+                },
+                size: s.size,
+                attachment_angle: s.attachment_angle,
+                attachment_slot: s.attachment_slot,
+                symmetry: match s.symmetry {
+                    Symmetry::None => 0,
+                    Symmetry::Bilateral => 1,
+                },
+            })
+            .collect(),
         body_size: g.body_size,
         speed_factor: g.speed_factor,
         sense_range: g.sense_range,
@@ -163,44 +178,59 @@ fn genome_to_save(g: &Genome) -> SaveGenome {
 
 fn save_to_genome(s: &SaveGenome) -> Genome {
     Genome {
-        neurons: s.neurons.iter().map(|n| NeuronGene {
-            id: n.id,
-            neuron_type: match n.neuron_type {
-                0 => NeuronType::Input,
-                1 => NeuronType::Hidden,
-                _ => NeuronType::Output,
-            },
-            activation: match n.activation {
-                0 => ActivationFn::Sigmoid,
-                1 => ActivationFn::Tanh,
-                2 => ActivationFn::Relu,
-                _ => ActivationFn::Relu,
-            },
-            bias: n.bias,
-        }).collect(),
-        connections: s.connections.iter().map(|c| ConnectionGene {
-            innovation: c.innovation,
-            from: c.from,
-            to: c.to,
-            weight: c.weight,
-            enabled: c.enabled,
-        }).collect(),
-        body_segments: s.body_segments.iter().map(|seg| BodySegmentGene {
-            segment_type: match seg.segment_type {
-                0 => SegmentType::Torso,
-                1 => SegmentType::Limb,
-                2 => SegmentType::Fin,
-                3 => SegmentType::Eye,
-                4 => SegmentType::Mouth,
-                5 => SegmentType::PhotoSurface,
-                6 => SegmentType::Claw,
-                _ => SegmentType::ArmorPlate,
-            },
-            size: seg.size,
-            attachment_angle: seg.attachment_angle,
-            attachment_slot: seg.attachment_slot,
-            symmetry: match seg.symmetry { 0 => Symmetry::None, _ => Symmetry::Bilateral },
-        }).collect(),
+        neurons: s
+            .neurons
+            .iter()
+            .map(|n| NeuronGene {
+                id: n.id,
+                neuron_type: match n.neuron_type {
+                    0 => NeuronType::Input,
+                    1 => NeuronType::Hidden,
+                    _ => NeuronType::Output,
+                },
+                activation: match n.activation {
+                    0 => ActivationFn::Sigmoid,
+                    1 => ActivationFn::Tanh,
+                    2 => ActivationFn::Relu,
+                    _ => ActivationFn::Relu,
+                },
+                bias: n.bias,
+            })
+            .collect(),
+        connections: s
+            .connections
+            .iter()
+            .map(|c| ConnectionGene {
+                innovation: c.innovation,
+                from: c.from,
+                to: c.to,
+                weight: c.weight,
+                enabled: c.enabled,
+            })
+            .collect(),
+        body_segments: s
+            .body_segments
+            .iter()
+            .map(|seg| BodySegmentGene {
+                segment_type: match seg.segment_type {
+                    0 => SegmentType::Torso,
+                    1 => SegmentType::Limb,
+                    2 => SegmentType::Fin,
+                    3 => SegmentType::Eye,
+                    4 => SegmentType::Mouth,
+                    5 => SegmentType::PhotoSurface,
+                    6 => SegmentType::Claw,
+                    _ => SegmentType::ArmorPlate,
+                },
+                size: seg.size,
+                attachment_angle: seg.attachment_angle,
+                attachment_slot: seg.attachment_slot,
+                symmetry: match seg.symmetry {
+                    0 => Symmetry::None,
+                    _ => Symmetry::Bilateral,
+                },
+            })
+            .collect(),
         body_size: s.body_size,
         speed_factor: s.speed_factor,
         sense_range: s.sense_range,
@@ -235,43 +265,57 @@ pub fn save_world(
             total_deaths: stats.total_deaths,
             max_generation: stats.max_generation,
         },
-        organisms: organisms.iter().map(|(pos, energy, health, age, gen, species, signal, memory, genome)| {
-            SaveOrganism {
+        organisms: organisms
+            .iter()
+            .map(
+                |(pos, energy, health, age, gen, species, signal, memory, genome)| SaveOrganism {
+                    x: pos.x,
+                    y: pos.y,
+                    energy: *energy,
+                    health: *health,
+                    age: *age,
+                    generation: *gen,
+                    species_id: *species,
+                    signal: *signal,
+                    memory: *memory,
+                    genome: genome_to_save(genome),
+                },
+            )
+            .collect(),
+        food: food
+            .iter()
+            .map(|(pos, energy)| SaveFood {
                 x: pos.x,
                 y: pos.y,
                 energy: *energy,
-                health: *health,
-                age: *age,
-                generation: *gen,
-                species_id: *species,
-                signal: *signal,
-                memory: *memory,
-                genome: genome_to_save(genome),
-            }
-        }).collect(),
-        food: food.iter().map(|(pos, energy)| SaveFood {
-            x: pos.x,
-            y: pos.y,
-            energy: *energy,
-        }).collect(),
+            })
+            .collect(),
         innovation_counter: innovation.0,
-        phylo_nodes: phylo.nodes.values().map(|n| SavePhyloNode {
-            species_id: n.species_id,
-            parent_id: n.parent_id,
-            born_tick: n.born_tick,
-            extinct_tick: n.extinct_tick,
-            peak_population: n.peak_population,
-            strategy: match n.strategy {
-                SpeciesStrategy::Photosynthesizer => 0,
-                SpeciesStrategy::Predator => 1,
-                SpeciesStrategy::Forager => 2,
-            },
-            name: n.name.clone(),
-        }).collect(),
-        chronicle_entries: chronicle.entries.iter().map(|e| SaveChronicleEntry {
-            tick: e.tick,
-            text: e.text.clone(),
-        }).collect(),
+        phylo_nodes: phylo
+            .nodes
+            .values()
+            .map(|n| SavePhyloNode {
+                species_id: n.species_id,
+                parent_id: n.parent_id,
+                born_tick: n.born_tick,
+                extinct_tick: n.extinct_tick,
+                peak_population: n.peak_population,
+                strategy: match n.strategy {
+                    SpeciesStrategy::Photosynthesizer => 0,
+                    SpeciesStrategy::Predator => 1,
+                    SpeciesStrategy::Forager => 2,
+                },
+                name: n.name.clone(),
+            })
+            .collect(),
+        chronicle_entries: chronicle
+            .entries
+            .iter()
+            .map(|e| SaveChronicleEntry {
+                tick: e.tick,
+                text: e.text.clone(),
+            })
+            .collect(),
     };
 
     let json = serde_json::to_string(&state).expect("Failed to serialize save state");
@@ -321,7 +365,10 @@ fn validate_save_state(state: &mut SaveState) {
     });
     let removed = before - state.organisms.len();
     if removed > 0 {
-        warn!("Save file had {} organism(s) with invalid genomes — skipped", removed);
+        warn!(
+            "Save file had {} organism(s) with invalid genomes — skipped",
+            removed
+        );
     }
 
     // Clamp position components into finite numbers — NaN/inf would crash the spatial hash
@@ -338,42 +385,43 @@ fn validate_save_state(state: &mut SaveState) {
 }
 
 /// Reconstruct organisms from save data
-pub fn spawn_saved_organisms(
-    commands: &mut Commands,
-    organisms: &[SaveOrganism],
-) {
+pub fn spawn_saved_organisms(commands: &mut Commands, organisms: &[SaveOrganism]) {
     for org in organisms {
         let genome = save_to_genome(&org.genome);
         let brain = Brain::from_genome(&genome);
         let body_size = genome.body_size;
 
-        commands.spawn((
-            Organism,
-            Energy(org.energy),
-            Health(org.health),
-            Position(Vec2::new(org.x, org.y)),
-            Velocity(Vec2::ZERO),
-            BodySize(body_size),
-            Age(org.age),
-            Generation(org.generation),
-            SpeciesId(org.species_id),
-            crate::BrainOutput::default(),
-            BrainMemory(org.memory),
-            ActionFlash::default(),
-            Signal(org.signal),
-            GroupSize::default(),
-            ParentInfo::default(), // parent info not preserved in saves
-        )).insert((brain, genome, TrailHistory::default(), BrainActivations::default(), Symbiosis::default()));
+        commands
+            .spawn((
+                Organism,
+                Energy(org.energy),
+                Health(org.health),
+                Position(Vec2::new(org.x, org.y)),
+                Velocity(Vec2::ZERO),
+                BodySize(body_size),
+                Age(org.age),
+                Generation(org.generation),
+                SpeciesId(org.species_id),
+                crate::BrainOutput::default(),
+                BrainMemory(org.memory),
+                ActionFlash::default(),
+                Signal(org.signal),
+                GroupSize::default(),
+                ParentInfo::default(), // parent info not preserved in saves
+            ))
+            .insert((
+                brain,
+                genome,
+                TrailHistory::default(),
+                BrainActivations::default(),
+                Symbiosis::default(),
+            ));
     }
 }
 
 pub fn spawn_saved_food(commands: &mut Commands, food: &[SaveFood]) {
     for f in food {
-        commands.spawn((
-            Food,
-            FoodEnergy(f.energy),
-            Position(Vec2::new(f.x, f.y)),
-        ));
+        commands.spawn((Food, FoodEnergy(f.energy), Position(Vec2::new(f.x, f.y))));
     }
 }
 
@@ -403,9 +451,11 @@ pub fn restore_phylo(phylo: &mut PhyloTree, nodes: &[SavePhyloNode]) {
 
 pub fn restore_chronicle(chronicle: &mut WorldChronicle, entries: &[SaveChronicleEntry]) {
     for e in entries {
-        chronicle.entries.push(clauvolution_phylogeny::ChronicleEntry {
-            tick: e.tick,
-            text: e.text.clone(),
-        });
+        chronicle
+            .entries
+            .push(clauvolution_phylogeny::ChronicleEntry {
+                tick: e.tick,
+                text: e.text.clone(),
+            });
     }
 }

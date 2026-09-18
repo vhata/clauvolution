@@ -122,7 +122,10 @@ pub fn begin_screenshot(
     main_camera_projection: &OrthographicProjection,
 ) {
     if state.pending.is_some() {
-        warn!("Screenshot already in progress; dropping request for {}", path.display());
+        warn!(
+            "Screenshot already in progress; dropping request for {}",
+            path.display()
+        );
         return;
     }
 
@@ -143,9 +146,8 @@ pub fn begin_screenshot(
         format,
         RenderAssetUsages::all(),
     );
-    image.texture_descriptor.usage = TextureUsages::COPY_SRC
-        | TextureUsages::TEXTURE_BINDING
-        | TextureUsages::RENDER_ATTACHMENT;
+    image.texture_descriptor.usage =
+        TextureUsages::COPY_SRC | TextureUsages::TEXTURE_BINDING | TextureUsages::RENDER_ATTACHMENT;
     let handle = images.add(image);
 
     // Secondary camera — renders the main scene into our image. Copies
@@ -173,10 +175,12 @@ pub fn begin_screenshot(
     // phase and creates a second render graph node that renders this
     // entity's egui content to our image. LoadOp::Load preserves what the
     // camera drew underneath.
-    commands.entity(primary_window_entity).insert(EguiRenderToImage {
-        handle: handle.clone(),
-        load_op: bevy::render::render_resource::LoadOp::Load,
-    });
+    commands
+        .entity(primary_window_entity)
+        .insert(EguiRenderToImage {
+            handle: handle.clone(),
+            load_op: bevy::render::render_resource::LoadOp::Load,
+        });
 
     state.pending = Some(PendingScreenshot {
         handle,
@@ -198,11 +202,10 @@ pub fn begin_screenshot(
 /// observer attached to the Readback entity is what finally clears
 /// `state.pending` — so callers can treat `state.pending.is_some()` as
 /// "capture still in flight" right up to disk write.
-pub fn drive_screenshot_capture(
-    mut commands: Commands,
-    mut state: ResMut<ScreenshotState>,
-) {
-    let Some(pending) = state.pending.as_mut() else { return };
+pub fn drive_screenshot_capture(mut commands: Commands, mut state: ResMut<ScreenshotState>) {
+    let Some(pending) = state.pending.as_mut() else {
+        return;
+    };
 
     match &mut pending.state {
         CaptureState::WaitingFrames(n) if *n > 0 => {
@@ -225,23 +228,21 @@ pub fn drive_screenshot_capture(
     let camera_entity = pending.camera_entity;
     let window_entity = pending.window_entity;
 
-    commands
-        .spawn(Readback::texture(handle))
-        .observe(
-            move |trigger: Trigger<ReadbackComplete>,
-                  mut cmds: Commands,
-                  mut state: ResMut<ScreenshotState>| {
-                let bytes = &trigger.event().0;
-                match save_bgra_as_png(&path, width, height, bytes) {
-                    Ok(_) => info!("Screenshot saved: {}", path.display()),
-                    Err(e) => error!("Failed to save screenshot: {}", e),
-                }
-                cmds.entity(camera_entity).try_despawn_recursive();
-                cmds.entity(trigger.entity()).try_despawn_recursive();
-                cmds.entity(window_entity).remove::<EguiRenderToImage>();
-                state.pending = None;
-            },
-        );
+    commands.spawn(Readback::texture(handle)).observe(
+        move |trigger: Trigger<ReadbackComplete>,
+              mut cmds: Commands,
+              mut state: ResMut<ScreenshotState>| {
+            let bytes = &trigger.event().0;
+            match save_bgra_as_png(&path, width, height, bytes) {
+                Ok(_) => info!("Screenshot saved: {}", path.display()),
+                Err(e) => error!("Failed to save screenshot: {}", e),
+            }
+            cmds.entity(camera_entity).try_despawn_recursive();
+            cmds.entity(trigger.entity()).try_despawn_recursive();
+            cmds.entity(window_entity).remove::<EguiRenderToImage>();
+            state.pending = None;
+        },
+    );
 
     pending.state = CaptureState::AwaitingReadback;
 }

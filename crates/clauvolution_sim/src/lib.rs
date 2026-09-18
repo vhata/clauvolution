@@ -135,39 +135,56 @@ pub struct SimPlugin;
 
 impl Plugin for SimPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (sim_speed_system, keyboard_to_events_system, mass_extinction_input_system, save_system).chain())
-            .add_systems(
-                FixedUpdate,
-                (
-                    tick_counter_system,
-                    update_spatial_hash,
-                    update_food_snapshot,
-                    sensing_and_brain_system,
-                    action_system,
-                    predation_system,
-                    photosynthesis_system,
-                    niche_construction_system,
-                    disease_transmission_system,
-                    disease_effects_system,
-                    symbiosis_tracking_system,
-                    symbiosis_transfer_system,
-                    metabolism_system,
-                    death_system,
-                    reproduction_system,
-                    species_classification_system,
-                    record_population_history,
-                    record_trail_history,
-                )
-                    .chain(),
+        app.add_systems(
+            Update,
+            (
+                sim_speed_system,
+                keyboard_to_events_system,
+                mass_extinction_input_system,
+                save_system,
             )
-            .insert_resource(Time::<Fixed>::from_hz(30.0))
-            .insert_resource(Time::<Virtual>::from_max_delta(std::time::Duration::from_millis(100)))
-            .insert_resource(SpeciesClassificationTimer(Timer::from_seconds(
-                SPECIES_CLASSIFICATION_PERIOD_SECS,
-                TimerMode::Repeating,
-            )))
-            .insert_resource(ExtinctionCooldown(Timer::from_seconds(WORLD_EVENT_COOLDOWN_SECS, TimerMode::Once)))
-            .insert_resource(PopHistoryTimer(Timer::from_seconds(POP_HISTORY_SAMPLE_SECS, TimerMode::Repeating)));
+                .chain(),
+        )
+        .add_systems(
+            FixedUpdate,
+            (
+                tick_counter_system,
+                update_spatial_hash,
+                update_food_snapshot,
+                sensing_and_brain_system,
+                action_system,
+                predation_system,
+                photosynthesis_system,
+                niche_construction_system,
+                disease_transmission_system,
+                disease_effects_system,
+                symbiosis_tracking_system,
+                symbiosis_transfer_system,
+                metabolism_system,
+                death_system,
+                reproduction_system,
+                species_classification_system,
+                record_population_history,
+                record_trail_history,
+            )
+                .chain(),
+        )
+        .insert_resource(Time::<Fixed>::from_hz(30.0))
+        .insert_resource(Time::<Virtual>::from_max_delta(
+            std::time::Duration::from_millis(100),
+        ))
+        .insert_resource(SpeciesClassificationTimer(Timer::from_seconds(
+            SPECIES_CLASSIFICATION_PERIOD_SECS,
+            TimerMode::Repeating,
+        )))
+        .insert_resource(ExtinctionCooldown(Timer::from_seconds(
+            WORLD_EVENT_COOLDOWN_SECS,
+            TimerMode::Once,
+        )))
+        .insert_resource(PopHistoryTimer(Timer::from_seconds(
+            POP_HISTORY_SAMPLE_SECS,
+            TimerMode::Repeating,
+        )));
     }
 }
 
@@ -205,7 +222,13 @@ impl Default for BrainOutput {
     }
 }
 
-fn tick_counter_system(mut tick: ResMut<TickCounter>, mut season: ResMut<Season>, mut chronicle: ResMut<WorldChronicle>, session: Res<Session>, mut bloom: ResMut<BloomEffects>) {
+fn tick_counter_system(
+    mut tick: ResMut<TickCounter>,
+    mut season: ResMut<Season>,
+    mut chronicle: ResMut<WorldChronicle>,
+    session: Res<Session>,
+    mut bloom: ResMut<BloomEffects>,
+) {
     // Set chronicle log path from session on first tick
     if tick.0 == 0 {
         chronicle.log_path = Some(session.log_path());
@@ -252,13 +275,27 @@ fn keyboard_to_events_system(
     keys: Res<ButtonInput<KeyCode>>,
     mut events: EventWriter<WorldEventRequest>,
 ) {
-    if keys.just_pressed(KeyCode::KeyX) { events.send(WorldEventRequest::Asteroid); }
-    if keys.just_pressed(KeyCode::KeyI) { events.send(WorldEventRequest::IceAge); }
-    if keys.just_pressed(KeyCode::KeyV) { events.send(WorldEventRequest::Volcano); }
-    if keys.just_pressed(KeyCode::KeyB) { events.send(WorldEventRequest::SolarBloom); }
-    if keys.just_pressed(KeyCode::KeyN) { events.send(WorldEventRequest::NutrientRain); }
-    if keys.just_pressed(KeyCode::KeyJ) { events.send(WorldEventRequest::CambrianSpark); }
-    if keys.just_pressed(KeyCode::F5)    { events.send(WorldEventRequest::Save); }
+    if keys.just_pressed(KeyCode::KeyX) {
+        events.send(WorldEventRequest::Asteroid);
+    }
+    if keys.just_pressed(KeyCode::KeyI) {
+        events.send(WorldEventRequest::IceAge);
+    }
+    if keys.just_pressed(KeyCode::KeyV) {
+        events.send(WorldEventRequest::Volcano);
+    }
+    if keys.just_pressed(KeyCode::KeyB) {
+        events.send(WorldEventRequest::SolarBloom);
+    }
+    if keys.just_pressed(KeyCode::KeyN) {
+        events.send(WorldEventRequest::NutrientRain);
+    }
+    if keys.just_pressed(KeyCode::KeyJ) {
+        events.send(WorldEventRequest::CambrianSpark);
+    }
+    if keys.just_pressed(KeyCode::F5) {
+        events.send(WorldEventRequest::Save);
+    }
 }
 
 /// Process WorldEventRequest events — fired by keyboard, UI buttons, etc.
@@ -280,7 +317,10 @@ fn mass_extinction_input_system(
 
     // Find the first ext/bloom event this frame (skip Save — handled elsewhere).
     // If cooldown is active, ignore ext/bloom events.
-    let req = requests.read().find(|r| !matches!(r, WorldEventRequest::Save)).copied();
+    let req = requests
+        .read()
+        .find(|r| !matches!(r, WorldEventRequest::Save))
+        .copied();
 
     if !cooldown.0.finished() {
         return;
@@ -297,14 +337,23 @@ fn mass_extinction_input_system(
         let mut killed = 0u32;
         for (entity, pos, _) in &organisms {
             if rng.gen::<f32>() < 0.7 {
-                commands.spawn((DeathMarker { timer: 0.5, was_predated: false }, Position(pos.0)));
+                commands.spawn((
+                    DeathMarker {
+                        timer: 0.5,
+                        was_predated: false,
+                    },
+                    Position(pos.0),
+                ));
                 commands.entity(entity).try_despawn_recursive();
                 killed += 1;
             }
         }
         stats.total_deaths += killed as u64;
         stats.deaths_by_cause[DeathCause::Event as usize] += killed as u64;
-        chronicle.log(tick.0, format!("ASTEROID IMPACT! {} organisms killed", killed));
+        chronicle.log(
+            tick.0,
+            format!("ASTEROID IMPACT! {} organisms killed", killed),
+        );
         triggered = true;
     }
 
@@ -316,7 +365,10 @@ fn mass_extinction_input_system(
                 tile.temperature *= 0.5;
                 tile.moisture *= 0.7;
             }
-            chronicle.log(tick.0, "ICE AGE! Temperature halved, moisture reduced".to_string());
+            chronicle.log(
+                tick.0,
+                "ICE AGE! Temperature halved, moisture reduced".to_string(),
+            );
             triggered = true;
         }
     }
@@ -332,7 +384,13 @@ fn mass_extinction_input_system(
         for (entity, pos, _) in &organisms {
             let dist = ((pos.0.x - center_x).powi(2) + (pos.0.y - center_y).powi(2)).sqrt();
             if dist < radius {
-                commands.spawn((DeathMarker { timer: 0.5, was_predated: false }, Position(pos.0)));
+                commands.spawn((
+                    DeathMarker {
+                        timer: 0.5,
+                        was_predated: false,
+                    },
+                    Position(pos.0),
+                ));
                 commands.entity(entity).try_despawn_recursive();
                 killed += 1;
             }
@@ -344,7 +402,8 @@ fn mass_extinction_input_system(
         if let Some(ref mut tm) = tile_map {
             for y in 0..tm.height {
                 for x in 0..tm.width {
-                    let dist = ((x as f32 - center_x).powi(2) + (y as f32 - center_y).powi(2)).sqrt();
+                    let dist =
+                        ((x as f32 - center_x).powi(2) + (y as f32 - center_y).powi(2)).sqrt();
                     if dist < radius {
                         let tile = tm.get_mut(x, y);
                         tile.nutrients = (tile.nutrients + 0.5).min(1.0);
@@ -352,7 +411,13 @@ fn mass_extinction_input_system(
                 }
             }
         }
-        chronicle.log(tick.0, format!("VOLCANIC ERUPTION! {} organisms killed near ({:.0}, {:.0})", killed, center_x, center_y));
+        chronicle.log(
+            tick.0,
+            format!(
+                "VOLCANIC ERUPTION! {} organisms killed near ({:.0}, {:.0})",
+                killed, center_x, center_y
+            ),
+        );
         triggered = true;
     }
 
@@ -361,14 +426,18 @@ fn mass_extinction_input_system(
         info!("BLOOM: Solar bloom!");
         bloom.solar_bloom = SOLAR_BLOOM_LIGHT_MULTIPLIER;
         bloom.solar_ticks = BLOOM_DURATION_TICKS;
-        chronicle.log(tick.0, "SOLAR BLOOM! Light doubled — photosynthesizers surge".to_string());
+        chronicle.log(
+            tick.0,
+            "SOLAR BLOOM! Light doubled — photosynthesizers surge".to_string(),
+        );
         triggered = true;
     }
 
     // Nutrient rain (massive food burst)
     if matches!(req, WorldEventRequest::NutrientRain) {
         info!("BLOOM: Nutrient rain!");
-        let food_count = (config.world_width as f32 * config.world_height as f32 * NUTRIENT_RAIN_DENSITY) as u32;
+        let food_count =
+            (config.world_width as f32 * config.world_height as f32 * NUTRIENT_RAIN_DENSITY) as u32;
         for _ in 0..food_count {
             let x = rng.gen_range(0.0..config.world_width as f32);
             let y = rng.gen_range(0.0..config.world_height as f32);
@@ -378,7 +447,13 @@ fn mass_extinction_input_system(
                 Position(Vec2::new(x, y)),
             ));
         }
-        chronicle.log(tick.0, format!("NUTRIENT RAIN! {} food spawned across the world", food_count));
+        chronicle.log(
+            tick.0,
+            format!(
+                "NUTRIENT RAIN! {} food spawned across the world",
+                food_count
+            ),
+        );
         triggered = true;
     }
 
@@ -387,7 +462,10 @@ fn mass_extinction_input_system(
         info!("BLOOM: Cambrian spark!");
         bloom.mutation_boost = CAMBRIAN_MUTATION_MULTIPLIER;
         bloom.mutation_ticks = BLOOM_DURATION_TICKS;
-        chronicle.log(tick.0, "CAMBRIAN SPARK! Mutation rate tripled — rapid speciation".to_string());
+        chronicle.log(
+            tick.0,
+            "CAMBRIAN SPARK! Mutation rate tripled — rapid speciation".to_string(),
+        );
         triggered = true;
     }
 
@@ -403,7 +481,9 @@ fn update_food_snapshot(
     food_query: Query<(Entity, &Position, &FoodEnergy), (With<Food>, Without<Organism>)>,
 ) {
     snapshot.entries.clear();
-    snapshot.entries.extend(food_query.iter().map(|(e, p, fe)| (e, p.0, fe.0)));
+    snapshot
+        .entries
+        .extend(food_query.iter().map(|(e, p, fe)| (e, p.0, fe.0)));
 }
 
 fn sensing_and_brain_system(
@@ -411,11 +491,27 @@ fn sensing_and_brain_system(
     spatial_hash: Res<SpatialHash>,
     tile_map: Res<TileMap>,
     mut organisms: Query<
-        (Entity, &Position, &Energy, &Health, &Genome, &Brain, &BodySize, &SpeciesId, &BrainMemory, &mut BrainOutput, &mut GroupSize, &mut BrainActivations),
+        (
+            Entity,
+            &Position,
+            &Energy,
+            &Health,
+            &Genome,
+            &Brain,
+            &BodySize,
+            &SpeciesId,
+            &BrainMemory,
+            &mut BrainOutput,
+            &mut GroupSize,
+            &mut BrainActivations,
+        ),
         With<Organism>,
     >,
     food_snapshot: Res<FoodSnapshot>,
-    all_org_data: Query<(&Position, &BodySize, &SpeciesId, &Genome, &Signal), (With<Organism>, Without<Food>)>,
+    all_org_data: Query<
+        (&Position, &BodySize, &SpeciesId, &Genome, &Signal),
+        (With<Organism>, Without<Food>),
+    >,
 ) {
     // Parallelised across organisms. Each iteration only reads from shared
     // Res/Query (spatial_hash, food_snapshot, all_org_data — all Sync) and
@@ -540,7 +636,16 @@ fn action_system(
     config: Res<SimConfig>,
     tile_map: Res<TileMap>,
     mut organisms: Query<
-        (&mut Position, &mut Energy, &mut BrainMemory, &mut ActionFlash, &mut Signal, &BrainOutput, &Genome, &BodySize),
+        (
+            &mut Position,
+            &mut Energy,
+            &mut BrainMemory,
+            &mut ActionFlash,
+            &mut Signal,
+            &BrainOutput,
+            &Genome,
+            &BodySize,
+        ),
         (With<Organism>, Without<Food>),
     >,
     food_snapshot: Res<FoodSnapshot>,
@@ -550,10 +655,14 @@ fn action_system(
 
     let mut eaten_food: Vec<Entity> = Vec::new();
 
-    for (mut pos, mut energy, mut memory, mut flash, mut signal, output, genome, body_size) in &mut organisms {
+    for (mut pos, mut energy, mut memory, mut flash, mut signal, output, genome, body_size) in
+        &mut organisms
+    {
         // Tick down flash timer
         flash.timer = (flash.timer - 0.033).max(0.0);
-        if flash.timer <= 0.0 { flash.action = ActionType::None; }
+        if flash.timer <= 0.0 {
+            flash.action = ActionType::None;
+        }
         // Update memory
         memory.0 = output.memory_out;
         signal.0 = output.signal.clamp(-1.0, 1.0);
@@ -582,7 +691,8 @@ fn action_system(
         pos.0.x = pos.0.x.rem_euclid(config.world_width as f32);
         pos.0.y = pos.0.y.rem_euclid(config.world_height as f32);
 
-        let move_cost = movement.length() * config.movement_energy_cost * body_size.0 * terrain_cost;
+        let move_cost =
+            movement.length() * config.movement_energy_cost * body_size.0 * terrain_cost;
         energy.0 -= move_cost;
 
         // Eating food
@@ -595,7 +705,8 @@ fn action_system(
                 }
                 let dist = (pos.0 - food_pos).length();
                 if dist < eat_range {
-                    energy.0 = (energy.0 + food_energy * mouth_bonus).min(config.max_organism_energy);
+                    energy.0 =
+                        (energy.0 + food_energy * mouth_bonus).min(config.max_organism_energy);
                     eaten_food.push(food_entity);
                     flash.action = ActionType::Eating;
                     flash.timer = 0.3;
@@ -615,7 +726,16 @@ fn predation_system(
     spatial_hash: Res<SpatialHash>,
     config: Res<SimConfig>,
     mut organisms: Query<
-        (Entity, &Position, &mut Energy, &mut Health, &mut ActionFlash, &Genome, &BodySize, &BrainOutput),
+        (
+            Entity,
+            &Position,
+            &mut Energy,
+            &mut Health,
+            &mut ActionFlash,
+            &Genome,
+            &BodySize,
+            &BrainOutput,
+        ),
         With<Organism>,
     >,
     mut commands: Commands,
@@ -649,8 +769,16 @@ fn predation_system(
                 continue;
             }
 
-            if let Ok((_, target_pos, target_energy, target_health, _, target_genome, target_body_size, _)) =
-                organisms.get(target_entity)
+            if let Ok((
+                _,
+                target_pos,
+                target_energy,
+                target_health,
+                _,
+                target_genome,
+                target_body_size,
+                _,
+            )) = organisms.get(target_entity)
             {
                 // A target at zero health is already dead (killed earlier this
                 // tick, or dying of old age) and is not prey.
@@ -691,12 +819,16 @@ fn predation_system(
     predation_stats.kills += kills.len() as u64;
 
     for (killer, victim, energy_gained) in kills {
-        if let Ok((_, _, mut killer_energy, _, mut killer_flash, _, _, _)) = organisms.get_mut(killer) {
+        if let Ok((_, _, mut killer_energy, _, mut killer_flash, _, _, _)) =
+            organisms.get_mut(killer)
+        {
             killer_energy.0 = (killer_energy.0 + energy_gained).min(config.max_organism_energy);
             killer_flash.action = ActionType::Attacking;
             killer_flash.timer = 0.3;
         }
-        if let Ok((_, _, mut victim_energy, mut victim_health, _, _, _, _)) = organisms.get_mut(victim) {
+        if let Ok((_, _, mut victim_energy, mut victim_health, _, _, _, _)) =
+            organisms.get_mut(victim)
+        {
             victim_energy.0 = 0.0;
             victim_health.0 = 0.0;
             // The marker is what makes the kill final: the systems between here
@@ -704,7 +836,9 @@ fn predation_system(
             // cause. Zeroing energy and health alone let a photosynthesiser
             // refill in the same tick and survive at zero health to be killed
             // and paid for again (see DECISIONS.md).
-            commands.entity(victim).insert(Killed(DeathCause::Predation));
+            commands
+                .entity(victim)
+                .insert(Killed(DeathCause::Predation));
         }
     }
 }
@@ -738,21 +872,28 @@ fn photosynthesis_system(
     //
     // Parallelised: the HashMap is read-only in this pass (first pass is
     // done). Each organism only writes its own Energy. Safe for par_iter_mut.
-    organisms.par_iter_mut().for_each(|(pos, mut energy, genome)| {
-        if genome.photosynthesis_rate > 0.01 && genome.has_photo_surface() {
-            let tile = tile_map.tile_at_pos(pos.0);
-            let photo_area = genome.total_photo_surface_area();
+    organisms
+        .par_iter_mut()
+        .for_each(|(pos, mut energy, genome)| {
+            if genome.photosynthesis_rate > 0.01 && genome.has_photo_surface() {
+                let tile = tile_map.tile_at_pos(pos.0);
+                let photo_area = genome.total_photo_surface_area();
 
-            let tx = (pos.0.x as u32).min(tile_map.width - 1);
-            let ty = (pos.0.y as u32).min(tile_map.height - 1);
-            let tile_plants = plants_per_tile.get(&(tx, ty)).copied().unwrap_or(1);
-            let others = tile_plants.saturating_sub(1);
-            let density_factor = 1.0 / (1.0 + others as f32 * PLANT_DENSITY_PENALTY);
+                let tx = (pos.0.x as u32).min(tile_map.width - 1);
+                let ty = (pos.0.y as u32).min(tile_map.height - 1);
+                let tile_plants = plants_per_tile.get(&(tx, ty)).copied().unwrap_or(1);
+                let others = tile_plants.saturating_sub(1);
+                let density_factor = 1.0 / (1.0 + others as f32 * PLANT_DENSITY_PENALTY);
 
-            let gained = genome.photosynthesis_rate * photo_area * tile.light_level * light_mult * density_factor * PHOTO_OUTPUT_MULTIPLIER;
-            energy.0 = (energy.0 + gained).min(config.max_organism_energy);
-        }
-    });
+                let gained = genome.photosynthesis_rate
+                    * photo_area
+                    * tile.light_level
+                    * light_mult
+                    * density_factor
+                    * PHOTO_OUTPUT_MULTIPLIER;
+                energy.0 = (energy.0 + gained).min(config.max_organism_energy);
+            }
+        });
 }
 
 /// Niche construction: organisms modify the tiles they're on
@@ -810,7 +951,9 @@ fn disease_transmission_system(
         let mut best_remaining = 0u32;
 
         for &sick_entity in &nearby {
-            if sick_entity == entity { continue; }
+            if sick_entity == entity {
+                continue;
+            }
             if let Ok((sick_pos, sick_inf)) = infected.get(sick_entity) {
                 let dist = (sick_pos.0 - healthy_pos.0).length();
                 if dist < DISEASE_TRANSMISSION_RANGE {
@@ -825,16 +968,20 @@ fn disease_transmission_system(
             }
         }
 
-        if infection_pressure <= 0.001 { continue; }
+        if infection_pressure <= 0.001 {
+            continue;
+        }
 
         // Per-tick infection chance, reduced by resistance, capped.
-        let chance = (infection_pressure * DISEASE_TRANSMISSION_RATE * (1.0 - genome.disease_resistance))
-            .min(DISEASE_TRANSMISSION_CHANCE_CAP);
+        let chance =
+            (infection_pressure * DISEASE_TRANSMISSION_RATE * (1.0 - genome.disease_resistance))
+                .min(DISEASE_TRANSMISSION_CHANCE_CAP);
         if rng.gen::<f32>() < chance {
             // Inherit roughly the strain's severity & duration, slightly weakened.
             commands.entity(entity).insert(Infection {
                 severity: (best_severity * DISEASE_TRANSMISSION_SEVERITY_DECAY).clamp(0.1, 1.0),
-                ticks_remaining: (best_remaining * 8 / 10).max(DISEASE_TRANSMISSION_MIN_DURATION_TICKS),
+                ticks_remaining: (best_remaining * 8 / 10)
+                    .max(DISEASE_TRANSMISSION_MIN_DURATION_TICKS),
             });
         }
     }
@@ -978,68 +1125,92 @@ fn symbiosis_transfer_system(
 
 fn metabolism_system(
     config: Res<SimConfig>,
-    mut organisms: Query<(&mut Energy, &mut Health, &mut Age, &BodySize, &Genome, &GroupSize), With<Organism>>,
+    mut organisms: Query<
+        (
+            &mut Energy,
+            &mut Health,
+            &mut Age,
+            &BodySize,
+            &Genome,
+            &GroupSize,
+        ),
+        With<Organism>,
+    >,
 ) {
     // Parallelised: per-organism reads+writes only, no cross-organism data
     // dependency, no shared mutable state. Bevy's task pool (capped via
     // CLAU_WORKERS) does the fan-out. Same safety reasoning as
     // sensing_and_brain_system — each iteration gets its own Mut<T>.
-    organisms.par_iter_mut().for_each(|(mut energy, mut health, mut age, body_size, genome, group_size)| {
-        age.0 += 1;
+    organisms.par_iter_mut().for_each(
+        |(mut energy, mut health, mut age, body_size, genome, group_size)| {
+            age.0 += 1;
 
-        // Body size costs quadratically — being big is VERY expensive
-        let effective_size = body_size.0.max(0.5);
-        let size_cost = effective_size * effective_size;
-        let mut cost = config.base_metabolism_cost * size_cost * (1.0 + genome.speed_factor * 0.2);
-        // Each body part has a maintenance cost scaled by body size
-        cost += genome.body_segments.len() as f32 * 0.015 * effective_size;
-        cost += genome.neurons.len() as f32 * 0.001;
-        // Armor, claws, speed all cost quadratically
-        let armor = genome.armor_value();
-        cost += armor * armor * 0.05;
-        let claws = genome.claw_power();
-        cost += claws * claws * 0.03;
-        cost += genome.speed_factor * genome.speed_factor * 0.015;
+            // Body size costs quadratically — being big is VERY expensive
+            let effective_size = body_size.0.max(0.5);
+            let size_cost = effective_size * effective_size;
+            let mut cost =
+                config.base_metabolism_cost * size_cost * (1.0 + genome.speed_factor * 0.2);
+            // Each body part has a maintenance cost scaled by body size
+            cost += genome.body_segments.len() as f32 * 0.015 * effective_size;
+            cost += genome.neurons.len() as f32 * 0.001;
+            // Armor, claws, speed all cost quadratically
+            let armor = genome.armor_value();
+            cost += armor * armor * 0.05;
+            let claws = genome.claw_power();
+            cost += claws * claws * 0.03;
+            cost += genome.speed_factor * genome.speed_factor * 0.015;
 
-        // Group discount: reduced vigilance cost when near same-species.
-        // Diminishing returns — most benefit from first few neighbours, caps at ~5%.
-        // group_size.0 is count of same-species within sense range.
-        let group_discount = 1.0 - (group_size.0 as f32 / (group_size.0 as f32 + 5.0)) * 0.05;
-        cost *= group_discount;
+            // Group discount: reduced vigilance cost when near same-species.
+            // Diminishing returns — most benefit from first few neighbours, caps at ~5%.
+            // group_size.0 is count of same-species within sense range.
+            let group_discount = 1.0 - (group_size.0 as f32 / (group_size.0 as f32 + 5.0)) * 0.05;
+            cost *= group_discount;
 
-        // Aging: metabolism cost increases after maturity (age 500 ticks ~ 17 seconds)
-        let age_factor = if age.0 > 500 {
-            1.0 + (age.0 - 500) as f32 * 0.0005
-        } else {
-            1.0
-        };
-        cost *= age_factor;
+            // Aging: metabolism cost increases after maturity (age 500 ticks ~ 17 seconds)
+            let age_factor = if age.0 > 500 {
+                1.0 + (age.0 - 500) as f32 * 0.0005
+            } else {
+                1.0
+            };
+            cost *= age_factor;
 
-        energy.0 -= cost;
+            energy.0 -= cost;
 
-        // Health regenerates slower with age.
-        // Skip regen if already at zero — a fatally-wounded organism shouldn't
-        // heal itself between predation and death_system. Without this gate,
-        // predation kills get misattributed to Starvation because the victim's
-        // health bounces back to ~0.005 before death_system reads it.
-        if health.0 > 0.0 {
-            let regen_rate = 0.005 / age_factor;
-            health.0 = (health.0 + regen_rate).min(1.0);
-        }
-
-        // Old age death: after ~3000 ticks (~100 seconds), health degrades
-        if age.0 > 3000 {
-            health.0 -= 0.002;
-            if health.0 <= 0.0 {
-                energy.0 = 0.0; // triggers death
+            // Health regenerates slower with age.
+            // Skip regen if already at zero — a fatally-wounded organism shouldn't
+            // heal itself between predation and death_system. Without this gate,
+            // predation kills get misattributed to Starvation because the victim's
+            // health bounces back to ~0.005 before death_system reads it.
+            if health.0 > 0.0 {
+                let regen_rate = 0.005 / age_factor;
+                health.0 = (health.0 + regen_rate).min(1.0);
             }
-        }
-    });
+
+            // Old age death: after ~3000 ticks (~100 seconds), health degrades
+            if age.0 > 3000 {
+                health.0 -= 0.002;
+                if health.0 <= 0.0 {
+                    energy.0 = 0.0; // triggers death
+                }
+            }
+        },
+    );
 }
 
 fn death_system(
     mut commands: Commands,
-    organisms: Query<(Entity, &Energy, &Health, &Position, &Age, Option<&Infection>, Option<&Killed>), With<Organism>>,
+    organisms: Query<
+        (
+            Entity,
+            &Energy,
+            &Health,
+            &Position,
+            &Age,
+            Option<&Infection>,
+            Option<&Killed>,
+        ),
+        With<Organism>,
+    >,
     mut stats: ResMut<SimStats>,
     mut fitness: ResMut<FitnessTracker>,
 ) {
@@ -1094,7 +1265,17 @@ fn reproduction_system(
     mut innovation: ResMut<InnovationCounter>,
     spatial_hash: Res<SpatialHash>,
     mut organisms: Query<
-        (Entity, &Position, &mut Energy, &mut ActionFlash, &Genome, &BrainOutput, &BodySize, &SpeciesId, &Generation),
+        (
+            Entity,
+            &Position,
+            &mut Energy,
+            &mut ActionFlash,
+            &Genome,
+            &BrainOutput,
+            &BodySize,
+            &SpeciesId,
+            &Generation,
+        ),
         With<Organism>,
     >,
     mut stats: ResMut<SimStats>,
@@ -1118,7 +1299,9 @@ fn reproduction_system(
     let max_pop = 2000usize;
     let mut already_mated: Vec<Entity> = Vec::new();
 
-    for (entity, pos, mut energy, mut flash, genome, output, body_size, species, generation) in &mut organisms {
+    for (entity, pos, mut energy, mut flash, genome, output, body_size, species, generation) in
+        &mut organisms
+    {
         if current_pop + new_organisms.len() >= max_pop {
             break;
         }
@@ -1142,10 +1325,13 @@ fn reproduction_system(
                 if nearby_entity == entity || already_mated.contains(&nearby_entity) {
                     continue;
                 }
-                if let Some((_, _, mate_energy, mate_g, mate_species)) =
-                    mate_candidates.iter().find(|(e, _, _, _, _)| *e == nearby_entity)
+                if let Some((_, _, mate_energy, mate_g, mate_species)) = mate_candidates
+                    .iter()
+                    .find(|(e, _, _, _, _)| *e == nearby_entity)
                 {
-                    if *mate_species == species.0 && *mate_energy > config.reproduction_energy_threshold {
+                    if *mate_species == species.0
+                        && *mate_energy > config.reproduction_energy_threshold
+                    {
                         mate_genome = Some(mate_g.clone());
                         already_mated.push(nearby_entity);
                         break;
@@ -1160,12 +1346,14 @@ fn reproduction_system(
             };
 
             let effective_mutation_rate = config.mutation_rate * bloom.mutation_multiplier();
-            child_genome.mutate(&mut innovation, &mut rng, effective_mutation_rate, config.mutation_strength);
-
-            let offset = Vec2::new(
-                rng.gen_range(-5.0..5.0),
-                rng.gen_range(-5.0..5.0),
+            child_genome.mutate(
+                &mut innovation,
+                &mut rng,
+                effective_mutation_rate,
+                config.mutation_strength,
             );
+
+            let offset = Vec2::new(rng.gen_range(-5.0..5.0), rng.gen_range(-5.0..5.0));
             let child_pos = Vec2::new(
                 (pos.0.x + offset.x).rem_euclid(config.world_width as f32),
                 (pos.0.y + offset.y).rem_euclid(config.world_height as f32),
@@ -1174,7 +1362,13 @@ fn reproduction_system(
             // The child receives a fixed fraction of what this parent paid, so
             // a birth never creates energy regardless of the parent's size.
             let child_energy = repro_cost * CHILD_ENERGY_FRACTION;
-            new_organisms.push((child_pos, child_genome, species.0, generation.0 + 1, child_energy));
+            new_organisms.push((
+                child_pos,
+                child_genome,
+                species.0,
+                generation.0 + 1,
+                child_energy,
+            ));
             already_mated.push(entity);
         }
     }
@@ -1183,23 +1377,33 @@ fn reproduction_system(
         let brain = Brain::from_genome(&child_genome);
         let body_size = child_genome.body_size;
 
-        commands.spawn((
-            Organism,
-            Energy(child_energy),
-            Health(1.0),
-            Position(child_pos),
-            Velocity(Vec2::ZERO),
-            BodySize(body_size),
-            Age(0),
-            Generation(child_gen),
-            SpeciesId(parent_species),
-            BrainOutput::default(),
-            BrainMemory([0.0; NUM_MEMORY]),
-            ActionFlash::default(),
-            Signal::default(),
-            GroupSize::default(),
-            ParentInfo { parent_species_id: Some(parent_species) },
-        )).insert((brain, child_genome, TrailHistory::default(), BrainActivations::default(), Symbiosis::default()));
+        commands
+            .spawn((
+                Organism,
+                Energy(child_energy),
+                Health(1.0),
+                Position(child_pos),
+                Velocity(Vec2::ZERO),
+                BodySize(body_size),
+                Age(0),
+                Generation(child_gen),
+                SpeciesId(parent_species),
+                BrainOutput::default(),
+                BrainMemory([0.0; NUM_MEMORY]),
+                ActionFlash::default(),
+                Signal::default(),
+                GroupSize::default(),
+                ParentInfo {
+                    parent_species_id: Some(parent_species),
+                },
+            ))
+            .insert((
+                brain,
+                child_genome,
+                TrailHistory::default(),
+                BrainActivations::default(),
+                Symbiosis::default(),
+            ));
 
         stats.total_births += 1;
         if child_gen > stats.max_generation {
@@ -1287,7 +1491,11 @@ fn species_classification_system(
                 SpeciesStrategy::Forager
             };
             // Parent is the old species this organism was classified as
-            let parent = if *_old_species > 0 { Some(*_old_species) } else { None };
+            let parent = if *_old_species > 0 {
+                Some(*_old_species)
+            } else {
+                None
+            };
             let traits = SpeciesTraits {
                 strategy,
                 aquatic: genome.aquatic_adaptation,
@@ -1301,14 +1509,25 @@ fn species_classification_system(
             };
             phylo.record_species(new_id, parent, tick.0, color, strategy, Some(&traits));
 
-            let species_name = phylo.nodes.get(&new_id).map(|n| n.name.as_str()).unwrap_or("Unknown");
+            let species_name = phylo
+                .nodes
+                .get(&new_id)
+                .map(|n| n.name.as_str())
+                .unwrap_or("Unknown");
             let parent_str = if let Some(p) = parent {
-                let parent_name = phylo.nodes.get(&p).map(|n| n.name.as_str()).unwrap_or("unknown");
+                let parent_name = phylo
+                    .nodes
+                    .get(&p)
+                    .map(|n| n.name.as_str())
+                    .unwrap_or("unknown");
                 format!(" (from {})", parent_name)
             } else {
                 String::new()
             };
-            chronicle.log(tick.0, format!("New species: {}{}", species_name, parent_str));
+            chronicle.log(
+                tick.0,
+                format!("New species: {}{}", species_name, parent_str),
+            );
 
             new_id
         };
@@ -1325,7 +1544,9 @@ fn species_classification_system(
         *species_counts.entry(*assigned_id).or_insert(0) += 1;
     }
     // Detect extinctions before updating
-    let previously_living: Vec<u64> = phylo.nodes.iter()
+    let previously_living: Vec<u64> = phylo
+        .nodes
+        .iter()
         .filter(|(_, n)| n.extinct_tick.is_none() && n.current_population > 0)
         .map(|(id, _)| *id)
         .collect();
@@ -1337,10 +1558,13 @@ fn species_classification_system(
         if let Some(node) = phylo.nodes.get(species_id) {
             if node.current_population == 0 && node.peak_population >= 10 {
                 let age_secs = tick.0.saturating_sub(node.born_tick) / 30;
-                chronicle.log(tick.0, format!(
-                    "{} went extinct (peak: {}, lived {}s)",
-                    node.name, node.peak_population, age_secs
-                ));
+                chronicle.log(
+                    tick.0,
+                    format!(
+                        "{} went extinct (peak: {}, lived {}s)",
+                        node.name, node.peak_population, age_secs
+                    ),
+                );
             }
         }
     }
@@ -1368,14 +1592,24 @@ fn species_classification_system(
             SpeciesStrategy::Forager => "foraging",
         };
         // Only log if this is a new high for this strategy
-        let already_logged = chronicle.entries.iter()
-            .filter(|e| e.text.contains(&format!("{} lineages evolved {}", lineage_count, strategy_name)))
+        let already_logged = chronicle
+            .entries
+            .iter()
+            .filter(|e| {
+                e.text.contains(&format!(
+                    "{} lineages evolved {}",
+                    lineage_count, strategy_name
+                ))
+            })
             .count();
         if already_logged == 0 {
-            chronicle.log(tick.0, format!(
-                "Convergent evolution! {} independent lineages evolved {}",
-                lineage_count, strategy_name
-            ));
+            chronicle.log(
+                tick.0,
+                format!(
+                    "Convergent evolution! {} independent lineages evolved {}",
+                    lineage_count, strategy_name
+                ),
+            );
         }
     }
 }
@@ -1464,24 +1698,27 @@ fn record_population_history(
     let org_count = plants + predators + foragers;
     let food_count = food.iter().len() as u32;
 
-    history.record(&stats, PopSnapshotInput {
-        tick: tick.0,
-        organisms: org_count,
-        food: food_count,
-        plants,
-        predators,
-        foragers,
-        avg_lifespan: fitness.avg_lifespan,
-        infected,
-        avg_disease_resistance: sum_resist / div,
-        avg_body_size: sum_body / div,
-        avg_speed: sum_speed / div,
-        avg_armor: sum_armor / div,
-        avg_attack: sum_attack / div,
-        avg_photo: sum_photo / div,
-        symbiotic_pairs,
-        avg_symbiosis_rate: sum_symbiosis / div,
-    });
+    history.record(
+        &stats,
+        PopSnapshotInput {
+            tick: tick.0,
+            organisms: org_count,
+            food: food_count,
+            plants,
+            predators,
+            foragers,
+            avg_lifespan: fitness.avg_lifespan,
+            infected,
+            avg_disease_resistance: sum_resist / div,
+            avg_body_size: sum_body / div,
+            avg_speed: sum_speed / div,
+            avg_armor: sum_armor / div,
+            avg_attack: sum_attack / div,
+            avg_photo: sum_photo / div,
+            symbiotic_pairs,
+            avg_symbiosis_rate: sum_symbiosis / div,
+        },
+    );
 }
 
 /// Sample each organism's position into its trail ring buffer.
@@ -1524,23 +1761,31 @@ pub fn spawn_initial_population(
         let brain = Brain::from_genome(&genome);
         let body_size = genome.body_size;
 
-        commands.spawn((
-            Organism,
-            Energy(config.max_organism_energy * 0.5),
-            Health(1.0),
-            Position(Vec2::new(x, y)),
-            Velocity(Vec2::ZERO),
-            BodySize(body_size),
-            Age(0),
-            Generation(0),
-            SpeciesId(0),
-            BrainOutput::default(),
-            BrainMemory([0.0; NUM_MEMORY]),
-            ActionFlash::default(),
-            Signal::default(),
-            GroupSize::default(),
-            ParentInfo::default(),
-        )).insert((brain, genome, TrailHistory::default(), BrainActivations::default(), Symbiosis::default()));
+        commands
+            .spawn((
+                Organism,
+                Energy(config.max_organism_energy * 0.5),
+                Health(1.0),
+                Position(Vec2::new(x, y)),
+                Velocity(Vec2::ZERO),
+                BodySize(body_size),
+                Age(0),
+                Generation(0),
+                SpeciesId(0),
+                BrainOutput::default(),
+                BrainMemory([0.0; NUM_MEMORY]),
+                ActionFlash::default(),
+                Signal::default(),
+                GroupSize::default(),
+                ParentInfo::default(),
+            ))
+            .insert((
+                brain,
+                genome,
+                TrailHistory::default(),
+                BrainActivations::default(),
+                Symbiosis::default(),
+            ));
     }
 }
 
@@ -1553,7 +1798,20 @@ fn save_system(
     stats: Res<SimStats>,
     config: Res<SimConfig>,
     innovation: Res<InnovationCounter>,
-    organisms: Query<(&Position, &Energy, &Health, &Age, &Generation, &SpeciesId, &Signal, &BrainMemory, &Genome), With<Organism>>,
+    organisms: Query<
+        (
+            &Position,
+            &Energy,
+            &Health,
+            &Age,
+            &Generation,
+            &SpeciesId,
+            &Signal,
+            &BrainMemory,
+            &Genome,
+        ),
+        With<Organism>,
+    >,
     food: Query<(&Position, &FoodEnergy), With<Food>>,
     phylo: Res<PhyloTree>,
     chronicle: Res<WorldChronicle>,
@@ -1563,16 +1821,38 @@ fn save_system(
         return;
     }
 
-    let org_data: Vec<_> = organisms.iter()
-        .map(|(pos, energy, health, age, gen, species, signal, memory, genome)| {
-            (pos.0, energy.0, health.0, age.0, gen.0, species.0, signal.0, memory.0, genome.clone())
-        })
+    let org_data: Vec<_> = organisms
+        .iter()
+        .map(
+            |(pos, energy, health, age, gen, species, signal, memory, genome)| {
+                (
+                    pos.0,
+                    energy.0,
+                    health.0,
+                    age.0,
+                    gen.0,
+                    species.0,
+                    signal.0,
+                    memory.0,
+                    genome.clone(),
+                )
+            },
+        )
         .collect();
 
-    let food_data: Vec<_> = food.iter()
-        .map(|(pos, fe)| (pos.0, fe.0))
-        .collect();
+    let food_data: Vec<_> = food.iter().map(|(pos, fe)| (pos.0, fe.0)).collect();
 
     let save_path = session.dir.join("save.json");
-    save::save_world(&save_path, &tick, &season, &stats, &innovation, &config, &org_data, &food_data, &phylo, &chronicle);
+    save::save_world(
+        &save_path,
+        &tick,
+        &season,
+        &stats,
+        &innovation,
+        &config,
+        &org_data,
+        &food_data,
+        &phylo,
+        &chronicle,
+    );
 }

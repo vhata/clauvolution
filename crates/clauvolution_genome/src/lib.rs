@@ -163,7 +163,11 @@ impl BodySegmentGene {
             size: rng.gen_range(0.3..1.5),
             attachment_angle: rng.gen_range(-std::f32::consts::PI..std::f32::consts::PI),
             attachment_slot: rng.gen_range(0..4),
-            symmetry: if rng.gen_bool(0.6) { Symmetry::Bilateral } else { Symmetry::None },
+            symmetry: if rng.gen_bool(0.6) {
+                Symmetry::Bilateral
+            } else {
+                Symmetry::None
+            },
         }
     }
 
@@ -236,7 +240,10 @@ impl Genome {
             let from = rng.gen_range(0..NUM_INPUTS) as u64;
             let to = (NUM_INPUTS + rng.gen_range(0..NUM_OUTPUTS)) as u64;
 
-            if connections.iter().any(|c: &ConnectionGene| c.from == from && c.to == to) {
+            if connections
+                .iter()
+                .any(|c: &ConnectionGene| c.from == from && c.to == to)
+            {
                 continue;
             }
 
@@ -324,19 +331,26 @@ impl Genome {
 
     /// Derived traits from body segments
     pub fn has_fins(&self) -> bool {
-        self.body_segments.iter().any(|s| s.segment_type == SegmentType::Fin)
+        self.body_segments
+            .iter()
+            .any(|s| s.segment_type == SegmentType::Fin)
     }
 
     pub fn has_claws(&self) -> bool {
-        self.body_segments.iter().any(|s| s.segment_type == SegmentType::Claw)
+        self.body_segments
+            .iter()
+            .any(|s| s.segment_type == SegmentType::Claw)
     }
 
     pub fn has_armor(&self) -> bool {
-        self.body_segments.iter().any(|s| s.segment_type == SegmentType::ArmorPlate)
+        self.body_segments
+            .iter()
+            .any(|s| s.segment_type == SegmentType::ArmorPlate)
     }
 
     pub fn claw_power(&self) -> f32 {
-        self.body_segments.iter()
+        self.body_segments
+            .iter()
             .filter(|s| s.segment_type == SegmentType::Claw)
             .map(|s| s.size)
             .sum::<f32>()
@@ -344,7 +358,8 @@ impl Genome {
     }
 
     pub fn armor_value(&self) -> f32 {
-        self.body_segments.iter()
+        self.body_segments
+            .iter()
             .filter(|s| s.segment_type == SegmentType::ArmorPlate)
             .map(|s| s.size)
             .sum::<f32>()
@@ -352,43 +367,55 @@ impl Genome {
     }
 
     pub fn has_limbs(&self) -> bool {
-        self.body_segments.iter().any(|s| s.segment_type == SegmentType::Limb)
+        self.body_segments
+            .iter()
+            .any(|s| s.segment_type == SegmentType::Limb)
     }
 
     pub fn has_eyes(&self) -> bool {
-        self.body_segments.iter().any(|s| s.segment_type == SegmentType::Eye)
+        self.body_segments
+            .iter()
+            .any(|s| s.segment_type == SegmentType::Eye)
     }
 
     pub fn has_mouth(&self) -> bool {
-        self.body_segments.iter().any(|s| s.segment_type == SegmentType::Mouth)
+        self.body_segments
+            .iter()
+            .any(|s| s.segment_type == SegmentType::Mouth)
     }
 
     pub fn has_photo_surface(&self) -> bool {
-        self.body_segments.iter().any(|s| s.segment_type == SegmentType::PhotoSurface)
+        self.body_segments
+            .iter()
+            .any(|s| s.segment_type == SegmentType::PhotoSurface)
     }
 
     pub fn total_photo_surface_area(&self) -> f32 {
-        self.body_segments.iter()
+        self.body_segments
+            .iter()
             .filter(|s| s.segment_type == SegmentType::PhotoSurface)
             .map(|s| s.size)
             .sum()
     }
 
     pub fn fin_area(&self) -> f32 {
-        self.body_segments.iter()
+        self.body_segments
+            .iter()
             .filter(|s| s.segment_type == SegmentType::Fin)
             .map(|s| s.size)
             .sum()
     }
 
     pub fn limb_count(&self) -> usize {
-        self.body_segments.iter()
+        self.body_segments
+            .iter()
             .filter(|s| s.segment_type == SegmentType::Limb)
             .count()
     }
 
     pub fn eye_count(&self) -> usize {
-        self.body_segments.iter()
+        self.body_segments
+            .iter()
             .filter(|s| s.segment_type == SegmentType::Eye)
             .count()
     }
@@ -400,7 +427,13 @@ impl Genome {
     }
 
     /// Mutate this genome in place
-    pub fn mutate(&mut self, innovation: &mut InnovationCounter, rng: &mut impl Rng, rate: f32, strength: f32) {
+    pub fn mutate(
+        &mut self,
+        innovation: &mut InnovationCounter,
+        rng: &mut impl Rng,
+        rate: f32,
+        strength: f32,
+    ) {
         let normal = Normal::new(0.0, strength as f64).unwrap();
 
         // Mutate connection weights
@@ -493,7 +526,9 @@ impl Genome {
     }
 
     fn mutate_add_connection(&mut self, innovation: &mut InnovationCounter, rng: &mut impl Rng) {
-        let non_input: Vec<u64> = self.neurons.iter()
+        let non_input: Vec<u64> = self
+            .neurons
+            .iter()
             .filter(|n| n.neuron_type != NeuronType::Input)
             .map(|n| n.id)
             .collect();
@@ -509,7 +544,11 @@ impl Genome {
         if from == to {
             return;
         }
-        if self.connections.iter().any(|c| c.from == from && c.to == to) {
+        if self
+            .connections
+            .iter()
+            .any(|c| c.from == from && c.to == to)
+        {
             return;
         }
 
@@ -523,7 +562,9 @@ impl Genome {
     }
 
     fn mutate_add_neuron(&mut self, innovation: &mut InnovationCounter, rng: &mut impl Rng) {
-        let enabled: Vec<usize> = self.connections.iter()
+        let enabled: Vec<usize> = self
+            .connections
+            .iter()
             .enumerate()
             .filter(|(_, c)| c.enabled)
             .map(|(i, _)| i)
@@ -604,7 +645,8 @@ impl Genome {
             i += 1;
         }
 
-        let child_neuron_ids: std::collections::HashSet<u64> = child_neurons.iter().map(|n| n.id).collect();
+        let child_neuron_ids: std::collections::HashSet<u64> =
+            child_neurons.iter().map(|n| n.id).collect();
         for conn in &child_connections {
             for id in [conn.from, conn.to] {
                 if !child_neuron_ids.contains(&id) {
@@ -643,7 +685,8 @@ impl Genome {
             speed_factor: self.speed_factor * t + other.speed_factor * (1.0 - t),
             sense_range: self.sense_range * t + other.sense_range * (1.0 - t),
             aquatic_adaptation: self.aquatic_adaptation * t + other.aquatic_adaptation * (1.0 - t),
-            photosynthesis_rate: self.photosynthesis_rate * t + other.photosynthesis_rate * (1.0 - t),
+            photosynthesis_rate: self.photosynthesis_rate * t
+                + other.photosynthesis_rate * (1.0 - t),
             armor: self.armor * t + other.armor * (1.0 - t),
             attack_power: self.attack_power * t + other.attack_power * (1.0 - t),
             disease_resistance: self.disease_resistance * t + other.disease_resistance * (1.0 - t),
@@ -685,7 +728,11 @@ impl Genome {
 
         let excess = (s_sorted.len() - i) + (o_sorted.len() - j);
         let n = s_sorted.len().max(o_sorted.len()).max(1) as f32;
-        let avg_weight_diff = if matching > 0 { weight_diff_sum / matching as f32 } else { 0.0 };
+        let avg_weight_diff = if matching > 0 {
+            weight_diff_sum / matching as f32
+        } else {
+            0.0
+        };
 
         let body_diff = (self.body_size - other.body_size).abs()
             + (self.speed_factor - other.speed_factor).abs()
@@ -697,6 +744,9 @@ impl Genome {
             + (self.disease_resistance - other.disease_resistance).abs() * 0.5
             + (self.symbiosis_rate - other.symbiosis_rate).abs() * 0.3;
 
-        (c1 * excess as f32 / n) + (c2 * disjoint as f32 / n) + (c3 * avg_weight_diff) + body_diff * 0.5
+        (c1 * excess as f32 / n)
+            + (c2 * disjoint as f32 / n)
+            + (c3 * avg_weight_diff)
+            + body_diff * 0.5
     }
 }

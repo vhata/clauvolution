@@ -71,10 +71,7 @@ impl BodyPlan {
 }
 
 /// System that creates/updates body plans from genomes
-fn update_body_plans(
-    mut commands: Commands,
-    query: Query<(Entity, &Genome), Without<BodyPlan>>,
-) {
+fn update_body_plans(mut commands: Commands, query: Query<(Entity, &Genome), Without<BodyPlan>>) {
     for (entity, genome) in &query {
         let body_plan = BodyPlan::from_genome(genome);
         commands.entity(entity).insert(body_plan);
