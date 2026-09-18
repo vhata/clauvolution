@@ -1,6 +1,6 @@
 use bevy::prelude::*;
-use rand::Rng;
 use rand::rngs::StdRng;
+use rand::Rng;
 use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -40,6 +40,12 @@ impl Plugin for CorePlugin {
 pub struct Session {
     pub name: String,
     pub dir: PathBuf,
+}
+
+impl Default for Session {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Session {
@@ -88,36 +94,102 @@ impl Session {
         let mut rng = rand::thread_rng();
 
         let adjectives1 = [
-            "ancient", "astral", "barren", "bright", "cerulean", "cosmic",
-            "dark", "distant", "eternal", "ethereal", "feral", "frozen",
-            "gilded", "glacial", "golden", "hidden", "infinite", "iridescent",
-            "jade", "keen", "kindred", "luminous", "lunar", "midnight",
-            "molten", "nascent", "nebular", "obsidian", "pale", "primal",
-            "quiet", "radiant", "scarlet", "silent", "spectral", "stellar",
-            "tethered", "twisted", "vast", "veiled", "violet", "wandering",
-            "young", "zealous",
+            "ancient",
+            "astral",
+            "barren",
+            "bright",
+            "cerulean",
+            "cosmic",
+            "dark",
+            "distant",
+            "eternal",
+            "ethereal",
+            "feral",
+            "frozen",
+            "gilded",
+            "glacial",
+            "golden",
+            "hidden",
+            "infinite",
+            "iridescent",
+            "jade",
+            "keen",
+            "kindred",
+            "luminous",
+            "lunar",
+            "midnight",
+            "molten",
+            "nascent",
+            "nebular",
+            "obsidian",
+            "pale",
+            "primal",
+            "quiet",
+            "radiant",
+            "scarlet",
+            "silent",
+            "spectral",
+            "stellar",
+            "tethered",
+            "twisted",
+            "vast",
+            "veiled",
+            "violet",
+            "wandering",
+            "young",
+            "zealous",
         ];
 
         let adjectives2 = [
-            "arcing", "blazing", "burning", "collapsing", "crystalline",
-            "dormant", "drifting", "echoing", "eroding", "fading", "fractal",
-            "glowing", "grinding", "hollow", "humming", "ignited", "iron",
-            "jagged", "jeweled", "kindled", "latticed", "living", "massive",
-            "migrating", "nameless", "orbital", "ossified", "petrified",
-            "pulsing", "quaking", "restless", "roiling", "shattered",
-            "spiraling", "tidal", "tumbling", "unbound", "undying",
-            "volatile", "withering", "woven",
+            "arcing",
+            "blazing",
+            "burning",
+            "collapsing",
+            "crystalline",
+            "dormant",
+            "drifting",
+            "echoing",
+            "eroding",
+            "fading",
+            "fractal",
+            "glowing",
+            "grinding",
+            "hollow",
+            "humming",
+            "ignited",
+            "iron",
+            "jagged",
+            "jeweled",
+            "kindled",
+            "latticed",
+            "living",
+            "massive",
+            "migrating",
+            "nameless",
+            "orbital",
+            "ossified",
+            "petrified",
+            "pulsing",
+            "quaking",
+            "restless",
+            "roiling",
+            "shattered",
+            "spiraling",
+            "tidal",
+            "tumbling",
+            "unbound",
+            "undying",
+            "volatile",
+            "withering",
+            "woven",
         ];
 
         let nouns = [
-            "abyss", "apex", "aurora", "bloom", "caldera", "canyon",
-            "cinder", "comet", "corona", "crater", "crown", "delta",
-            "drift", "dusk", "eclipse", "ember", "flare", "flux",
-            "forge", "genesis", "geyser", "glacier", "haven", "helix",
-            "horizon", "lagoon", "mantle", "nebula", "nova", "pinnacle",
-            "plume", "pulsar", "quasar", "remnant", "rift", "shard",
-            "solstice", "spire", "storm", "summit", "tide", "void",
-            "vortex", "zenith",
+            "abyss", "apex", "aurora", "bloom", "caldera", "canyon", "cinder", "comet", "corona",
+            "crater", "crown", "delta", "drift", "dusk", "eclipse", "ember", "flare", "flux",
+            "forge", "genesis", "geyser", "glacier", "haven", "helix", "horizon", "lagoon",
+            "mantle", "nebula", "nova", "pinnacle", "plume", "pulsar", "quasar", "remnant", "rift",
+            "shard", "solstice", "spire", "storm", "summit", "tide", "void", "vortex", "zenith",
         ];
 
         let a1 = adjectives1[rng.gen_range(0..adjectives1.len())];
@@ -235,7 +307,7 @@ pub struct TickCounter(pub u64);
 /// Seasonal cycle — affects light, temperature, food regen
 #[derive(Resource)]
 pub struct Season {
-    pub cycle_ticks: u64,     // ticks per full year
+    pub cycle_ticks: u64, // ticks per full year
     pub current_tick: u64,
 }
 
@@ -271,10 +343,15 @@ impl Season {
 
     pub fn name(&self) -> SeasonName {
         let phase = self.phase();
-        if phase < 0.25 { SeasonName::Spring }
-        else if phase < 0.5 { SeasonName::Summer }
-        else if phase < 0.75 { SeasonName::Autumn }
-        else { SeasonName::Winter }
+        if phase < 0.25 {
+            SeasonName::Spring
+        } else if phase < 0.5 {
+            SeasonName::Summer
+        } else if phase < 0.75 {
+            SeasonName::Autumn
+        } else {
+            SeasonName::Winter
+        }
     }
 
     /// Light multiplier: high in summer, low in winter
@@ -473,16 +550,28 @@ pub struct BloomEffects {
 
 impl BloomEffects {
     pub fn light_multiplier(&self) -> f32 {
-        if self.solar_ticks > 0 { self.solar_bloom } else { 1.0 }
+        if self.solar_ticks > 0 {
+            self.solar_bloom
+        } else {
+            1.0
+        }
     }
 
     pub fn mutation_multiplier(&self) -> f32 {
-        if self.mutation_ticks > 0 { self.mutation_boost } else { 1.0 }
+        if self.mutation_ticks > 0 {
+            self.mutation_boost
+        } else {
+            1.0
+        }
     }
 
     pub fn tick(&mut self) {
-        if self.solar_ticks > 0 { self.solar_ticks -= 1; }
-        if self.mutation_ticks > 0 { self.mutation_ticks -= 1; }
+        if self.solar_ticks > 0 {
+            self.solar_ticks -= 1;
+        }
+        if self.mutation_ticks > 0 {
+            self.mutation_ticks -= 1;
+        }
     }
 }
 
@@ -513,7 +602,7 @@ impl SpeciesColors {
     pub fn get_or_create(&mut self, species_id: u64) -> Color {
         *self.colors.entry(species_id).or_insert_with(|| {
             let hue = self.next_hue;
-            self.next_hue = (self.next_hue + 0.618033988) % 1.0; // golden ratio for good spread
+            self.next_hue = (self.next_hue + 0.618_034) % 1.0; // golden ratio for good spread
             Color::hsl(hue * 360.0, 0.7, 0.6)
         })
     }
@@ -634,7 +723,7 @@ pub struct ParentInfo {
 /// Severity and ticks_remaining are sampled on infection and decrement over time.
 #[derive(Component, Default, Clone)]
 pub struct Infection {
-    pub severity: f32,       // 0.0-1.0, scales energy drain and transmission
+    pub severity: f32,        // 0.0-1.0, scales energy drain and transmission
     pub ticks_remaining: u32, // counts down to 0 = recovered
 }
 
@@ -691,15 +780,9 @@ pub struct FoodSnapshot {
     pub entries: Vec<(Entity, Vec2, f32)>,
 }
 
-/// Whether organism trails are rendered
-#[derive(Resource)]
+/// Whether organism trails are rendered. Off by default; opt in with T.
+#[derive(Resource, Default)]
 pub struct TrailsVisible(pub bool);
-
-impl Default for TrailsVisible {
-    fn default() -> Self {
-        Self(false) // off by default — opt in with T
-    }
-}
 
 #[derive(Component)]
 pub struct Food;

@@ -1,5 +1,7 @@
 use bevy::prelude::*;
-use clauvolution_genome::{ActivationFn, ConnectionGene, Genome, NeuronGene, NeuronType, NUM_INPUTS, NUM_OUTPUTS};
+use clauvolution_genome::{
+    ActivationFn, ConnectionGene, Genome, NeuronGene, NeuronType, NUM_INPUTS, NUM_OUTPUTS,
+};
 use std::collections::HashMap;
 
 pub struct BrainPlugin;
@@ -47,7 +49,10 @@ impl Brain {
 
         for conn in &genome.connections {
             if conn.enabled {
-                incoming.entry(conn.to).or_default().push((conn.from, conn.weight));
+                incoming
+                    .entry(conn.to)
+                    .or_default()
+                    .push((conn.from, conn.weight));
             }
         }
 
@@ -108,7 +113,11 @@ impl Brain {
                 }
             }
 
-            let activation = self.activations.get(&id).copied().unwrap_or(ActivationFn::Sigmoid);
+            let activation = self
+                .activations
+                .get(&id)
+                .copied()
+                .unwrap_or(ActivationFn::Sigmoid);
             values.insert(id, activation.apply(sum));
         }
 
@@ -156,7 +165,8 @@ fn topological_sort(neurons: &[NeuronGene], connections: &[ConnectionGene]) -> V
     }
 
     // Kahn's algorithm
-    let mut queue: Vec<u64> = all_ids.iter()
+    let mut queue: Vec<u64> = all_ids
+        .iter()
         .filter(|id| in_degree[id] == 0)
         .copied()
         .collect();

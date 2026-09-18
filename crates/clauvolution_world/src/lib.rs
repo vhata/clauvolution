@@ -10,8 +10,10 @@ impl Plugin for WorldPlugin {
         // `update_spatial_hash` is deliberately not registered here. It is
         // scheduled by `SimPlugin` inside the FixedUpdate chain so that every
         // tick's neighbour queries see that tick's positions.
-        app.insert_resource(SpatialHash::default())
-            .add_systems(FixedUpdate, (food_regeneration_system, tile_dynamics_system));
+        app.insert_resource(SpatialHash::default()).add_systems(
+            FixedUpdate,
+            (food_regeneration_system, tile_dynamics_system),
+        );
     }
 }
 
@@ -117,7 +119,11 @@ impl Tile {
             moisture,
             light_level,
             nutrients,
-            vegetation_density: if terrain.is_water() { 0.0 } else { nutrients * 0.5 },
+            vegetation_density: if terrain.is_water() {
+                0.0
+            } else {
+                nutrients * 0.5
+            },
         }
     }
 }
@@ -184,7 +190,9 @@ fn generate_noise_map(width: u32, height: u32, octaves: u32, rng: &mut impl Rng)
         // Generate a small random grid and interpolate
         let grid_w = (freq as u32 + 2).max(2);
         let grid_h = (freq as u32 + 2).max(2);
-        let grid: Vec<f32> = (0..grid_w * grid_h).map(|_| rng.gen_range(-1.0..1.0)).collect();
+        let grid: Vec<f32> = (0..grid_w * grid_h)
+            .map(|_| rng.gen_range(-1.0..1.0))
+            .collect();
 
         for y in 0..height {
             for x in 0..width {
@@ -314,7 +322,12 @@ pub fn update_spatial_hash(
 
 // --- Food spawning (now biome-aware) ---
 
-pub fn spawn_initial_food(commands: &mut Commands, config: &SimConfig, tile_map: &TileMap, rng: &mut impl Rng) {
+pub fn spawn_initial_food(
+    commands: &mut Commands,
+    config: &SimConfig,
+    tile_map: &TileMap,
+    rng: &mut impl Rng,
+) {
     let total_tiles = config.world_width as f32 * config.world_height as f32;
     let food_count = (total_tiles * config.initial_food_density) as u32;
 
@@ -344,7 +357,8 @@ pub fn food_regeneration_system(
     mut sim_rng: ResMut<SimRng>,
 ) {
     let current_food = food_query.iter().len() as f32;
-    let max_food = config.world_width as f32 * config.world_height as f32 * config.initial_food_density;
+    let max_food =
+        config.world_width as f32 * config.world_height as f32 * config.initial_food_density;
 
     let deficit_ratio = ((max_food - current_food) / max_food).max(0.0);
     let seasonal_regen = config.food_regen_rate * season.food_regen_multiplier();
@@ -403,9 +417,21 @@ mod tests {
         }
         println!("moisture {min_m}..{max_m}, elevation {min_e}..{max_e}");
 
-        assert!(min_m >= 0.0 && max_m <= 1.0, "moisture outside 0..1: {min_m}..{max_m}");
-        assert!(min_e < 0.0 && max_e > 0.0, "elevation should straddle zero: {min_e}..{max_e}");
-        assert!(counts.len() > 1, "expected more than one biome type, got {counts:?}");
-        assert!(counts.contains_key(&TerrainType::Forest), "no Forest tiles generated");
+        assert!(
+            min_m >= 0.0 && max_m <= 1.0,
+            "moisture outside 0..1: {min_m}..{max_m}"
+        );
+        assert!(
+            min_e < 0.0 && max_e > 0.0,
+            "elevation should straddle zero: {min_e}..{max_e}"
+        );
+        assert!(
+            counts.len() > 1,
+            "expected more than one biome type, got {counts:?}"
+        );
+        assert!(
+            counts.contains_key(&TerrainType::Forest),
+            "no Forest tiles generated"
+        );
     }
 }

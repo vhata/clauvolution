@@ -39,8 +39,11 @@ fn body_descriptor(traits: &SpeciesTraits, id: usize) -> &'static str {
 
 fn habitat_word(traits: &SpeciesTraits, id: usize) -> &'static str {
     if traits.aquatic > 0.5 {
-        if traits.has_fins { pick(&["Reef", "Deep", "Tidal", "Pelagic", "Abyssal"], id) }
-        else { pick(&["Shore", "Marsh", "Coastal", "Brackish", "Littoral"], id) }
+        if traits.has_fins {
+            pick(&["Reef", "Deep", "Tidal", "Pelagic", "Abyssal"], id)
+        } else {
+            pick(&["Shore", "Marsh", "Coastal", "Brackish", "Littoral"], id)
+        }
     } else if traits.aquatic > 0.2 {
         pick(&["Riparian", "Swamp", "Estuary", "Delta", "Wetland"], id)
     } else {
@@ -51,16 +54,25 @@ fn habitat_word(traits: &SpeciesTraits, id: usize) -> &'static str {
 fn strategy_noun(traits: &SpeciesTraits, id: usize) -> &'static str {
     match traits.strategy {
         SpeciesStrategy::Photosynthesizer => {
-            if traits.aquatic > 0.5 { pick(&["Kelp", "Algae", "Seagrass", "Coral", "Lichen"], id) }
-            else { pick(&["Fern", "Moss", "Vine", "Shrub", "Bloom"], id) }
+            if traits.aquatic > 0.5 {
+                pick(&["Kelp", "Algae", "Seagrass", "Coral", "Lichen"], id)
+            } else {
+                pick(&["Fern", "Moss", "Vine", "Shrub", "Bloom"], id)
+            }
         }
         SpeciesStrategy::Predator => {
-            if traits.aquatic > 0.5 { pick(&["Shark", "Eel", "Hunter", "Stalker", "Lurker"], id) }
-            else { pick(&["Raptor", "Prowler", "Striker", "Ambusher", "Mauler"], id) }
+            if traits.aquatic > 0.5 {
+                pick(&["Shark", "Eel", "Hunter", "Stalker", "Lurker"], id)
+            } else {
+                pick(&["Raptor", "Prowler", "Striker", "Ambusher", "Mauler"], id)
+            }
         }
         SpeciesStrategy::Forager => {
-            if traits.aquatic > 0.5 { pick(&["Drifter", "Grazer", "Filter", "Crawler", "Scavenger"], id) }
-            else { pick(&["Forager", "Browser", "Gleaner", "Rooter", "Wanderer"], id) }
+            if traits.aquatic > 0.5 {
+                pick(&["Drifter", "Grazer", "Filter", "Crawler", "Scavenger"], id)
+            } else {
+                pick(&["Forager", "Browser", "Gleaner", "Rooter", "Wanderer"], id)
+            }
         }
     }
 }
@@ -68,7 +80,8 @@ fn strategy_noun(traits: &SpeciesTraits, id: usize) -> &'static str {
 /// Generate a full species name from traits (for root species with no parent)
 pub fn generate_species_name(traits: &SpeciesTraits, species_id: u64) -> String {
     let i = species_id as usize;
-    format!("{} {} {}",
+    format!(
+        "{} {} {}",
         habitat_word(traits, i),
         body_descriptor(traits, i),
         strategy_noun(traits, i),
@@ -136,7 +149,11 @@ impl WorldChronicle {
             } else {
                 format!("{:3}s", time_secs)
             };
-            if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+            if let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+            {
                 let _ = writeln!(file, "[{}] {}", time_str, text);
             }
         }
@@ -266,12 +283,18 @@ impl PhyloTree {
 
     /// Get all living species
     pub fn living_species(&self) -> Vec<&PhyloNode> {
-        self.nodes.values().filter(|n| n.extinct_tick.is_none() && n.current_population > 0).collect()
+        self.nodes
+            .values()
+            .filter(|n| n.extinct_tick.is_none() && n.current_population > 0)
+            .collect()
     }
 
     /// Get children of a species
     pub fn children_of(&self, species_id: u64) -> Vec<&PhyloNode> {
-        self.nodes.values().filter(|n| n.parent_id == Some(species_id)).collect()
+        self.nodes
+            .values()
+            .filter(|n| n.parent_id == Some(species_id))
+            .collect()
     }
 
     /// Get the lineage (chain of ancestor species IDs) for a species
@@ -315,7 +338,8 @@ impl PhyloTree {
         let mut results = Vec::new();
 
         for &strat in &strategies {
-            let species_with_strat: Vec<&PhyloNode> = living.iter()
+            let species_with_strat: Vec<&PhyloNode> = living
+                .iter()
                 .filter(|n| n.strategy == strat && n.current_population >= 10)
                 .copied()
                 .collect();
@@ -334,8 +358,12 @@ impl PhyloTree {
                         if let Some(pid) = n.parent_id {
                             root = pid;
                             current = pid;
-                        } else { break; }
-                    } else { break; }
+                        } else {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
                 }
                 if !lineage_roots.contains(&root) {
                     lineage_roots.push(root);
@@ -386,7 +414,10 @@ impl PhyloTree {
         // Group by lineage root
         let mut lineages: HashMap<u64, Vec<&PhyloNode>> = HashMap::new();
         for node in &living {
-            let root = lineage_root.get(&node.species_id).copied().unwrap_or(node.species_id);
+            let root = lineage_root
+                .get(&node.species_id)
+                .copied()
+                .unwrap_or(node.species_id);
             lineages.entry(root).or_default().push(node);
         }
 
@@ -398,15 +429,16 @@ impl PhyloTree {
             pop_b.cmp(&pop_a).then(a.0.cmp(&b.0))
         });
 
-        let mut roots_shown = 0;
-        for (_root_id, mut members) in sorted_lineages {
-            if roots_shown >= max_display { break; }
-            members.sort_by(|a, b| b.current_population.cmp(&a.current_population).then(a.species_id.cmp(&b.species_id)));
+        for (_root_id, mut members) in sorted_lineages.into_iter().take(max_display) {
+            members.sort_by(|a, b| {
+                b.current_population
+                    .cmp(&a.current_population)
+                    .then(a.species_id.cmp(&b.species_id))
+            });
 
             // Show the biggest member as the root line
             let first = members[0];
             lines.push(self.format_species_line(first, 0, current_tick));
-            roots_shown += 1;
 
             // Always show ALL children — no cap on children
             for sibling in members.iter().skip(1) {
@@ -420,10 +452,16 @@ impl PhyloTree {
         }
 
         // Recently extinct (last 3)
-        let mut recently_extinct: Vec<&PhyloNode> = self.nodes.values()
+        let mut recently_extinct: Vec<&PhyloNode> = self
+            .nodes
+            .values()
             .filter(|n| n.extinct_tick.is_some())
             .collect();
-        recently_extinct.sort_by(|a, b| b.extinct_tick.cmp(&a.extinct_tick).then(a.species_id.cmp(&b.species_id)));
+        recently_extinct.sort_by(|a, b| {
+            b.extinct_tick
+                .cmp(&a.extinct_tick)
+                .then(a.species_id.cmp(&b.species_id))
+        });
 
         if !recently_extinct.is_empty() {
             lines.push(String::new());
@@ -454,7 +492,6 @@ impl PhyloTree {
         lines.join("\n")
     }
 
-
     fn format_species_line(&self, node: &PhyloNode, depth: usize, current_tick: u64) -> String {
         let age_secs = current_tick.saturating_sub(node.born_tick) / 30;
         let age_str = if age_secs >= 60 {
@@ -477,7 +514,11 @@ impl PhyloTree {
         let bar: String = "\u{2588}".repeat(bar_len);
         let bar = format!("{:<15}", bar);
 
-        let declining = if node.current_population < node.peak_population / 2 { " declining" } else { "" };
+        let declining = if node.current_population < node.peak_population / 2 {
+            " declining"
+        } else {
+            ""
+        };
 
         let padded_name = format!("{}{}", indent, name);
         format!(
