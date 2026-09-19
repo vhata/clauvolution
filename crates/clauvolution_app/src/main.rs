@@ -121,11 +121,7 @@ fn main() {
         .iter()
         .position(|a| a == "--dump-history")
         .and_then(|i| args.get(i + 1).cloned());
-    let species_threshold_override: Option<f32> = args
-        .iter()
-        .position(|a| a == "--species-threshold")
-        .and_then(|i| args.get(i + 1))
-        .and_then(|s| s.parse().ok());
+    let overrides = ConfigOverrides::parse(&args);
 
     let worker_cap = compute_worker_cap();
     eprintln!(
@@ -142,7 +138,7 @@ fn main() {
             load_path,
             save_as,
             dump_history,
-            species_threshold_override,
+            overrides,
         );
         return;
     }
@@ -171,13 +167,13 @@ fn main() {
     .insert_resource(InnovationCounter(100))
     .insert_resource(LoadPath(load_path))
     .insert_resource(SeedOverride(seed))
-    .insert_resource(SpeciesThresholdOverride(species_threshold_override))
+    .insert_resource(overrides)
     .add_systems(
         Startup,
         (
             apply_seed_override,
+            apply_config_overrides,
             startup_system,
-            apply_species_threshold,
             set_window_title,
         )
             .chain(),
@@ -470,7 +466,7 @@ fn run_headless(
     load_path: Option<String>,
     save_as: Option<String>,
     dump_history: Option<String>,
-    species_threshold: Option<f32>,
+    overrides: ConfigOverrides,
 ) {
     use bevy::app::ScheduleRunnerPlugin;
 
@@ -523,14 +519,14 @@ fn run_headless(
         .insert_resource(SeedOverride(seed))
         .insert_resource(HeadlessSpeed(speed))
         .insert_resource(HeadlessSaveAtEnd(save_as.is_some()))
-        .insert_resource(SpeciesThresholdOverride(species_threshold))
+        .insert_resource(overrides)
         .add_systems(
             Startup,
             (
                 apply_seed_override,
+                apply_config_overrides,
                 startup_system,
                 set_headless_speed,
-                apply_species_threshold,
                 unbound_history,
             )
                 .chain(),
@@ -654,19 +650,91 @@ fn set_headless_speed(speed: Res<HeadlessSpeed>, mut sim_speed: ResMut<SimSpeed>
     sim_speed.multiplier = speed.0;
 }
 
-/// `--species-threshold N` from the command line, applied after
-/// `startup_system` in both the GUI and headless startup chains.
-#[derive(Resource)]
-struct SpeciesThresholdOverride(Option<f32>);
+/// `SimConfig` fields that can be overridden from the command line, applied
+/// before `startup_system` in both the GUI and headless startup chains so the
+/// founders are spawned under the overridden values (a loaded save restores
+/// only `terrain_seed`, so nothing is undone). These are the knobs the tuning
+/// passes sweep; each maps to one `--flag VALUE`.
+#[derive(Resource, Default)]
+struct ConfigOverrides {
+    species_threshold: Option<f32>,
+    bite_fraction: Option<f32>,
+    kill_transfer: Option<f32>,
+    founder_diet_spread: Option<f32>,
+    animal_efficiency: Option<f32>,
+    max_energy: Option<f32>,
+    max_food_density: Option<f32>,
+    population_ceiling: Option<u32>,
+}
 
-fn apply_species_threshold(
-    override_val: Res<SpeciesThresholdOverride>,
-    mut config: ResMut<SimConfig>,
-) {
-    if let Some(v) = override_val.0 {
-        config.species_compat_threshold = v;
-        eprintln!("Species compatibility threshold overridden to {}", v);
+impl ConfigOverrides {
+    fn parse(args: &[String]) -> Self {
+        fn flag<T: std::str::FromStr>(args: &[String], name: &str) -> Option<T> {
+            args.iter()
+                .position(|a| a == name)
+                .and_then(|i| args.get(i + 1))
+                .and_then(|s| s.parse().ok())
+        }
+        Self {
+            species_threshold: flag(args, "--species-threshold"),
+            bite_fraction: flag(args, "--bite-fraction"),
+            kill_transfer: flag(args, "--kill-transfer"),
+            founder_diet_spread: flag(args, "--founder-diet-spread"),
+            animal_efficiency: flag(args, "--animal-efficiency"),
+            max_energy: flag(args, "--max-energy"),
+            max_food_density: flag(args, "--max-food-density"),
+            population_ceiling: flag(args, "--population-ceiling"),
+        }
     }
+}
+
+fn apply_config_overrides(overrides: Res<ConfigOverrides>, mut config: ResMut<SimConfig>) {
+    fn set<T: Copy + std::fmt::Display>(slot: &mut T, value: Option<T>, name: &str) {
+        if let Some(v) = value {
+            *slot = v;
+            eprintln!("Config override: {name} = {v}");
+        }
+    }
+    set(
+        &mut config.species_compat_threshold,
+        overrides.species_threshold,
+        "species_compat_threshold",
+    );
+    set(
+        &mut config.bite_fraction,
+        overrides.bite_fraction,
+        "bite_fraction",
+    );
+    set(
+        &mut config.kill_transfer_fraction,
+        overrides.kill_transfer,
+        "kill_transfer_fraction",
+    );
+    set(
+        &mut config.founder_diet_spread,
+        overrides.founder_diet_spread,
+        "founder_diet_spread",
+    );
+    set(
+        &mut config.animal_efficiency_multiplier,
+        overrides.animal_efficiency,
+        "animal_efficiency_multiplier",
+    );
+    set(
+        &mut config.max_organism_energy,
+        overrides.max_energy,
+        "max_organism_energy",
+    );
+    set(
+        &mut config.max_food_density,
+        overrides.max_food_density,
+        "max_food_density",
+    );
+    set(
+        &mut config.population_ceiling,
+        overrides.population_ceiling,
+        "population_ceiling",
+    );
 }
 
 /// Number of additional ticks to run in headless mode. `--headless N` means
@@ -793,7 +861,7 @@ fn print_headless_summary(
         eprintln!("  Attack:              {:.2}", latest.avg_attack);
         eprintln!("  Armor:               {:.2}", latest.avg_armor);
         eprintln!("  Photosynthesis:      {:.0}%", latest.avg_photo * 100.0);
-        eprintln!("  Diet:                {:+.2}", latest.avg_diet);
+        eprintln!("  Diet (consumers):    {:+.2}", latest.avg_diet);
         eprintln!(
             "  Disease resistance:  {:.0}%",
             latest.avg_disease_resistance * 100.0
