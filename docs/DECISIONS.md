@@ -96,11 +96,33 @@ Not an exhaustive list of every tweak — just the decisions where someone readi
 **Why:** the core goal of the project — watch evolution discover behaviour. Scripted behaviour wouldn't be evolution, it'd be a game.
 **Accepted tradeoff:** early-generation organisms behave poorly until selection produces useful circuits. Initial-diversity seeding (30% photosynthesisers) compensates by guaranteeing *some* strategy works out of the gate.
 
-### Species classification threshold 1.3 with 1.3× hysteresis
-**Chosen:** organisms classified by NEAT compatibility distance, threshold 1.3 to join a species, 1.69 (1.3×) to stay in it. Runs every 5 seconds.
-**Alternatives:** 2.0 (original — observed stagnation), 1.5 (moderate), 1.0 (too tight — broke ecosystems), no speciation, per-generation classification.
-**Why 1.3:** audit of 8 seeds at 15k ticks showed every single run lost species at roughly the same rate (halving across the run) with threshold 2.0 — small lineages drifting into the gene-space "territory" of larger existing species and getting absorbed. Tightening lets drifting organisms cross into "new species" territory instead. Tuning sweep 2.0 → 1.5 → 1.3 → 1.0: 1.0 preserves species count almost perfectly but over-speciates so hard that minority strategies (foragers, predators) can't find same-species mates and collapse (2/3 seeds hit full plant monoculture). 1.3 is the valley: mean final species count 15.3 vs 10.7 at baseline, one seed produced a healthy 22-species / 80-predator ecosystem.
-**Accepted tradeoff:** species names collide slightly more often (the word-list naming scheme has a finite combination count), plant dominance attractor is unchanged (needs a different lever), and mate-finding gets mildly harder for drift-cases. Hysteresis still 1.3× so an organism stays in its current species up to distance 1.69 — prevents classification flip-flopping at the new tighter threshold.
+### Species classification: trait-led distance, threshold 1.0 with 1.3× hysteresis
+**Chosen:** organisms are classified by `Genome::compatibility_distance`, threshold 1.0 to join a species and 1.3 (1.3× hysteresis) to stay in one, re-evaluated every 5 seconds. The distance has four terms, each roughly 0..1 before weighting: excess connections / N and disjoint connections / N at 0.5 each, mean weight difference of matching connections at 0.5, and a body term at 1.0. The body term is the mean over the nine scalar traits of `|a - b| / span`, where `span` is the trait's mutation clamp range (`SCALAR_TRAIT_BOUNDS` in `clauvolution_genome`), so one trait at opposite ends of its range contributes 1/9 and the whole term lies in 0..1.
+**Previous values (2026-04 to 2026-09-18):** c1 = 1.0, c2 = 1.0, c3 = 0.4, body term `× 0.5` on raw trait deltas with ad hoc per-trait scalars (sense range × 0.01, disease resistance × 0.5, symbiosis × 0.3), threshold 1.3. The raw body term could exceed 2 on its own (speed factor spans 2.8, body size 1.7), so species were trait-led by accident and the earlier threshold sweep (2.0 → 1.5 → 1.3 → 1.0, recorded below) was tuning that unnamed lever. Review finding `compatibility-body-term-unbounded`.
+**Alternatives:** brain-led (NEAT terms at 1.0, body at 0.5); balanced (all terms equal). Rejected in `docs/design/simulation-rules.md`: a species should be a way of making a living that can be seen from outside, and the diet and biome traits planned for phases 1 and 2 will carry that meaning. The brain terms stay so a behavioural split can still become a species.
+**Threshold sweep (2026-09-18, 5000 headless ticks, species at the end / plants / foragers / predators, one run per cell unless noted; runs are not reproducible so treat a cell as indicative):**
+
+| Threshold | Seed 1 | Seed 3 | Seed 42 |
+| --- | --- | --- | --- |
+| 0.3 | 412 / 1903 / 95 / 2 | | |
+| 0.5 | 125 / 1896 / 102 / 2 | | |
+| 0.7 | 59 / 1525 / 463 / 12 | 82 / 955 / 1019 / 26 | 103 / 1519 / 407 / 74 |
+| 0.8 | 31 / 1944 / 55 / 1 | 49 / 1285 / 581 / 134 | 50 / 1312 / 653 / 35 |
+| 0.9 | 27 / 1862 / 134 / 4 | 33 / 1222 / 681 / 97 | 46 / 1082 / 910 / 8 |
+| **1.0** | 13 / 1981 / 5 / 14 and 14 / 1882 / 115 / 3 | 18 / 1259 / 665 / 76 (twice) | 36 / 1482 / 272 / 246 and 31 / 1364 / 541 / 95 |
+| 1.1 | 4 / 1925 / 18 / 57 | 4 / 1216 / 779 / 5 | 6 / 1453 / 540 / 7 |
+| 1.3 | 2 / 1991 / 7 / 2 | | |
+| 1.6 | 1 / 1937 / 61 / 2 | | |
+
+Before this change, main at 5000 ticks gave roughly 15 to 30 species on these seeds, and the 2026-09-18 attractor audit gave 11 to 29 at 15k ticks. Threshold 1.0 is the cell that lands in that range (13 to 36 over six runs); 0.9 runs high and 1.1 falls off a cliff to a handful of species. The strategy breakdown at 1.0 is similar to 0.9 and 0.8, so the threshold moved the species count without visibly changing the dynamics.
+**Earlier sweep (threshold on the previous distance, 8 seeds at 15k ticks):** 2.0 lost species at a steady rate on every run (small lineages drifting into the gene-space territory of larger species and being absorbed); 1.0 preserved species count but over-speciated so hard that minority strategies could not find same-species mates (2/3 seeds hit plant monoculture); 1.3 was the valley with mean final species count 15.3 vs 10.7 at 2.0.
+**Accepted tradeoff:** the count is steep in the threshold near 1.0, so any new trait (phases 1 and 2 each add some) will need the sweep repeated, as the design doc's risks section already says. Species now split on body traits before brains, so two lineages with identical bodies and different behaviour need a larger brain divergence to separate than before. Hysteresis stays at 1.3× so an organism stays in its current species up to distance 1.3, preventing flip-flopping at the threshold.
+
+### Crossover blends each scalar trait with its own factor
+**Chosen:** `Genome::crossover` draws a fresh blend factor `t` for each of the nine scalar traits (body size, speed, sense range, aquatic adaptation, photosynthesis rate, armour, attack power, disease resistance, symbiosis rate) and sets the child's trait to `a × t + b × (1 - t)`. Body segments and brain crossover are unchanged.
+**Alternatives:** one shared `t` for all traits (previous behaviour); uniform crossover (each trait copied whole from one parent); child always takes the fitter parent's traits.
+**Why:** with one shared factor every child lies on the straight line between its parents in trait space, so sexual reproduction could never combine parent A's speed with parent B's armour. Independent factors let a mating produce trait combinations neither parent had, which is the point of sex in the sim. Blending rather than copying whole keeps children near their parents so speciation is not disturbed by crossover alone. Resolves review finding `crossover-single-blend-factor`.
+**Accepted tradeoff:** children of very different parents scatter across a hyperrectangle instead of a line, so more of them land in untested trait combinations; mates are same-species by construction, so the parents are already close and the scatter is small.
 
 ### Species naming — habitat + descriptor + strategy, children inherit two of three
 **Chosen:** three-word names like "Swamp Dwarf Moss" (habitat = Swamp, descriptor = Dwarf, strategy noun = Moss). Child species inherit their parent's habitat and strategy noun, only varying the descriptor.

@@ -250,7 +250,7 @@ impl Default for SimConfig {
             // seeds hit full plant monoculture). 1.3 is the sweet spot:
             // diversity holds longer, and one seed showed a healthy
             // 22-species / 80-predator ecosystem. See DECISIONS.md.
-            species_compat_threshold: 1.3,
+            species_compat_threshold: 1.0,
             terrain_seed: rand::random(),
         }
     }
