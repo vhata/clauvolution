@@ -56,6 +56,7 @@ One-liner list of what Clauvolution does, grouped by area. For the design ration
 - **Death markers** — red flash for predation kills, amber for every other cause (starvation, old age, disease, world events); fades over ~0.5s
 - **Organism trails (T)** — toggle a gizmos linestrip behind the selected organism showing its last ~2 seconds of movement
 - **Initial diversity seeding** — 30% of starting population are photosynthesisers (bootstraps food chain)
+- **Per-biome seeding** — the 400 founders are placed on land in proportion to each biome's area (Sand, Grassland, Forest, Rock; never water), with a floor of 5% for any biome holding at least 1% of the land, and start just below their own reproduction threshold; the starting food stock (`initial_food_density`) and the regeneration ceiling (`max_food_density`) are separate settings, both 0.1; the founder counts per biome and strategy are logged at startup and printed in the headless summary
 
 ## Navigation & camera
 

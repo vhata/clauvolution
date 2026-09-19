@@ -9,7 +9,7 @@ use clauvolution_brain::Brain;
 use clauvolution_core::*;
 use clauvolution_genome::{Genome, InnovationCounter, NUM_INPUTS, NUM_MEMORY};
 use clauvolution_phylogeny::{PhyloTree, SpeciesStrategy, SpeciesTraits, WorldChronicle};
-use clauvolution_world::{update_spatial_hash, SpatialHash, TileMap};
+use clauvolution_world::{update_spatial_hash, SpatialHash, TerrainType, TileMap};
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
 
@@ -1392,7 +1392,7 @@ fn reproduction_system(
         }
         // Reproduction cost scales with body size — small organisms can't reproduce for free
         let repro_cost = config.reproduction_energy_cost * (0.5 + body_size.0 * 0.5);
-        let repro_threshold = config.reproduction_energy_threshold * (0.5 + body_size.0 * 0.5);
+        let repro_threshold = reproduction_threshold(&config, body_size.0);
         let wants_child = output.reproduce > 0.5 && energy.0 > repro_threshold;
         if current_pop + new_organisms.len() >= ceiling {
             // Blocked parents keep their energy; only the birth is refused.
@@ -1646,13 +1646,7 @@ fn species_classification_system(
             let color = species_colors.get_or_create(new_id);
 
             // Record new species in phylogenetic tree
-            let strategy = if genome.photosynthesis_rate > 0.2 && genome.has_photo_surface() {
-                SpeciesStrategy::Photosynthesizer
-            } else if genome.claw_power() > 0.5 {
-                SpeciesStrategy::Predator
-            } else {
-                SpeciesStrategy::Forager
-            };
+            let strategy = classify_strategy(genome);
             // Parent is the old species this organism was classified as
             let parent = if *_old_species > 0 {
                 Some(*_old_species)
@@ -1814,12 +1808,10 @@ fn record_population_history(
         std::collections::HashMap::with_capacity(organisms.iter().len());
 
     for (entity, genome, symbiosis, inf) in &organisms {
-        if genome.photosynthesis_rate > 0.2 && genome.has_photo_surface() {
-            plants += 1;
-        } else if genome.claw_power() > 0.5 {
-            predators += 1;
-        } else {
-            foragers += 1;
+        match classify_strategy(genome) {
+            SpeciesStrategy::Photosynthesizer => plants += 1,
+            SpeciesStrategy::Predator => predators += 1,
+            SpeciesStrategy::Forager => foragers += 1,
         }
         if inf.is_some() {
             infected += 1;
@@ -1905,36 +1897,224 @@ fn record_trail_history(
     }
 }
 
-/// Spawn the founding population. Returns the total energy spawned so the
-/// caller can set the `EnergyLedger` baseline.
+/// Land biomes the founding population is seeded into, in the order the
+/// per-biome counts are reported. Water is not a founding habitat.
+pub const FOUNDING_BIOMES: [TerrainType; 4] = [
+    TerrainType::Sand,
+    TerrainType::Grassland,
+    TerrainType::Forest,
+    TerrainType::Rock,
+];
+
+/// Minimum share of the founding population a biome receives once its area
+/// is meaningful, so no land biome starts empty.
+const FOUNDER_FLOOR_SHARE: f32 = 0.05;
+
+/// A biome's share of founding-biome land must reach this for the floor to
+/// apply; smaller patches take only their proportional share.
+const FOUNDER_MEANINGFUL_AREA_SHARE: f32 = 0.01;
+
+/// Founders start at this fraction of their own body-scaled reproduction
+/// threshold, so the first birth has to be paid for with earned energy.
+/// See `docs/DECISIONS.md`, "Per-biome seeding".
+const FOUNDER_ENERGY_FRACTION: f32 = 0.9;
+
+/// Energy an organism of `body_size` must exceed before `reproduction_system`
+/// lets it reproduce: the configured threshold scaled by `0.5 + body_size * 0.5`.
+pub fn reproduction_threshold(config: &SimConfig, body_size: f32) -> f32 {
+    config.reproduction_energy_threshold * (0.5 + body_size * 0.5)
+}
+
+/// Strategy label used by population history, species records, and the
+/// founder log line.
+pub fn classify_strategy(genome: &Genome) -> SpeciesStrategy {
+    if genome.photosynthesis_rate > 0.2 && genome.has_photo_surface() {
+        SpeciesStrategy::Photosynthesizer
+    } else if genome.claw_power() > 0.5 {
+        SpeciesStrategy::Predator
+    } else {
+        SpeciesStrategy::Forager
+    }
+}
+
+/// Split `total` founders across biomes in proportion to `areas` (tile counts,
+/// one per entry of `FOUNDING_BIOMES`). Shares are rounded by largest
+/// remainder so the result sums to `total`. A biome with no tiles gets none;
+/// a biome holding at least `FOUNDER_MEANINGFUL_AREA_SHARE` of the counted
+/// land is raised to `FOUNDER_FLOOR_SHARE` of `total`, taking the difference
+/// from the most populous biomes. Returns all zeros when there is no land.
+pub fn founder_allocation(areas: &[usize], total: u32) -> Vec<u32> {
+    let total_area: usize = areas.iter().sum();
+    if total_area == 0 {
+        return vec![0; areas.len()];
+    }
+
+    // Proportional share, rounded by largest remainder.
+    let quotas: Vec<f64> = areas
+        .iter()
+        .map(|&a| total as f64 * a as f64 / total_area as f64)
+        .collect();
+    let mut counts: Vec<u32> = quotas.iter().map(|q| q.floor() as u32).collect();
+    let mut leftover = total - counts.iter().sum::<u32>();
+    let mut by_remainder: Vec<usize> = (0..areas.len()).collect();
+    by_remainder.sort_by(|&a, &b| {
+        let ra = quotas[a] - quotas[a].floor();
+        let rb = quotas[b] - quotas[b].floor();
+        rb.partial_cmp(&ra).unwrap_or(std::cmp::Ordering::Equal)
+    });
+    for &i in by_remainder.iter().cycle() {
+        if leftover == 0 {
+            break;
+        }
+        if areas[i] > 0 {
+            counts[i] += 1;
+            leftover -= 1;
+        }
+    }
+
+    // Floor for biomes with a meaningful area, paid for by the largest.
+    let floor = ((total as f32 * FOUNDER_FLOOR_SHARE).ceil() as u32).min(total);
+    for i in 0..areas.len() {
+        let share = areas[i] as f32 / total_area as f32;
+        if share < FOUNDER_MEANINGFUL_AREA_SHARE {
+            continue;
+        }
+        while counts[i] < floor {
+            let donor = (0..areas.len())
+                .filter(|&j| j != i)
+                .max_by_key(|&j| counts[j])
+                .filter(|&j| counts[j] > floor);
+            match donor {
+                Some(j) => {
+                    counts[j] -= 1;
+                    counts[i] += 1;
+                }
+                None => break,
+            }
+        }
+    }
+
+    counts
+}
+
+/// How the founding population was seeded. The app inserts it as a
+/// resource so the headless summary can print it; a loaded save has none.
+#[derive(Resource, Debug, Clone)]
+pub struct FounderReport {
+    /// Founders and land tiles per entry of `FOUNDING_BIOMES`.
+    pub by_biome: Vec<(TerrainType, u32, usize)>,
+    pub plants: u32,
+    pub foragers: u32,
+    pub predators: u32,
+    pub min_energy: f32,
+    pub max_energy: f32,
+    /// Total energy spawned; the `EnergyLedger` baseline.
+    pub total_energy: f64,
+}
+
+impl std::fmt::Display for FounderReport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let by_biome: Vec<String> = self
+            .by_biome
+            .iter()
+            .map(|(t, n, a)| format!("{t:?} {n} (tiles {a})"))
+            .collect();
+        write!(
+            f,
+            "Founders by biome: {}; strategies: {} plants, {} foragers, {} predators; starting energy {:.1}..{:.1}",
+            by_biome.join(", "),
+            self.plants,
+            self.foragers,
+            self.predators,
+            self.min_energy,
+            self.max_energy
+        )
+    }
+}
+
+/// Spawn the founding population.
+///
+/// Founders are placed on land in proportion to each biome's area (see
+/// `founder_allocation`), and every founder starts just below its own
+/// reproduction threshold, so the opening is colonisation from modest
+/// beginnings rather than a burst of births on free energy. The genome
+/// split (roughly 30% photosynthesisers, the rest minimal foragers) is
+/// unchanged. Returns the per-biome and per-strategy founder counts and the
+/// total energy spawned, which sets the `EnergyLedger` baseline.
 pub fn spawn_initial_population(
     commands: &mut Commands,
     config: &SimConfig,
+    tile_map: &TileMap,
     innovation: &mut InnovationCounter,
     rng: &mut impl Rng,
-) -> f64 {
+) -> FounderReport {
+    use rand::seq::SliceRandom;
+
     let photo_count = config.initial_population / 3; // 30% photosynthesizers
-    let founder_energy = config.max_organism_energy * 0.5;
     let mut total_energy = 0.0f64;
 
-    for i in 0..config.initial_population {
-        let x = rng.gen_range(0.0..config.world_width as f32);
-        let y = rng.gen_range(0.0..config.world_height as f32);
+    // Tile indices per founding biome.
+    let mut biome_tiles: Vec<Vec<u32>> = vec![Vec::new(); FOUNDING_BIOMES.len()];
+    for (idx, tile) in tile_map.tiles.iter().enumerate() {
+        if let Some(b) = FOUNDING_BIOMES.iter().position(|t| *t == tile.terrain) {
+            biome_tiles[b].push(idx as u32);
+        }
+    }
+    let areas: Vec<usize> = biome_tiles.iter().map(Vec::len).collect();
+    let counts = founder_allocation(&areas, config.initial_population);
 
-        let genome = if i < photo_count {
+    // One biome slot per founder, shuffled so the photosynthesiser share
+    // lands in every biome rather than in whichever biome is listed first.
+    let mut slots: Vec<Option<usize>> = Vec::with_capacity(config.initial_population as usize);
+    for (b, &n) in counts.iter().enumerate() {
+        slots.extend(std::iter::repeat_n(Some(b), n as usize));
+    }
+    // No land at all: fall back to uniform placement.
+    slots.resize(config.initial_population as usize, None);
+    slots.shuffle(rng);
+
+    let mut strategy_counts = [0u32; 3];
+    let (mut min_energy, mut max_energy) = (f32::MAX, f32::MIN);
+
+    for (i, slot) in slots.iter().enumerate() {
+        let (x, y) = match slot {
+            Some(b) => {
+                let idx = *biome_tiles[*b]
+                    .choose(rng)
+                    .expect("biome with founders has tiles");
+                let tx = (idx % tile_map.width) as f32;
+                let ty = (idx / tile_map.width) as f32;
+                (tx + rng.gen::<f32>(), ty + rng.gen::<f32>())
+            }
+            None => (
+                rng.gen_range(0.0..config.world_width as f32),
+                rng.gen_range(0.0..config.world_height as f32),
+            ),
+        };
+
+        let genome = if (i as u32) < photo_count {
             Genome::new_photosynthesizer(innovation, rng)
         } else {
             Genome::new_minimal(innovation, rng)
         };
 
+        match classify_strategy(&genome) {
+            SpeciesStrategy::Photosynthesizer => strategy_counts[0] += 1,
+            SpeciesStrategy::Forager => strategy_counts[1] += 1,
+            SpeciesStrategy::Predator => strategy_counts[2] += 1,
+        }
+
         let brain = Brain::from_genome(&genome);
         let body_size = genome.body_size;
+        let energy = reproduction_threshold(config, body_size) * FOUNDER_ENERGY_FRACTION;
+        min_energy = min_energy.min(energy);
+        max_energy = max_energy.max(energy);
 
-        total_energy += founder_energy as f64;
+        total_energy += energy as f64;
         commands
             .spawn((
                 Organism,
-                Energy(founder_energy),
+                Energy(energy),
                 Health(1.0),
                 Position(Vec2::new(x, y)),
                 Velocity(Vec2::ZERO),
@@ -1958,7 +2138,20 @@ pub fn spawn_initial_population(
                 EnergyFlows::default(),
             ));
     }
-    total_energy
+
+    FounderReport {
+        by_biome: FOUNDING_BIOMES
+            .iter()
+            .zip(counts.iter().zip(areas.iter()))
+            .map(|(t, (n, a))| (*t, *n, *a))
+            .collect(),
+        plants: strategy_counts[0],
+        foragers: strategy_counts[1],
+        predators: strategy_counts[2],
+        min_energy,
+        max_energy,
+        total_energy,
+    }
 }
 
 /// F5 saves the world to the session directory
@@ -2027,4 +2220,108 @@ fn save_system(
         &phylo,
         &chronicle,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::ecs::world::CommandQueue;
+    use rand::{rngs::StdRng, SeedableRng};
+
+    #[test]
+    fn founder_allocation_is_proportional_and_sums_to_total() {
+        // 50% / 30% / 20% / 0% of the land.
+        let counts = founder_allocation(&[5000, 3000, 2000, 0], 400);
+        assert_eq!(counts, vec![200, 120, 80, 0]);
+        assert_eq!(counts.iter().sum::<u32>(), 400);
+    }
+
+    #[test]
+    fn founder_allocation_floors_small_but_meaningful_biomes() {
+        // Rock is 2% of the land: proportional share would be 8, floor is 20.
+        // The largest biome pays the difference.
+        let counts = founder_allocation(&[3000, 4800, 2000, 200], 400);
+        assert_eq!(counts.iter().sum::<u32>(), 400);
+        assert_eq!(counts[3], 20);
+        assert_eq!(counts[1], 192 - 12);
+        // Below 1% of the land, no floor applies.
+        let counts = founder_allocation(&[5000, 4950, 0, 50], 400);
+        assert_eq!(counts.iter().sum::<u32>(), 400);
+        assert_eq!(counts[3], 2);
+        assert_eq!(counts[2], 0);
+    }
+
+    #[test]
+    fn founder_allocation_handles_no_land() {
+        assert_eq!(founder_allocation(&[0, 0, 0, 0], 400), vec![0, 0, 0, 0]);
+    }
+
+    /// Runs the real spawner against a generated map without a Bevy `App`:
+    /// founders land in the biome they were allocated to, none sits in water,
+    /// the photosynthesiser share is unchanged, and every founder starts
+    /// below its own reproduction threshold.
+    #[test]
+    fn founders_land_in_allocated_biomes_below_reproduction_threshold() {
+        let config = SimConfig {
+            terrain_seed: 42,
+            ..SimConfig::default()
+        };
+        let mut terrain_rng = StdRng::seed_from_u64(config.terrain_seed);
+        let tile_map = TileMap::generate(config.world_width, config.world_height, &mut terrain_rng);
+        let mut innovation = InnovationCounter(0);
+        let mut rng = StdRng::seed_from_u64(config.terrain_seed);
+
+        let mut world = World::new();
+        let mut queue = CommandQueue::default();
+        let report = {
+            let mut commands = Commands::new(&mut queue, &world);
+            spawn_initial_population(&mut commands, &config, &tile_map, &mut innovation, &mut rng)
+        };
+        queue.apply(&mut world);
+        println!("{report}");
+        assert_eq!(
+            report.plants + report.foragers + report.predators,
+            config.initial_population
+        );
+        assert_eq!(report.plants, config.initial_population / 3);
+        assert!(report.by_biome.iter().all(|(_, n, a)| *a > 0 || *n == 0));
+
+        let mut areas = vec![0usize; FOUNDING_BIOMES.len()];
+        for tile in &tile_map.tiles {
+            if let Some(b) = FOUNDING_BIOMES.iter().position(|t| *t == tile.terrain) {
+                areas[b] += 1;
+            }
+        }
+        let expected = founder_allocation(&areas, config.initial_population);
+
+        let mut per_biome = vec![0u32; FOUNDING_BIOMES.len()];
+        let mut plants = 0u32;
+        let mut total = 0u32;
+        let mut query =
+            world.query_filtered::<(&Position, &Energy, &BodySize, &Genome), With<Organism>>();
+        for (pos, energy, body, genome) in query.iter(&world) {
+            total += 1;
+            let terrain = tile_map.tile_at_pos(pos.0).terrain;
+            assert!(
+                !terrain.is_water(),
+                "founder placed in water at {:?}",
+                pos.0
+            );
+            let b = FOUNDING_BIOMES.iter().position(|t| *t == terrain).unwrap();
+            per_biome[b] += 1;
+            assert!(
+                energy.0 < reproduction_threshold(&config, body.0),
+                "founder starts able to reproduce: energy {} body {}",
+                energy.0,
+                body.0
+            );
+            if classify_strategy(genome) == SpeciesStrategy::Photosynthesizer {
+                plants += 1;
+            }
+        }
+
+        assert_eq!(total, config.initial_population);
+        assert_eq!(per_biome, expected, "founders per biome (areas {areas:?})");
+        assert_eq!(plants, config.initial_population / 3);
+    }
 }
