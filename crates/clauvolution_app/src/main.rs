@@ -172,8 +172,8 @@ fn main() {
         Startup,
         (
             apply_seed_override,
-            startup_system,
             apply_config_overrides,
+            startup_system,
             set_window_title,
         )
             .chain(),
@@ -524,9 +524,9 @@ fn run_headless(
             Startup,
             (
                 apply_seed_override,
+                apply_config_overrides,
                 startup_system,
                 set_headless_speed,
-                apply_config_overrides,
                 unbound_history,
             )
                 .chain(),
@@ -651,8 +651,10 @@ fn set_headless_speed(speed: Res<HeadlessSpeed>, mut sim_speed: ResMut<SimSpeed>
 }
 
 /// `SimConfig` fields that can be overridden from the command line, applied
-/// after `startup_system` in both the GUI and headless startup chains. These
-/// are the knobs the tuning passes sweep; each maps to one `--flag VALUE`.
+/// before `startup_system` in both the GUI and headless startup chains so the
+/// founders are spawned under the overridden values (a loaded save restores
+/// only `terrain_seed`, so nothing is undone). These are the knobs the tuning
+/// passes sweep; each maps to one `--flag VALUE`.
 #[derive(Resource, Default)]
 struct ConfigOverrides {
     species_threshold: Option<f32>,
