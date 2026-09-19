@@ -15,7 +15,18 @@ use bevy_egui::{egui, EguiContexts, EguiUserTextures};
 use clauvolution_body::BodyPlan;
 use clauvolution_core::*;
 use clauvolution_genome::{Genome, SegmentType};
+use clauvolution_phylogeny::{classify_strategy, SpeciesStrategy};
 use clauvolution_world::TileMap;
+
+/// Minimap dot colour per strategy (normal mode, heatmap blend, legend).
+fn strategy_rgb(strategy: SpeciesStrategy) -> [u8; 3] {
+    match strategy {
+        SpeciesStrategy::Photosynthesizer => [100, 255, 100],
+        SpeciesStrategy::Grazer => [255, 210, 80],
+        SpeciesStrategy::Hunter => [255, 60, 60],
+        SpeciesStrategy::Omnivore => [255, 255, 255],
+    }
+}
 
 mod screenshot_with_egui;
 
@@ -403,7 +414,7 @@ fn sync_organism_transforms(
     let use_detailed = zoom_scale < 0.6;
 
     for (entity, pos, genome, body_plan, species_id) in &organisms_without_sprite {
-        let is_plant = genome.photosynthesis_rate > 0.2 && genome.has_photo_surface();
+        let is_plant = genome.is_photosynthesiser();
         let z_level = if is_plant { 0.3 } else { 1.0 };
 
         if use_detailed && !body_plan.parts.is_empty() {
@@ -447,7 +458,7 @@ fn sync_organism_transforms(
 
             let photo = genome.photosynthesis_rate;
             let predator = genome.claw_power().min(1.0);
-            let is_plant = photo > 0.2 && genome.has_photo_surface();
+            let is_plant = genome.is_photosynthesiser();
 
             let (r, g, b, z_level, scale_mult) = if is_plant {
                 // Plants: bright yellow-green, distinct from terrain, behind active organisms
@@ -1102,22 +1113,10 @@ fn paint_minimap_normal(
 
         if px < size && py < size {
             let idx = (py * size + px) * 4;
-            let is_plant = genome.photosynthesis_rate > 0.2 && genome.has_photo_surface();
-            let is_predator = genome.claw_power() > 0.5;
-
-            if is_plant {
-                image.data[idx] = 100;
-                image.data[idx + 1] = 255;
-                image.data[idx + 2] = 100;
-            } else if is_predator {
-                image.data[idx] = 255;
-                image.data[idx + 1] = 60;
-                image.data[idx + 2] = 60;
-            } else {
-                image.data[idx] = 255;
-                image.data[idx + 1] = 255;
-                image.data[idx + 2] = 255;
-            }
+            let [r, g, b] = strategy_rgb(classify_strategy(genome));
+            image.data[idx] = r;
+            image.data[idx + 1] = g;
+            image.data[idx + 2] = b;
         }
     }
 }
@@ -1136,10 +1135,9 @@ fn paint_minimap_heatmap(
     let grid_h = size / cell_size;
     let grid_len = grid_w * grid_h;
 
-    // Count organisms per cell, tracking strategy breakdown
-    let mut plants = vec![0u32; grid_len];
-    let mut predators = vec![0u32; grid_len];
-    let mut foragers = vec![0u32; grid_len];
+    // Count organisms per cell, one histogram per strategy (indexed as in
+    // `SpeciesStrategy::ALL`).
+    let mut counts = vec![[0u32; SpeciesStrategy::ALL.len()]; grid_len];
 
     for (pos, genome, _species) in organisms {
         let gx = (pos.0.x / world_w * grid_w as f32) as usize;
@@ -1147,25 +1145,19 @@ fn paint_minimap_heatmap(
 
         if gx < grid_w && gy < grid_h {
             let gi = gy * grid_w + gx;
-            let is_plant = genome.photosynthesis_rate > 0.2 && genome.has_photo_surface();
-            let is_predator = genome.claw_power() > 0.5;
-
-            if is_plant {
-                plants[gi] += 1;
-            } else if is_predator {
-                predators[gi] += 1;
-            } else {
-                foragers[gi] += 1;
-            }
+            let strategy = classify_strategy(genome);
+            let slot = SpeciesStrategy::ALL
+                .iter()
+                .position(|s| *s == strategy)
+                .unwrap_or(0);
+            counts[gi][slot] += 1;
         }
     }
 
     // Find max density for normalization
-    let max_density = plants
+    let max_density = counts
         .iter()
-        .zip(predators.iter())
-        .zip(foragers.iter())
-        .map(|((&p, &pr), &f)| p + pr + f)
+        .map(|c| c.iter().sum::<u32>())
         .max()
         .unwrap_or(1)
         .max(1) as f32;
@@ -1178,10 +1170,8 @@ fn paint_minimap_heatmap(
             let gx = (px / cell_size).min(grid_w - 1);
             let gi = gy * grid_w + gx;
 
-            let p = plants[gi] as f32;
-            let pr = predators[gi] as f32;
-            let f = foragers[gi] as f32;
-            let total = p + pr + f;
+            let cell = &counts[gi];
+            let total = cell.iter().sum::<u32>() as f32;
 
             let idx = (py * size + px) * 4;
 
@@ -1191,17 +1181,18 @@ fn paint_minimap_heatmap(
                 image.data[idx + 1] = 15;
                 image.data[idx + 2] = 20;
             } else {
-                // Blend colour by strategy proportion, intensity by density
+                // Blend the strategy colours by proportion, intensity by density
                 let intensity = (total / max_density).sqrt().clamp(0.15, 1.0);
-                let r = (pr / total) * intensity;
-                let g = (p / total) * intensity;
-                let b = (f / total) * intensity * 0.6;
-                // Add white component for foragers so they're visible
-                let forager_white = (f / total) * intensity * 0.4;
-
-                image.data[idx] = ((r + forager_white) * 255.0).min(255.0) as u8;
-                image.data[idx + 1] = ((g + forager_white) * 255.0).min(255.0) as u8;
-                image.data[idx + 2] = ((b + forager_white) * 255.0).min(255.0) as u8;
+                let mut rgb = [0.0f32; 3];
+                for (strategy, &n) in SpeciesStrategy::ALL.iter().zip(cell.iter()) {
+                    let share = n as f32 / total;
+                    for (acc, c) in rgb.iter_mut().zip(strategy_rgb(*strategy)) {
+                        *acc += share * c as f32;
+                    }
+                }
+                for (k, c) in rgb.iter().enumerate() {
+                    image.data[idx + k] = (c * intensity).min(255.0) as u8;
+                }
             }
             image.data[idx + 3] = 255;
         }
@@ -1341,9 +1332,13 @@ fn draw_minimap_egui(
                         }
 
                         ui.add_space(2.0);
-                        ui.colored_label(egui::Color32::from_rgb(100, 255, 100), "● plants");
-                        ui.colored_label(egui::Color32::from_rgb(230, 230, 230), "● foragers");
-                        ui.colored_label(egui::Color32::from_rgb(255, 60, 60), "● predators");
+                        for strategy in SpeciesStrategy::ALL {
+                            let [r, g, b] = strategy_rgb(strategy);
+                            ui.colored_label(
+                                egui::Color32::from_rgb(r, g, b),
+                                format!("● {}", strategy.label().to_lowercase()),
+                            );
+                        }
                     });
                 });
         });

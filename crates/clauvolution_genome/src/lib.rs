@@ -228,9 +228,21 @@ pub const ARMOR_BOUNDS: TraitBounds = TraitBounds::new(0.0, 1.0);
 pub const ATTACK_POWER_BOUNDS: TraitBounds = TraitBounds::new(0.0, 1.0);
 pub const DISEASE_RESISTANCE_BOUNDS: TraitBounds = TraitBounds::new(0.0, 1.0);
 pub const SYMBIOSIS_RATE_BOUNDS: TraitBounds = TraitBounds::new(-1.0, 1.0);
+pub const DIET_BOUNDS: TraitBounds = TraitBounds::new(-1.0, 1.0);
+
+/// Photosynthesis rate above which an organism with a photo surface counts
+/// as a photosynthesiser for classification, rendering, density competition
+/// and niche construction. See `Genome::is_photosynthesiser`.
+pub const PHOTOSYNTHESISER_RATE_THRESHOLD: f32 = 0.2;
+
+/// Photosynthesis rate above which an organism with a photo surface earns
+/// any sun at all. Deliberately far below `PHOTOSYNTHESISER_RATE_THRESHOLD`
+/// so a lineage drifting toward plant-hood is paid for the first steps.
+/// See `Genome::can_photosynthesise`.
+pub const PHOTOSYNTHESIS_YIELD_THRESHOLD: f32 = 0.01;
 
 /// Number of scalar traits on the genome (every field after `body_segments`).
-pub const SCALAR_TRAIT_COUNT: usize = 9;
+pub const SCALAR_TRAIT_COUNT: usize = 10;
 
 /// Bounds of each scalar trait, in the same order as `Genome::scalar_traits`.
 pub const SCALAR_TRAIT_BOUNDS: [TraitBounds; SCALAR_TRAIT_COUNT] = [
@@ -243,6 +255,7 @@ pub const SCALAR_TRAIT_BOUNDS: [TraitBounds; SCALAR_TRAIT_COUNT] = [
     ATTACK_POWER_BOUNDS,
     DISEASE_RESISTANCE_BOUNDS,
     SYMBIOSIS_RATE_BOUNDS,
+    DIET_BOUNDS,
 ];
 
 #[derive(Component, Clone, Debug)]
@@ -262,6 +275,11 @@ pub struct Genome {
     /// (drain energy from partner), 0.0 = neutral (no transfer), +1.0 =
     /// full donor (gift energy to partner). Evolution decides what works.
     pub symbiosis_rate: f32,
+    /// Digestive specialisation. -1.0 = pure herbivore (digests plant tissue
+    /// fully, animal tissue not at all), +1.0 = pure carnivore, 0.0 = a
+    /// generalist that digests a quarter of each. See `plant_efficiency`
+    /// and `animal_efficiency`.
+    pub diet: f32,
 }
 
 impl Genome {
@@ -338,6 +356,10 @@ impl Genome {
             // Start near-neutral; selection decides whether parasitism or
             // mutualism pays off in this world.
             symbiosis_rate: rng.gen_range(-0.2..0.2),
+            // Start near the generalist middle, like the other traits; the
+            // squared efficiency curve makes the middle a real cost, so
+            // selection decides which way each lineage specialises.
+            diet: rng.gen_range(-0.2..0.2),
         }
     }
 
@@ -443,6 +465,37 @@ impl Genome {
             .any(|s| s.segment_type == SegmentType::PhotoSurface)
     }
 
+    /// Whether this organism is a plant: a photo surface and a photosynthesis
+    /// rate above `PHOTOSYNTHESISER_RATE_THRESHOLD`. The one identity rule
+    /// used by strategy classification, rendering, plant density competition
+    /// and niche construction.
+    pub fn is_photosynthesiser(&self) -> bool {
+        self.photosynthesis_rate > PHOTOSYNTHESISER_RATE_THRESHOLD && self.has_photo_surface()
+    }
+
+    /// Whether this organism earns any sun: a photo surface and a rate above
+    /// `PHOTOSYNTHESIS_YIELD_THRESHOLD`. Looser than `is_photosynthesiser`
+    /// on purpose; see that constant.
+    pub fn can_photosynthesise(&self) -> bool {
+        self.photosynthesis_rate > PHOTOSYNTHESIS_YIELD_THRESHOLD && self.has_photo_surface()
+    }
+
+    /// Fraction of plant tissue this organism can digest, from `diet`:
+    /// `((1 - diet) / 2)^2`. 1.0 for a pure herbivore, 0.25 for a
+    /// generalist, 0.0 for a pure carnivore.
+    pub fn plant_efficiency(&self) -> f32 {
+        let h = (1.0 - DIET_BOUNDS.clamp(self.diet)) / 2.0;
+        h * h
+    }
+
+    /// Fraction of animal tissue this organism can digest, from `diet`:
+    /// `((1 + diet) / 2)^2`. 0.0 for a pure herbivore, 0.25 for a
+    /// generalist, 1.0 for a pure carnivore.
+    pub fn animal_efficiency(&self) -> f32 {
+        let c = (1.0 + DIET_BOUNDS.clamp(self.diet)) / 2.0;
+        c * c
+    }
+
     pub fn total_photo_surface_area(&self) -> f32 {
         self.body_segments
             .iter()
@@ -491,6 +544,7 @@ impl Genome {
             self.attack_power,
             self.disease_resistance,
             self.symbiosis_rate,
+            self.diet,
         ]
     }
 
@@ -572,6 +626,10 @@ impl Genome {
         if rng.gen::<f32>() < rate {
             self.symbiosis_rate += normal.sample(rng) as f32 * 0.1;
             self.symbiosis_rate = SYMBIOSIS_RATE_BOUNDS.clamp(self.symbiosis_rate);
+        }
+        if rng.gen::<f32>() < rate {
+            self.diet += normal.sample(rng) as f32 * 0.1;
+            self.diet = DIET_BOUNDS.clamp(self.diet);
         }
 
         // Mutate existing body segments
@@ -764,6 +822,7 @@ impl Genome {
             attack_power: blend(self.attack_power, other.attack_power),
             disease_resistance: blend(self.disease_resistance, other.disease_resistance),
             symbiosis_rate: blend(self.symbiosis_rate, other.symbiosis_rate),
+            diet: blend(self.diet, other.diet),
         }
     }
 
@@ -863,6 +922,7 @@ mod tests {
             6 => genome.attack_power = value,
             7 => genome.disease_resistance = value,
             8 => genome.symbiosis_rate = value,
+            9 => genome.diet = value,
             _ => panic!("no scalar trait at index {index}"),
         }
     }
@@ -924,6 +984,61 @@ mod tests {
             set_trait(&mut b, index, bounds.max + 10.0 * bounds.span());
         }
         assert!(a.body_trait_distance(&b) <= 1.0);
+    }
+
+    #[test]
+    fn diet_efficiencies_follow_the_squared_curve() {
+        let mut g = base_genome(2);
+        g.diet = -1.0;
+        assert!((g.plant_efficiency() - 1.0).abs() < 1e-6);
+        assert!(g.animal_efficiency().abs() < 1e-6);
+        g.diet = 1.0;
+        assert!(g.plant_efficiency().abs() < 1e-6);
+        assert!((g.animal_efficiency() - 1.0).abs() < 1e-6);
+        g.diet = 0.0;
+        assert!((g.plant_efficiency() - 0.25).abs() < 1e-6);
+        assert!((g.animal_efficiency() - 0.25).abs() < 1e-6);
+        // Out-of-range values (old saves) are clamped, not extrapolated.
+        g.diet = 3.0;
+        assert!((g.animal_efficiency() - 1.0).abs() < 1e-6);
+        assert!(g.plant_efficiency().abs() < 1e-6);
+    }
+
+    #[test]
+    fn diet_mutates_within_bounds() {
+        let mut innovation = InnovationCounter(0);
+        let mut rng = StdRng::seed_from_u64(4);
+        let mut g = Genome::new_minimal(&mut innovation, &mut rng);
+        let start = g.diet;
+        let mut moved = false;
+        for _ in 0..2000 {
+            g.mutate(&mut innovation, &mut rng, 1.0, 1.0);
+            assert!(g.diet >= DIET_BOUNDS.min && g.diet <= DIET_BOUNDS.max);
+            moved |= g.diet != start;
+        }
+        assert!(moved, "diet never mutated in 2000 rounds at rate 1.0");
+    }
+
+    #[test]
+    fn photosynthesiser_predicates_use_their_thresholds() {
+        let mut g = base_genome(6);
+        g.body_segments.push(BodySegmentGene {
+            segment_type: SegmentType::PhotoSurface,
+            size: 1.0,
+            attachment_angle: 0.0,
+            attachment_slot: 0,
+            symmetry: Symmetry::None,
+        });
+        g.photosynthesis_rate = 0.1;
+        assert!(g.can_photosynthesise());
+        assert!(!g.is_photosynthesiser());
+        g.photosynthesis_rate = 0.5;
+        assert!(g.is_photosynthesiser());
+        // No photo surface: neither, whatever the rate.
+        g.body_segments
+            .retain(|s| s.segment_type != SegmentType::PhotoSurface);
+        assert!(!g.can_photosynthesise());
+        assert!(!g.is_photosynthesiser());
     }
 
     #[test]

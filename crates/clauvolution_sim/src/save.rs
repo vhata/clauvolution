@@ -56,6 +56,9 @@ pub struct SaveGenome {
     pub disease_resistance: f32,
     #[serde(default)]
     pub symbiosis_rate: f32,
+    /// Absent in saves from before the diet axis; 0.0 is the generalist.
+    #[serde(default)]
+    pub diet: f32,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -173,6 +176,7 @@ fn genome_to_save(g: &Genome) -> SaveGenome {
         attack_power: g.attack_power,
         disease_resistance: g.disease_resistance,
         symbiosis_rate: g.symbiosis_rate,
+        diet: g.diet,
     }
 }
 
@@ -240,6 +244,7 @@ fn save_to_genome(s: &SaveGenome) -> Genome {
         attack_power: s.attack_power,
         disease_resistance: s.disease_resistance,
         symbiosis_rate: s.symbiosis_rate,
+        diet: s.diet,
     }
 }
 
@@ -300,10 +305,13 @@ pub fn save_world(
                 born_tick: n.born_tick,
                 extinct_tick: n.extinct_tick,
                 peak_population: n.peak_population,
+                // 0 plant, 1 hunter (was predator), 2 grazer (was forager),
+                // 3 omnivore. Kept so pre-diet-axis saves map naturally.
                 strategy: match n.strategy {
                     SpeciesStrategy::Photosynthesizer => 0,
-                    SpeciesStrategy::Predator => 1,
-                    SpeciesStrategy::Forager => 2,
+                    SpeciesStrategy::Hunter => 1,
+                    SpeciesStrategy::Grazer => 2,
+                    SpeciesStrategy::Omnivore => 3,
                 },
                 name: n.name.clone(),
             })
@@ -441,8 +449,9 @@ pub fn restore_phylo(phylo: &mut PhyloTree, nodes: &[SavePhyloNode]) {
             current_population: 0,
             strategy: match n.strategy {
                 0 => SpeciesStrategy::Photosynthesizer,
-                1 => SpeciesStrategy::Predator,
-                _ => SpeciesStrategy::Forager,
+                1 => SpeciesStrategy::Hunter,
+                2 => SpeciesStrategy::Grazer,
+                _ => SpeciesStrategy::Omnivore,
             },
             color: Color::WHITE, // will be reassigned by species classification
             name: n.name.clone(),

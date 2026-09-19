@@ -10,3 +10,6 @@ workspace = true
 bevy = { workspace = true }
 clauvolution_core = { path = "../clauvolution_core" }
 clauvolution_genome = { path = "../clauvolution_genome" }
+
+[dev-dependencies]
+rand = { workspace = true }

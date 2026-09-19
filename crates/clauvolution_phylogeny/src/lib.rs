@@ -60,18 +60,31 @@ fn strategy_noun(traits: &SpeciesTraits, id: usize) -> &'static str {
                 pick(&["Fern", "Moss", "Vine", "Shrub", "Bloom"], id)
             }
         }
-        SpeciesStrategy::Predator => {
+        SpeciesStrategy::Hunter => {
             if traits.aquatic > 0.5 {
                 pick(&["Shark", "Eel", "Hunter", "Stalker", "Lurker"], id)
             } else {
                 pick(&["Raptor", "Prowler", "Striker", "Ambusher", "Mauler"], id)
             }
         }
-        SpeciesStrategy::Forager => {
+        SpeciesStrategy::Grazer => {
             if traits.aquatic > 0.5 {
-                pick(&["Drifter", "Grazer", "Filter", "Crawler", "Scavenger"], id)
+                pick(&["Drifter", "Grazer", "Filter", "Crawler", "Nibbler"], id)
             } else {
-                pick(&["Forager", "Browser", "Gleaner", "Rooter", "Wanderer"], id)
+                pick(&["Grazer", "Browser", "Gleaner", "Rooter", "Cropper"], id)
+            }
+        }
+        SpeciesStrategy::Omnivore => {
+            if traits.aquatic > 0.5 {
+                pick(
+                    &["Scavenger", "Dabbler", "Rover", "Scrounger", "Skimmer"],
+                    id,
+                )
+            } else {
+                pick(
+                    &["Forager", "Wanderer", "Rummager", "Scavenger", "Rover"],
+                    id,
+                )
             }
         }
     }
@@ -200,11 +213,68 @@ pub struct PhyloNode {
     pub name: String,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// How a species makes its living, read off the genome by
+/// `classify_strategy`. Plants photosynthesise; the other three are split
+/// by the `diet` trait. See `docs/design/simulation-rules.md`, phase 1.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum SpeciesStrategy {
     Photosynthesizer,
-    Predator,
-    Forager,
+    /// `diet` at or below `-DIET_SPECIALIST_THRESHOLD`: lives on plant tissue.
+    Grazer,
+    /// `diet` at or above `DIET_SPECIALIST_THRESHOLD`: lives on animal tissue.
+    Hunter,
+    /// `diet` between the two: digests a little of each.
+    Omnivore,
+}
+
+/// `|diet|` from which an organism counts as a specialist rather than an
+/// omnivore. At a third, a specialist digests at least 44% of its preferred
+/// food and at most 11% of the other (`Genome::plant_efficiency`).
+pub const DIET_SPECIALIST_THRESHOLD: f32 = 1.0 / 3.0;
+
+impl SpeciesStrategy {
+    /// Every strategy, in display order.
+    pub const ALL: [SpeciesStrategy; 4] = [
+        SpeciesStrategy::Photosynthesizer,
+        SpeciesStrategy::Grazer,
+        SpeciesStrategy::Hunter,
+        SpeciesStrategy::Omnivore,
+    ];
+
+    /// Short display name.
+    pub fn label(self) -> &'static str {
+        match self {
+            SpeciesStrategy::Photosynthesizer => "Plant",
+            SpeciesStrategy::Grazer => "Grazer",
+            SpeciesStrategy::Hunter => "Hunter",
+            SpeciesStrategy::Omnivore => "Omnivore",
+        }
+    }
+
+    /// The activity the strategy names, for chronicle text
+    /// ("3 lineages evolved grazing").
+    pub fn activity(self) -> &'static str {
+        match self {
+            SpeciesStrategy::Photosynthesizer => "photosynthesis",
+            SpeciesStrategy::Grazer => "grazing",
+            SpeciesStrategy::Hunter => "hunting",
+            SpeciesStrategy::Omnivore => "omnivory",
+        }
+    }
+}
+
+/// Strategy label used by population history, species records, rendering,
+/// and the founder log line. Plants first, then the diet axis.
+pub fn classify_strategy(genome: &clauvolution_genome::Genome) -> SpeciesStrategy {
+    if genome.is_photosynthesiser() {
+        SpeciesStrategy::Photosynthesizer
+    } else if genome.diet <= -DIET_SPECIALIST_THRESHOLD {
+        SpeciesStrategy::Grazer
+    } else if genome.diet >= DIET_SPECIALIST_THRESHOLD {
+        SpeciesStrategy::Hunter
+    } else {
+        SpeciesStrategy::Omnivore
+    }
 }
 
 /// The full phylogenetic tree
@@ -329,15 +399,10 @@ impl PhyloTree {
     /// Returns strategies where 2+ unrelated lineages evolved the same thing.
     pub fn detect_convergence(&self) -> Vec<(SpeciesStrategy, usize)> {
         let living = self.living_species();
-        let strategies = [
-            SpeciesStrategy::Photosynthesizer,
-            SpeciesStrategy::Predator,
-            SpeciesStrategy::Forager,
-        ];
 
         let mut results = Vec::new();
 
-        for &strat in &strategies {
+        for &strat in &SpeciesStrategy::ALL {
             let species_with_strat: Vec<&PhyloNode> = living
                 .iter()
                 .filter(|n| n.strategy == strat && n.current_population >= 10)
@@ -467,11 +532,7 @@ impl PhyloTree {
             lines.push(String::new());
             lines.push("Recently extinct:".to_string());
             for node in recently_extinct.iter().take(3) {
-                let strategy = match node.strategy {
-                    SpeciesStrategy::Photosynthesizer => "Plant",
-                    SpeciesStrategy::Predator => "Predator",
-                    SpeciesStrategy::Forager => "Forager",
-                };
+                let strategy = node.strategy.label();
                 let ago = current_tick.saturating_sub(node.extinct_tick.unwrap_or(0)) / 30;
                 lines.push(format!(
                     "  {} - peak {} - died {}s ago",
@@ -525,5 +586,62 @@ impl PhyloTree {
             "{:<24} {:>4} {} {:>6}{}",
             padded_name, node.current_population, bar, age_str, declining,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clauvolution_genome::{
+        BodySegmentGene, Genome, InnovationCounter, SegmentType, Symmetry,
+        PHOTOSYNTHESISER_RATE_THRESHOLD,
+    };
+    use rand::rngs::StdRng;
+    use rand::SeedableRng;
+
+    fn genome(seed: u64) -> Genome {
+        let mut innovation = InnovationCounter(0);
+        let mut rng = StdRng::seed_from_u64(seed);
+        Genome::new_minimal(&mut innovation, &mut rng)
+    }
+
+    #[test]
+    fn plants_are_classified_before_diet() {
+        let mut g = genome(1);
+        g.body_segments.push(BodySegmentGene {
+            segment_type: SegmentType::PhotoSurface,
+            size: 1.0,
+            attachment_angle: 0.0,
+            attachment_slot: 0,
+            symmetry: Symmetry::None,
+        });
+        g.photosynthesis_rate = PHOTOSYNTHESISER_RATE_THRESHOLD + 0.1;
+        g.diet = 1.0;
+        assert_eq!(classify_strategy(&g), SpeciesStrategy::Photosynthesizer);
+    }
+
+    #[test]
+    fn diet_splits_the_rest_into_three() {
+        let mut g = genome(2);
+        g.body_segments
+            .retain(|s| s.segment_type != SegmentType::PhotoSurface);
+        g.diet = -1.0;
+        assert_eq!(classify_strategy(&g), SpeciesStrategy::Grazer);
+        g.diet = -DIET_SPECIALIST_THRESHOLD;
+        assert_eq!(classify_strategy(&g), SpeciesStrategy::Grazer);
+        g.diet = 0.0;
+        assert_eq!(classify_strategy(&g), SpeciesStrategy::Omnivore);
+        g.diet = DIET_SPECIALIST_THRESHOLD;
+        assert_eq!(classify_strategy(&g), SpeciesStrategy::Hunter);
+        g.diet = 1.0;
+        assert_eq!(classify_strategy(&g), SpeciesStrategy::Hunter);
+    }
+
+    #[test]
+    fn every_strategy_has_a_label_and_activity() {
+        for s in SpeciesStrategy::ALL {
+            assert!(!s.label().is_empty());
+            assert!(!s.activity().is_empty());
+        }
     }
 }
