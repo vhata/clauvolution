@@ -417,9 +417,11 @@ pub struct PopSnapshot {
     pub births_per_sec: u32,
     pub deaths_per_sec: u32,
     pub max_generation: u32,
+    // Strategy counts; see `classify_strategy` in `clauvolution_phylogeny`.
     pub plants: u32,
-    pub predators: u32,
-    pub foragers: u32,
+    pub grazers: u32,
+    pub hunters: u32,
+    pub omnivores: u32,
     pub avg_lifespan: f32,
     // Disease / health metrics
     pub infected: u32,
@@ -436,6 +438,8 @@ pub struct PopSnapshot {
     pub avg_armor: f32,
     pub avg_attack: f32,
     pub avg_photo: f32,
+    /// Mean `Genome::diet`, -1 herbivore to +1 carnivore.
+    pub avg_diet: f32,
     // Symbiosis metrics
     pub symbiotic_pairs: u32,
     pub avg_symbiosis_rate: f32,
@@ -517,8 +521,9 @@ impl PopulationHistory {
             deaths_per_sec,
             max_generation: stats.max_generation,
             plants: snapshot.plants,
-            predators: snapshot.predators,
-            foragers: snapshot.foragers,
+            grazers: snapshot.grazers,
+            hunters: snapshot.hunters,
+            omnivores: snapshot.omnivores,
             avg_lifespan: snapshot.avg_lifespan,
             infected: snapshot.infected,
             avg_disease_resistance: snapshot.avg_disease_resistance,
@@ -532,6 +537,7 @@ impl PopulationHistory {
             avg_armor: snapshot.avg_armor,
             avg_attack: snapshot.avg_attack,
             avg_photo: snapshot.avg_photo,
+            avg_diet: snapshot.avg_diet,
             symbiotic_pairs: snapshot.symbiotic_pairs,
             avg_symbiosis_rate: snapshot.avg_symbiosis_rate,
             energy_total: ledger.total as f32,
@@ -553,8 +559,9 @@ pub struct PopSnapshotInput {
     pub organisms: u32,
     pub food: u32,
     pub plants: u32,
-    pub predators: u32,
-    pub foragers: u32,
+    pub grazers: u32,
+    pub hunters: u32,
+    pub omnivores: u32,
     pub avg_lifespan: f32,
     pub infected: u32,
     pub avg_disease_resistance: f32,
@@ -563,6 +570,7 @@ pub struct PopSnapshotInput {
     pub avg_armor: f32,
     pub avg_attack: f32,
     pub avg_photo: f32,
+    pub avg_diet: f32,
     pub symbiotic_pairs: u32,
     pub avg_symbiosis_rate: f32,
 }
@@ -862,6 +870,9 @@ pub struct EnergyFlows {
     pub food: f64,
     /// Energy paid to a killer at a kill (the 10% pyramid share).
     pub predation: f64,
+    /// Energy credited to a grazer from a bite of a living plant. Zero until
+    /// grazing exists (phase 1 step 2 of `docs/design/simulation-rules.md`).
+    pub grazing: f64,
     /// Gross energy moved between symbiotic partners. A transfer, so it does
     /// not change the total and is not part of `net()`.
     pub symbiosis: f64,
@@ -881,24 +892,30 @@ pub struct EnergyFlows {
     pub death: f64,
     /// Income discarded by the `max_organism_energy` clamp.
     pub clamp: f64,
+    /// Energy lost between a meal and its eater: the undigested share of a
+    /// bite, a kill, or a food item. Zero until digestion efficiency exists
+    /// (phase 1 step 2 of `docs/design/simulation-rules.md`).
+    pub digestion: f64,
 }
 
 impl EnergyFlows {
     /// Signed change in total live energy these flows account for.
     pub fn net(&self) -> f64 {
-        self.photosynthesis + self.food + self.predation + self.reproduction_received
+        self.photosynthesis + self.food + self.predation + self.grazing + self.reproduction_received
             - self.metabolism
             - self.movement
             - self.disease
             - self.reproduction_spent
             - self.death
             - self.clamp
+            - self.digestion
     }
 
     pub fn add(&mut self, other: &EnergyFlows) {
         self.photosynthesis += other.photosynthesis;
         self.food += other.food;
         self.predation += other.predation;
+        self.grazing += other.grazing;
         self.symbiosis += other.symbiosis;
         self.metabolism += other.metabolism;
         self.movement += other.movement;
@@ -907,6 +924,7 @@ impl EnergyFlows {
         self.reproduction_received += other.reproduction_received;
         self.death += other.death;
         self.clamp += other.clamp;
+        self.digestion += other.digestion;
     }
 
     pub fn minus(&self, other: &EnergyFlows) -> EnergyFlows {
@@ -914,6 +932,7 @@ impl EnergyFlows {
             photosynthesis: self.photosynthesis - other.photosynthesis,
             food: self.food - other.food,
             predation: self.predation - other.predation,
+            grazing: self.grazing - other.grazing,
             symbiosis: self.symbiosis - other.symbiosis,
             metabolism: self.metabolism - other.metabolism,
             movement: self.movement - other.movement,
@@ -922,6 +941,7 @@ impl EnergyFlows {
             reproduction_received: self.reproduction_received - other.reproduction_received,
             death: self.death - other.death,
             clamp: self.clamp - other.clamp,
+            digestion: self.digestion - other.digestion,
         }
     }
 
@@ -930,11 +950,12 @@ impl EnergyFlows {
     }
 
     /// `(label, value)` pairs in display order, for summaries and CSV.
-    pub fn entries(&self) -> [(&'static str, f64); 11] {
+    pub fn entries(&self) -> [(&'static str, f64); 13] {
         [
             ("photosynthesis", self.photosynthesis),
             ("food", self.food),
             ("predation", self.predation),
+            ("grazing", self.grazing),
             ("symbiosis", self.symbiosis),
             ("metabolism", self.metabolism),
             ("movement", self.movement),
@@ -943,6 +964,7 @@ impl EnergyFlows {
             ("reproduction_received", self.reproduction_received),
             ("death", self.death),
             ("clamp", self.clamp),
+            ("digestion", self.digestion),
         ]
     }
 }

@@ -7,7 +7,9 @@ use bevy_egui::{egui, EguiContexts, EguiPlugin};
 use clauvolution_brain::Brain;
 use clauvolution_core::*;
 use clauvolution_genome::{Genome, SegmentType, Symmetry, NUM_INPUTS, NUM_OUTPUTS};
-use clauvolution_phylogeny::{PhyloNode, PhyloTree, SpeciesStrategy, WorldChronicle};
+use clauvolution_phylogeny::{
+    classify_strategy, PhyloNode, PhyloTree, SpeciesStrategy, WorldChronicle,
+};
 use clauvolution_world::TileMap;
 use egui_plot::{HLine, Legend, Line, Plot, PlotPoints};
 
@@ -519,11 +521,7 @@ fn species_row(ui: &mut egui::Ui, node: &PhyloNode, current_tick: u64) -> bool {
         format!("{}s", age_secs)
     };
 
-    let strategy_badge = match node.strategy {
-        SpeciesStrategy::Photosynthesizer => ("🌱", egui::Color32::from_rgb(120, 200, 100)),
-        SpeciesStrategy::Predator => ("🦷", egui::Color32::from_rgb(220, 100, 100)),
-        SpeciesStrategy::Forager => ("🍂", egui::Color32::from_rgb(220, 200, 120)),
-    };
+    let strategy_badge = (strategy_icon(node.strategy), strategy_color(node.strategy));
 
     let declining = node.current_population < node.peak_population / 2;
 
@@ -622,12 +620,9 @@ fn inspect_tab(
         .map(|tm| format!("{:?}", tm.tile_at_pos(pos.0).terrain))
         .unwrap_or_else(|| "?".to_string());
 
-    let strategy = if genome.photosynthesis_rate > 0.2 && genome.has_photo_surface() {
-        ("Photosynthesizer", egui::Color32::from_rgb(120, 200, 100))
-    } else if genome.claw_power() > 0.5 {
-        ("Predator", egui::Color32::from_rgb(220, 100, 100))
-    } else {
-        ("Forager", egui::Color32::from_rgb(230, 230, 230))
+    let strategy = {
+        let s = classify_strategy(genome);
+        (s.label(), strategy_color(s))
     };
 
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
@@ -739,6 +734,15 @@ fn inspect_tab(
 
                 ui.label("Disease resistance");
                 ui.label(format!("{:.0}%", genome.disease_resistance * 100.0));
+                ui.end_row();
+
+                ui.label("Diet");
+                ui.label(format!(
+                    "{:+.2} (digests {:.0}% plant, {:.0}% animal)",
+                    genome.diet,
+                    genome.plant_efficiency() * 100.0,
+                    genome.animal_efficiency() * 100.0
+                ));
                 ui.end_row();
 
                 ui.label("Symbiosis rate");
@@ -1285,14 +1289,20 @@ fn graphs_tab(ui: &mut egui::Ui, history: &PopulationHistory) {
 
             ui.label("Plants");
             ui.monospace(format!("{:>4}", latest.plants));
-            ui.label("Foragers");
-            ui.monospace(format!("{:>5}", latest.foragers));
+            ui.label("Grazers");
+            ui.monospace(format!("{:>5}", latest.grazers));
             ui.end_row();
 
-            ui.label("Predators");
-            ui.monospace(format!("{:>4}", latest.predators));
+            ui.label("Hunters");
+            ui.monospace(format!("{:>4}", latest.hunters));
+            ui.label("Omnivores");
+            ui.monospace(format!("{:>5}", latest.omnivores));
+            ui.end_row();
+
             ui.label("Infected");
             ui.monospace(format!("{:>3} ({:>2.0}%)", latest.infected, infected_pct));
+            ui.label("Diet");
+            ui.monospace(format!("{:>+5.2}", latest.avg_diet));
             ui.end_row();
 
             ui.label("Sym pairs");
@@ -1375,6 +1385,9 @@ fn graphs_tab(ui: &mut egui::Ui, history: &PopulationHistory) {
                 ui.label("Photosynthesis");
                 ui.monospace(format!("{:>4.0}%", latest.avg_photo * 100.0));
                 ui.end_row();
+                ui.label("Diet");
+                ui.monospace(format!("{:>+5.2}", latest.avg_diet));
+                ui.end_row();
             });
     });
 
@@ -1399,15 +1412,20 @@ fn graphs_tab(ui: &mut egui::Ui, history: &PopulationHistory) {
                 .enumerate()
                 .map(|(i, s)| [i as f64, s.plants as f64])
                 .collect();
-            let foragers: PlotPoints = snaps
+            let grazers: PlotPoints = snaps
                 .iter()
                 .enumerate()
-                .map(|(i, s)| [i as f64, s.foragers as f64])
+                .map(|(i, s)| [i as f64, s.grazers as f64])
                 .collect();
-            let predators: PlotPoints = snaps
+            let hunters: PlotPoints = snaps
                 .iter()
                 .enumerate()
-                .map(|(i, s)| [i as f64, s.predators as f64])
+                .map(|(i, s)| [i as f64, s.hunters as f64])
+                .collect();
+            let omnivores: PlotPoints = snaps
+                .iter()
+                .enumerate()
+                .map(|(i, s)| [i as f64, s.omnivores as f64])
                 .collect();
 
             Plot::new("pop_strategy")
@@ -1416,18 +1434,23 @@ fn graphs_tab(ui: &mut egui::Ui, history: &PopulationHistory) {
                 .show(ui, |plot_ui| {
                     plot_ui.line(
                         Line::new(plants)
-                            .color(egui::Color32::from_rgb(90, 200, 90))
+                            .color(strategy_color(SpeciesStrategy::Photosynthesizer))
                             .name("Plants"),
                     );
                     plot_ui.line(
-                        Line::new(foragers)
-                            .color(egui::Color32::from_rgb(230, 230, 230))
-                            .name("Foragers"),
+                        Line::new(grazers)
+                            .color(strategy_color(SpeciesStrategy::Grazer))
+                            .name("Grazers"),
                     );
                     plot_ui.line(
-                        Line::new(predators)
-                            .color(egui::Color32::from_rgb(230, 100, 100))
-                            .name("Predators"),
+                        Line::new(hunters)
+                            .color(strategy_color(SpeciesStrategy::Hunter))
+                            .name("Hunters"),
+                    );
+                    plot_ui.line(
+                        Line::new(omnivores)
+                            .color(strategy_color(SpeciesStrategy::Omnivore))
+                            .name("Omnivores"),
                     );
                 });
 
@@ -1578,6 +1601,11 @@ fn graphs_tab(ui: &mut egui::Ui, history: &PopulationHistory) {
                 .enumerate()
                 .map(|(i, s)| [i as f64, (s.avg_body_size * 100.0) as f64])
                 .collect();
+            let t_diet: PlotPoints = snaps
+                .iter()
+                .enumerate()
+                .map(|(i, s)| [i as f64, (s.avg_diet * 100.0) as f64])
+                .collect();
 
             Plot::new("trait_trends")
                 .height(130.0)
@@ -1602,6 +1630,11 @@ fn graphs_tab(ui: &mut egui::Ui, history: &PopulationHistory) {
                         Line::new(t_body)
                             .color(egui::Color32::from_rgb(200, 170, 230))
                             .name("Body size ×100"),
+                    );
+                    plot_ui.line(
+                        Line::new(t_diet)
+                            .color(egui::Color32::from_rgb(240, 180, 80))
+                            .name("Diet ×100 (−herb, +carn)"),
                     );
                 });
 
@@ -1935,4 +1968,26 @@ fn chronicle_tab(ui: &mut egui::Ui, chronicle: &WorldChronicle, hide_seasons: &m
                 });
             }
         });
+}
+
+/// Panel colour for a strategy, shared by the Phylo badges, the Inspect
+/// header, and the Graphs strategy plot so one strategy reads the same
+/// everywhere.
+pub fn strategy_color(strategy: SpeciesStrategy) -> egui::Color32 {
+    match strategy {
+        SpeciesStrategy::Photosynthesizer => egui::Color32::from_rgb(120, 200, 100),
+        SpeciesStrategy::Grazer => egui::Color32::from_rgb(230, 200, 90),
+        SpeciesStrategy::Hunter => egui::Color32::from_rgb(220, 100, 100),
+        SpeciesStrategy::Omnivore => egui::Color32::from_rgb(230, 230, 230),
+    }
+}
+
+/// Badge glyph for a strategy in the Phylo tab.
+fn strategy_icon(strategy: SpeciesStrategy) -> &'static str {
+    match strategy {
+        SpeciesStrategy::Photosynthesizer => "🌱",
+        SpeciesStrategy::Grazer => "🌾",
+        SpeciesStrategy::Hunter => "🦷",
+        SpeciesStrategy::Omnivore => "🍂",
+    }
 }

@@ -8,6 +8,8 @@ use bevy::prelude::*;
 use clauvolution_brain::Brain;
 use clauvolution_core::*;
 use clauvolution_genome::{Genome, InnovationCounter, NUM_INPUTS, NUM_MEMORY};
+/// Re-exported so callers that classified through this crate keep working.
+pub use clauvolution_phylogeny::classify_strategy;
 use clauvolution_phylogeny::{PhyloTree, SpeciesStrategy, SpeciesTraits, WorldChronicle};
 use clauvolution_world::{update_spatial_hash, SpatialHash, TerrainType, TileMap};
 use rand::Rng;
@@ -892,7 +894,7 @@ fn photosynthesis_system(
     // Plants on the same tile shade each other — prevents green-world monoculture.
     let mut plants_per_tile: HashMap<(u32, u32), u32> = HashMap::new();
     for (pos, _, _, genome) in organisms.iter() {
-        if genome.photosynthesis_rate > 0.2 && genome.has_photo_surface() {
+        if genome.is_photosynthesiser() {
             let tx = (pos.0.x as u32).min(tile_map.width - 1);
             let ty = (pos.0.y as u32).min(tile_map.height - 1);
             *plants_per_tile.entry((tx, ty)).or_insert(0) += 1;
@@ -913,7 +915,7 @@ fn photosynthesis_system(
     organisms
         .par_iter_mut()
         .for_each(|(pos, mut energy, mut flows, genome)| {
-            if genome.photosynthesis_rate > 0.01 && genome.has_photo_surface() {
+            if genome.can_photosynthesise() {
                 let tile = tile_map.tile_at_pos(pos.0);
                 let photo_area = genome.total_photo_surface_area();
 
@@ -947,7 +949,7 @@ fn niche_construction_system(
         let tile = tile_map.get_mut(x, y);
 
         // Photosynthesizers increase vegetation and moisture
-        if genome.photosynthesis_rate > 0.1 && genome.has_photo_surface() {
+        if genome.is_photosynthesiser() {
             tile.vegetation_density = (tile.vegetation_density + 0.001).min(1.0);
             tile.moisture = (tile.moisture + 0.0005).min(1.0);
         }
@@ -1743,11 +1745,7 @@ fn species_classification_system(
     // Detect convergent evolution — only log when lineage count increases
     let convergences = phylo.detect_convergence();
     for (strategy, lineage_count) in convergences {
-        let strategy_name = match strategy {
-            SpeciesStrategy::Photosynthesizer => "photosynthesis",
-            SpeciesStrategy::Predator => "predation",
-            SpeciesStrategy::Forager => "foraging",
-        };
+        let strategy_name = strategy.activity();
         // Only log if this is a new high for this strategy
         let already_logged = chronicle
             .entries
@@ -1788,8 +1786,9 @@ fn record_population_history(
     }
 
     let mut plants = 0u32;
-    let mut predators = 0u32;
-    let mut foragers = 0u32;
+    let mut grazers = 0u32;
+    let mut hunters = 0u32;
+    let mut omnivores = 0u32;
     let mut infected = 0u32;
 
     // Trait running sums for averaging
@@ -1799,6 +1798,7 @@ fn record_population_history(
     let mut sum_armor = 0.0f32;
     let mut sum_attack = 0.0f32;
     let mut sum_photo = 0.0f32;
+    let mut sum_diet = 0.0f32;
     let mut sum_symbiosis = 0.0f32;
     let mut n = 0u32;
 
@@ -1810,8 +1810,9 @@ fn record_population_history(
     for (entity, genome, symbiosis, inf) in &organisms {
         match classify_strategy(genome) {
             SpeciesStrategy::Photosynthesizer => plants += 1,
-            SpeciesStrategy::Predator => predators += 1,
-            SpeciesStrategy::Forager => foragers += 1,
+            SpeciesStrategy::Grazer => grazers += 1,
+            SpeciesStrategy::Hunter => hunters += 1,
+            SpeciesStrategy::Omnivore => omnivores += 1,
         }
         if inf.is_some() {
             infected += 1;
@@ -1822,6 +1823,7 @@ fn record_population_history(
         sum_armor += genome.armor_value();
         sum_attack += genome.claw_power();
         sum_photo += genome.photosynthesis_rate;
+        sum_diet += genome.diet;
         sum_symbiosis += genome.symbiosis_rate;
         n += 1;
 
@@ -1851,7 +1853,7 @@ fn record_population_history(
     }
 
     let div = n.max(1) as f32;
-    let org_count = plants + predators + foragers;
+    let org_count = plants + grazers + hunters + omnivores;
     let food_count = food.iter().len() as u32;
 
     history.record(
@@ -1862,8 +1864,9 @@ fn record_population_history(
             organisms: org_count,
             food: food_count,
             plants,
-            predators,
-            foragers,
+            grazers,
+            hunters,
+            omnivores,
             avg_lifespan: fitness.avg_lifespan,
             infected,
             avg_disease_resistance: sum_resist / div,
@@ -1872,6 +1875,7 @@ fn record_population_history(
             avg_armor: sum_armor / div,
             avg_attack: sum_attack / div,
             avg_photo: sum_photo / div,
+            avg_diet: sum_diet / div,
             symbiotic_pairs,
             avg_symbiosis_rate: sum_symbiosis / div,
         },
@@ -1923,18 +1927,6 @@ const FOUNDER_ENERGY_FRACTION: f32 = 0.9;
 /// lets it reproduce: the configured threshold scaled by `0.5 + body_size * 0.5`.
 pub fn reproduction_threshold(config: &SimConfig, body_size: f32) -> f32 {
     config.reproduction_energy_threshold * (0.5 + body_size * 0.5)
-}
-
-/// Strategy label used by population history, species records, and the
-/// founder log line.
-pub fn classify_strategy(genome: &Genome) -> SpeciesStrategy {
-    if genome.photosynthesis_rate > 0.2 && genome.has_photo_surface() {
-        SpeciesStrategy::Photosynthesizer
-    } else if genome.claw_power() > 0.5 {
-        SpeciesStrategy::Predator
-    } else {
-        SpeciesStrategy::Forager
-    }
 }
 
 /// Split `total` founders across biomes in proportion to `areas` (tile counts,
@@ -2004,8 +1996,9 @@ pub struct FounderReport {
     /// Founders and land tiles per entry of `FOUNDING_BIOMES`.
     pub by_biome: Vec<(TerrainType, u32, usize)>,
     pub plants: u32,
-    pub foragers: u32,
-    pub predators: u32,
+    pub grazers: u32,
+    pub hunters: u32,
+    pub omnivores: u32,
     pub min_energy: f32,
     pub max_energy: f32,
     /// Total energy spawned; the `EnergyLedger` baseline.
@@ -2021,11 +2014,12 @@ impl std::fmt::Display for FounderReport {
             .collect();
         write!(
             f,
-            "Founders by biome: {}; strategies: {} plants, {} foragers, {} predators; starting energy {:.1}..{:.1}",
+            "Founders by biome: {}; strategies: {} plants, {} grazers, {} hunters, {} omnivores; starting energy {:.1}..{:.1}",
             by_biome.join(", "),
             self.plants,
-            self.foragers,
-            self.predators,
+            self.grazers,
+            self.hunters,
+            self.omnivores,
             self.min_energy,
             self.max_energy
         )
@@ -2073,7 +2067,7 @@ pub fn spawn_initial_population(
     slots.resize(config.initial_population as usize, None);
     slots.shuffle(rng);
 
-    let mut strategy_counts = [0u32; 3];
+    let mut strategy_counts = [0u32; 4];
     let (mut min_energy, mut max_energy) = (f32::MAX, f32::MIN);
 
     for (i, slot) in slots.iter().enumerate() {
@@ -2100,8 +2094,9 @@ pub fn spawn_initial_population(
 
         match classify_strategy(&genome) {
             SpeciesStrategy::Photosynthesizer => strategy_counts[0] += 1,
-            SpeciesStrategy::Forager => strategy_counts[1] += 1,
-            SpeciesStrategy::Predator => strategy_counts[2] += 1,
+            SpeciesStrategy::Grazer => strategy_counts[1] += 1,
+            SpeciesStrategy::Hunter => strategy_counts[2] += 1,
+            SpeciesStrategy::Omnivore => strategy_counts[3] += 1,
         }
 
         let brain = Brain::from_genome(&genome);
@@ -2146,8 +2141,9 @@ pub fn spawn_initial_population(
             .map(|(t, (n, a))| (*t, *n, *a))
             .collect(),
         plants: strategy_counts[0],
-        foragers: strategy_counts[1],
-        predators: strategy_counts[2],
+        grazers: strategy_counts[1],
+        hunters: strategy_counts[2],
+        omnivores: strategy_counts[3],
         min_energy,
         max_energy,
         total_energy,
@@ -2280,7 +2276,7 @@ mod tests {
         queue.apply(&mut world);
         println!("{report}");
         assert_eq!(
-            report.plants + report.foragers + report.predators,
+            report.plants + report.grazers + report.hunters + report.omnivores,
             config.initial_population
         );
         assert_eq!(report.plants, config.initial_population / 3);

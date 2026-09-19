@@ -1748,6 +1748,7 @@ dependencies = [
  "bevy",
  "clauvolution_core",
  "clauvolution_genome",
+ "rand 0.8.5",
 ]
 
 [[package]]

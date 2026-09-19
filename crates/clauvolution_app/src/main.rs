@@ -577,29 +577,30 @@ fn dump_history_csv(
     let mut f = std::fs::File::create(path)?;
     writeln!(
         f,
-        "tick,sim_second,organisms,food,species,plants,foragers,predators,infected,\
-         avg_lifespan,avg_body_size,avg_speed,avg_armor,avg_attack,avg_photo,\
+        "tick,sim_second,organisms,food,species,plants,grazers,hunters,omnivores,infected,\
+         avg_lifespan,avg_body_size,avg_speed,avg_armor,avg_attack,avg_photo,avg_diet,\
          avg_disease_resistance,avg_symbiosis_rate,symbiotic_pairs,\
          deaths_starvation,deaths_predation,deaths_old_age,deaths_disease,deaths_event,\
-         energy_total,flow_photosynthesis,flow_food,flow_predation,flow_symbiosis,\
+         energy_total,flow_photosynthesis,flow_food,flow_predation,flow_grazing,flow_symbiosis,\
          flow_metabolism,flow_movement,flow_disease,flow_reproduction_spent,\
-         flow_reproduction_received,flow_death,flow_clamp,\
+         flow_reproduction_received,flow_death,flow_clamp,flow_digestion,\
          ledger_max_residual,ledger_cumulative_residual"
     )?;
     for s in &history.snapshots {
         let fl = &s.energy_flows;
         writeln!(
             f,
-            "{},{:.1},{},{},{},{},{},{},{},{:.2},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{},{},{},{},{},{},\
-             {:.2},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.6},{:.6}",
+            "{},{:.1},{},{},{},{},{},{},{},{},{:.2},{:.3},{:.3},{:.3},{:.3},{:.3},{:+.3},{:.3},{:.3},{},{},{},{},{},{},\
+             {:.2},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.6},{:.6}",
             s.tick,
             s.tick as f64 / 30.0,
             s.organisms,
             s.food,
             s.species,
             s.plants,
-            s.foragers,
-            s.predators,
+            s.grazers,
+            s.hunters,
+            s.omnivores,
             s.infected,
             s.avg_lifespan,
             s.avg_body_size,
@@ -607,6 +608,7 @@ fn dump_history_csv(
             s.avg_armor,
             s.avg_attack,
             s.avg_photo,
+            s.avg_diet,
             s.avg_disease_resistance,
             s.avg_symbiosis_rate,
             s.symbiotic_pairs,
@@ -619,6 +621,7 @@ fn dump_history_csv(
             fl.photosynthesis,
             fl.food,
             fl.predation,
+            fl.grazing,
             fl.symbiosis,
             fl.metabolism,
             fl.movement,
@@ -627,6 +630,7 @@ fn dump_history_csv(
             fl.reproduction_received,
             fl.death,
             fl.clamp,
+            fl.digestion,
             s.ledger_max_residual,
             s.ledger_cumulative_residual,
         )?;
@@ -778,8 +782,9 @@ fn print_headless_summary(
         eprintln!();
         eprintln!("Final strategy breakdown:");
         eprintln!("  Plants:              {}", latest.plants);
-        eprintln!("  Foragers:            {}", latest.foragers);
-        eprintln!("  Predators:           {}", latest.predators);
+        eprintln!("  Grazers:             {}", latest.grazers);
+        eprintln!("  Hunters:             {}", latest.hunters);
+        eprintln!("  Omnivores:           {}", latest.omnivores);
         eprintln!("  Infected:            {}", latest.infected);
         eprintln!();
         eprintln!("Final trait averages:");
@@ -788,6 +793,7 @@ fn print_headless_summary(
         eprintln!("  Attack:              {:.2}", latest.avg_attack);
         eprintln!("  Armor:               {:.2}", latest.avg_armor);
         eprintln!("  Photosynthesis:      {:.0}%", latest.avg_photo * 100.0);
+        eprintln!("  Diet:                {:+.2}", latest.avg_diet);
         eprintln!(
             "  Disease resistance:  {:.0}%",
             latest.avg_disease_resistance * 100.0
@@ -810,7 +816,9 @@ fn print_headless_summary(
     eprintln!("  Baseline energy:     {:.1}", ledger.baseline);
     eprintln!("  Final live energy:   {:.1}", ledger.total);
     eprintln!("  Cumulative flows:");
-    let signs = ["+", "+", "+", " ", "-", "-", "-", "-", "+", "-", "-"];
+    let signs = [
+        "+", "+", "+", "+", " ", "-", "-", "-", "-", "+", "-", "-", "-",
+    ];
     for ((label, value), sign) in ledger.cumulative.entries().iter().zip(signs) {
         eprintln!("    {sign} {label:<22} {value:>14.1}");
     }
