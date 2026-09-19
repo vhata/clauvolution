@@ -1,7 +1,7 @@
 # Plan: rethink the simulation's rules against an honest baseline
 
 **Date:** 2026-09-17
-**Status:** proposed
+**Status:** complete. Step 1 landed as #8, step 2 as #9, step 3 as #10 (`docs/design/simulation-rules.md`); phase 0 of that design shipped as #12 to #16.
 **Scope:** the simulation's rules (energy, speciation, world heterogeneity). Not the code structure.
 
 ## Why now

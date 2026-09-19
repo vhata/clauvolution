@@ -1,6 +1,6 @@
 # Simulation rules: direction and design
 
-**Status:** approved in discussion 2026-09-18, awaiting implementation
+**Status:** approved in discussion 2026-09-18; phase 0 shipped 2026-09-18 (see "Phase 0 outcome"); phase 1 not started
 **Source:** step 3 of `plans/2026-09-17-simulation-rules-rethink.md`
 **Baseline:** `docs/audits/2026-09-18-attractor-audit/` on commit 984aedd
 
@@ -67,6 +67,25 @@ Done when the first 300 ticks of a seed-42 run show no predator peak above the f
 In `compatibility_distance`, divide the body term by the number of traits and by each trait's range so it lies in 0..1, weight it at 1.0, and weight the three NEAT terms at 0.5 each. Give each scalar trait its own crossover blend factor instead of one shared factor, so offspring can combine one parent's speed with the other's armour. Sweep the threshold once to recover a species count in the audit's range.
 
 Done when species count at 15k ticks on the audit seeds is between roughly 10 and 30, and the `docs/DECISIONS.md` entry records the weights and the sweep.
+
+## Phase 0 outcome
+
+All four pieces merged on 2026-09-18: the energy ledger (#12), speciation normalisation (#13), per-biome seeding (#14), and the population ceiling (#15), with the follow-ups filed in `TODO.md` (#16). Each landed as one squashed, formatted commit under the quality gates from #11.
+
+| Piece | Done-when | Result |
+| --- | --- | --- |
+| Energy ledger | Residual zero to rounding over 5000 ticks on three seeds | Met. Largest residual under 0.001 per tick against live totals near 225k. Found and fixed a fourth minting bug in symbiosis transfer. |
+| Speciation normalisation | Species count in the audit's range at 15k ticks | Met at threshold 1.0 (13 to 36 species at 5000 ticks). The sweep has a cliff: 1.1 collapses to four to six species, so the sweep must be repeated whenever a trait is added. |
+| Per-biome seeding | No predator peak above the founding count in the first 300 ticks | Not met. Founder placement and energy are in; the boom is driven by food regeneration refilling toward its ceiling, not by starting conditions (`founding-boom-food-regen`). |
+| Emergent carrying capacity | A 15k run that never touches the ceiling | Not met. Shipped at 2000 with instrumentation. Without the cap every seed ran to 6000 plants at roughly three times the tick cost; nothing consumes plants, so the cap is the carrying capacity until phase 1. |
+
+Three findings from phase 0 change how phase 1 should be approached, and the phase 1 tuning pass has to address each before its done-when means anything:
+
+- **The energy clamp destroys about as much energy as foragers eat** (`energy-clamp-waste`): 7.40M destroyed against 7.62M eaten over 5000 ticks on seed 42. A forager near the 120 cap keeps almost nothing from a meal. The diet axis makes eating a specialisation, so what a specialist can keep has to be decided in the same pass.
+- **The population cap is the carrying capacity.** The ceiling raise is sequenced after grazing gives plants a consumer; when it is raised, the plateau and the tick cost (`reproduction-linear-scans`) are measured again.
+- **Water is neither barrier nor habitat.** The movement code picks the cost table by tile rather than by the organism's aquatic adaptation, so deep water is cheaper to cross than sand and no audit run has shown geographic isolation (`move-cost-table-by-tile`). Water tiles grow no food. Whether oceans become habitat, with the colonisation of land as something to watch, or stay a barrier that aquatic specialists unlock, is a phase 2 design decision to make before the terrain work (`oceans-as-habitat`).
+
+Same-seed runs remain non-reproducible when started at different moments (`determinism-claim-recheck`), so every comparison in phase 1 carries that spread.
 
 ## Phase 1: the diet axis
 
@@ -152,11 +171,15 @@ Crate layout, schedules, the ECS shape, the render and UI structure, and everyth
 
 ## Open questions
 
+To decide before the phase that owns them starts:
+
+- **Phase 2: water as habitat or barrier.** See "Phase 0 outcome" and `oceans-as-habitat` in `TODO.md`. This changes what the terrain generator should produce, so it precedes the continents work.
+- **Phase 1: what a specialist keeps.** The clamp at `max_organism_energy` discards most of a full forager's income (`energy-clamp-waste`); the diet axis tuning pass decides whether the cap rises, scales with body size, or feeds reproduction readiness.
+
 Small enough to settle in the implementing pull request:
 
 - Whether terrain food items survive phase 1 at all, or only as a seasonal supplement.
 - The exact heat value per biome and how elevation contributes, which the phase 2 tuning pass decides.
-- Whether the ledger residual warning in release builds should be a chronicle entry or a header indicator.
 
 ## References
 
