@@ -240,6 +240,10 @@ pub struct SimConfig {
     /// Founders draw `diet` uniformly from `-spread..spread`. Overridable
     /// with `--founder-diet-spread`.
     pub founder_diet_spread: f32,
+    /// Fraction of a victim's energy offered to its killer before digestion,
+    /// the per-meal trophic share. See `docs/DECISIONS.md`, "Energy pyramid".
+    /// Overridable with `--kill-transfer`.
+    pub kill_transfer_fraction: f32,
     /// Multiplier on every killer's animal digestion efficiency, 1.0 in the
     /// sim proper. `--animal-efficiency 0` is the interdependence test in
     /// `plans/2026-09-19-diet-axis.md`: nobody can live by hunting.
@@ -271,6 +275,7 @@ impl Default for SimConfig {
             movement_energy_cost: 0.04,
             reproduction_energy_threshold: 70.0,
             bite_fraction: 0.1,
+            kill_transfer_fraction: 0.1,
             founder_diet_spread: 0.2,
             animal_efficiency_multiplier: 1.0,
             reproduction_energy_cost: 40.0,

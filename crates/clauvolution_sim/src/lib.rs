@@ -133,10 +133,6 @@ const SYMBIOSIS_RANGE: f32 = 6.0;
 ///   0.15 — (current) reverted. No point in the extra magnitude.
 const SYMBIOSIS_TRANSFER_RATE: f32 = 0.15;
 
-/// Fraction of a victim's energy offered to its killer before digestion, the
-/// trophic pyramid. See `docs/DECISIONS.md`, "Energy pyramid".
-const PREDATION_TRANSFER_FRACTION: f32 = 0.1;
-
 /// Split a meal into the share the eater keeps and the share lost to
 /// digestion, from a digestion efficiency in 0..1 (`Genome::plant_efficiency`
 /// or `animal_efficiency`). `kept + wasted == gross`.
@@ -903,7 +899,7 @@ fn predation_system(
         // it digest. The undigested share is booked to digestion and the
         // rest of the victim's energy to death.
         let (energy_gained, wasted) = digest(
-            victim_energy_before * PREDATION_TRANSFER_FRACTION,
+            victim_energy_before * config.kill_transfer_fraction,
             killer_genome.animal_efficiency() * config.animal_efficiency_multiplier,
         );
         if let Ok((_, _, mut killer_energy, _, mut killer_flash, _, _, _)) =
@@ -1448,6 +1444,25 @@ fn reproduction_system(
     let mut blocked_births = 0u64;
     let mut already_mated: Vec<Entity> = Vec::new();
 
+    // When more parents want a child than the ceiling has room for, admit
+    // each with probability slots / wanting rather than in query iteration
+    // order. Iteration order follows archetype and spawn order, so first
+    // come first served handed the slots to whichever lineage happened to
+    // sit first in the tables, tick after tick. See DECISIONS.md, "Diet
+    // axis tuning pass".
+    let slots = ceiling.saturating_sub(current_pop);
+    let wanting = organisms
+        .iter()
+        .filter(|(_, _, energy, _, _, output, body_size, _, _)| {
+            output.reproduce > 0.5 && energy.0 > reproduction_threshold(&config, body_size.0)
+        })
+        .count();
+    let admit_probability = if wanting > slots {
+        slots as f32 / wanting as f32
+    } else {
+        1.0
+    };
+
     for (entity, pos, mut energy, mut flash, genome, output, body_size, species, generation) in
         &mut organisms
     {
@@ -1458,6 +1473,10 @@ fn reproduction_system(
         let repro_cost = config.reproduction_energy_cost * (0.5 + body_size.0 * 0.5);
         let repro_threshold = reproduction_threshold(&config, body_size.0);
         let wants_child = output.reproduce > 0.5 && energy.0 > repro_threshold;
+        if wants_child && admit_probability < 1.0 && rng.gen::<f32>() >= admit_probability {
+            blocked_births += 1;
+            continue;
+        }
         if current_pop + new_organisms.len() >= ceiling {
             // Blocked parents keep their energy; only the birth is refused.
             if wants_child {
@@ -2409,12 +2428,15 @@ mod digestion_tests {
 
     #[test]
     fn bite_and_pyramid_shares_are_fractions_of_the_prey() {
-        // A bite is BITE_FRACTION of what the plant holds, a kill offers
-        // PREDATION_TRANSFER_FRACTION; both are then digested.
+        // A bite is `bite_fraction` of what the plant holds, a kill offers
+        // `kill_transfer_fraction`; both are then digested.
         let plant_energy = 80.0;
         let (kept, wasted) = digest(plant_energy * SimConfig::default().bite_fraction, 1.0);
         assert!((kept - 8.0).abs() < 1e-5 && wasted.abs() < 1e-5);
-        let (kept, wasted) = digest(plant_energy * PREDATION_TRANSFER_FRACTION, 0.25);
+        let (kept, wasted) = digest(
+            plant_energy * SimConfig::default().kill_transfer_fraction,
+            0.25,
+        );
         assert!((kept - 2.0).abs() < 1e-5 && (wasted - 6.0).abs() < 1e-5);
     }
 }
