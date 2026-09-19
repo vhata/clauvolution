@@ -64,6 +64,14 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 - [SIM] `photosynthesiser-predicate` — **Collapse the remaining copies of the "is this a plant" rule into one predicate.** `classify_strategy` replaced two of the sites the review listed; three remain in `clauvolution_sim` with three different thresholds (0.2 for density counting, 0.01 for the yield gate, 0.1 in niche construction) and four unlisted copies exist in `clauvolution_render` and `clauvolution_ui`.
   - Starting point: A `Genome::is_photosynthesiser()` plus one decision about the thresholds, which is the raw review findings `plant-classification-rule-copied` and `photosynthesis-gate-mismatch` together. Phase 1's four-way strategy classification will touch every one of these sites, so do it there or just before.
   - Source: roadmap/per-biome-seeding branch, 2026-09-18
+- [SIM] `move-cost-table-by-tile` — **Deep water is the cheapest terrain to cross, not a barrier.** `TerrainType` has two movement tables, one for land-adapted organisms (deep water 10.0) and one for water-adapted ones (deep water 1.0), but `action_system` picks the table by the tile's type rather than the organism's `aquatic_adaptation`, so everyone standing in deep water pays the aquatic base cost of 1.0, less than sand at 1.5. The "Deep water 10x movement cost" entry in `docs/DECISIONS.md` describes behaviour that never ran, and no audit run has shown geographic isolation.
+  - Starting point: Interpolate between the two tables by `aquatic_adaptation`, or select by organism. This is the terrain-aware movement piece of phase 2 in `docs/design/simulation-rules.md`; making oceans a real barrier changes every seed, so it needs the phase 2 tuning pass and the DECISIONS entry corrected at the same time.
+  - Source: per-biome seeding review, 2026-09-18
+  - Related: `oceans-as-habitat`
+- [WORLD] `oceans-as-habitat` — **Decide whether water is a habitat or only a barrier.** Water tiles carry nutrients (0.5 shallow, 0.3 deep) and light (50% and 30%) but zero vegetation, so no food ever grows there and only photosynthesisers can live in water at all; per-biome seeding therefore founds no life in water. Life on Earth began in the oceans, and an ocean rich enough to found life in, with the colonisation of land as something to watch, is at least as interesting as water as a barrier that aquatic specialists later unlock.
+  - Starting point: A phase 2 design question in `docs/design/simulation-rules.md`. If water becomes habitat: vegetation or a plankton analogue on water tiles, shallow water among the founding biomes, and the aquatic axis doing real work in metabolism and movement. Decide before the phase 2 terrain work, since it changes what the generator should produce.
+  - Source: per-biome seeding review, 2026-09-18
+  - Related: `move-cost-table-by-tile`
 
 ## Needs proof of concept
 
