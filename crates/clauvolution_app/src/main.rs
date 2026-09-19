@@ -708,7 +708,14 @@ fn headless_tick_counter(
     }
     match *phase {
         0 => {
-            print_headless_summary(&stats, &predation, &history, &ledger, &config, founders.as_deref());
+            print_headless_summary(
+                &stats,
+                &predation,
+                &history,
+                &ledger,
+                &config,
+                founders.as_deref(),
+            );
             if let Some(dp) = &dump_path {
                 match dump_history_csv(&dp.0, &history) {
                     Ok(_) => eprintln!("Wrote {} snapshots to {}", history.snapshots.len(), dp.0),
