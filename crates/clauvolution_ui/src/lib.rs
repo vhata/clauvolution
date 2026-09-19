@@ -1711,7 +1711,7 @@ fn graphs_tab(ui: &mut egui::Ui, history: &PopulationHistory) {
                     plot_ui.line(
                         Line::new(in_graze)
                             .color(egui::Color32::from_rgb(230, 200, 90))
-                            .name("Grazing (to grazer)"),
+                            .name("Grazing (plant to grazer, transfer)"),
                     );
                     plot_ui.line(
                         Line::new(in_repro)

@@ -874,8 +874,10 @@ pub struct EnergyFlows {
     pub food: f64,
     /// Energy paid to a killer at a kill (the 10% pyramid share).
     pub predation: f64,
-    /// Energy credited to a grazer from a bite of a living plant: the bite
-    /// times the grazer's plant efficiency.
+    /// Energy moved from living plants to grazers by bites: each bite times
+    /// the grazer's plant efficiency. A transfer between organisms, like
+    /// `symbiosis`, so it does not change the total and is not part of
+    /// `net()`; the undigested rest of each bite is the loss, in `digestion`.
     pub grazing: f64,
     /// Gross energy moved between symbiotic partners. A transfer, so it does
     /// not change the total and is not part of `net()`.
@@ -906,7 +908,7 @@ pub struct EnergyFlows {
 impl EnergyFlows {
     /// Signed change in total live energy these flows account for.
     pub fn net(&self) -> f64 {
-        self.photosynthesis + self.food + self.predation + self.grazing + self.reproduction_received
+        self.photosynthesis + self.food + self.predation + self.reproduction_received
             - self.metabolism
             - self.movement
             - self.disease
@@ -1091,5 +1093,62 @@ impl EnergyLedger {
     /// The largest absolute residual since the last call, then reset.
     pub fn take_interval_max_residual(&mut self) -> f64 {
         std::mem::take(&mut self.interval_max_residual)
+    }
+}
+
+#[cfg(test)]
+mod energy_flow_tests {
+    use super::*;
+
+    /// A graze moves `kept` from plant to grazer and destroys `wasted`, so
+    /// the flows must net to `-wasted` alone: the transfer is not income.
+    #[test]
+    fn graze_nets_to_the_digestion_loss_only() {
+        let flows = EnergyFlows {
+            grazing: 8.0,
+            digestion: 2.0,
+            ..EnergyFlows::default()
+        };
+        assert_eq!(flows.net(), -2.0);
+    }
+
+    /// A kill: the killer keeps `kept` of a `PREDATION_TRANSFER_FRACTION`
+    /// share, the undigested part of the share goes to digestion, and the
+    /// rest of the victim's energy to death. The total drops by the victim's
+    /// energy less what the killer kept.
+    #[test]
+    fn kill_nets_to_victim_energy_less_kept() {
+        let victim = 50.0;
+        let offered = victim * 0.1;
+        let kept = offered * 0.25;
+        let wasted = offered - kept;
+        let flows = EnergyFlows {
+            predation: kept,
+            digestion: wasted,
+            death: victim - wasted,
+            ..EnergyFlows::default()
+        };
+        assert!((flows.net() - (kept - victim)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn entries_cover_every_flow() {
+        let flows = EnergyFlows {
+            photosynthesis: 1.0,
+            food: 2.0,
+            predation: 3.0,
+            grazing: 4.0,
+            symbiosis: 5.0,
+            metabolism: 6.0,
+            movement: 7.0,
+            disease: 8.0,
+            reproduction_spent: 9.0,
+            reproduction_received: 10.0,
+            death: 11.0,
+            clamp: 12.0,
+            digestion: 13.0,
+        };
+        let sum: f64 = flows.entries().iter().map(|(_, v)| v).sum();
+        assert_eq!(sum, (1..=13).sum::<i32>() as f64);
     }
 }
