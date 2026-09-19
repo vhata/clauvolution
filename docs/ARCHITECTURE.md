@@ -90,6 +90,7 @@ update_minimap                ← repaint the minimap image every 0.5s
 |---|---|
 | Organism behaviour / brain | `clauvolution_sim::sensing_and_brain_system`, `clauvolution_brain` |
 | Genetic system (mutation, crossover, speciation) | `clauvolution_genome`, `clauvolution_sim::species_classification_system` |
+| Strategy labels (plant / grazer / hunter / omnivore) | `clauvolution_phylogeny::classify_strategy`, `Genome::is_photosynthesiser` |
 | Body plan decoding / rendering | `clauvolution_body`, `clauvolution_render::segment_mesh` |
 | A specific simulation dynamic | `clauvolution_sim::<name>_system` |
 | Terrain / biomes / food | `clauvolution_world` |

@@ -55,7 +55,7 @@ When a species dies out, capture a snapshot of its last 30 seconds — populatio
 
 More kinds of evolution to watch unfold. Each adds a qualitatively new pressure.
 
-**Top pick:** the diet axis, phase 1 of [`docs/design/simulation-rules.md`](design/simulation-rules.md). Long-term climate shift is a phase 3 follow-on there, sequenced after the biome tolerance traits it would push against.
+**Top pick:** the diet axis, phase 1 of [`docs/design/simulation-rules.md`](design/simulation-rules.md), planned in `plans/2026-09-19-diet-axis.md`. Step 1 has shipped: the `diet` trait exists and drifts neutrally, strategies are plant / grazer / hunter / omnivore everywhere, and the ledger has grazing and digestion flows waiting at zero. Step 2, grazing itself, is next. Long-term climate shift is a phase 3 follow-on there, sequenced after the biome tolerance traits it would push against.
 
 ### Symbiosis
 ✅ **Shipped (v1).** Genome gets a `symbiosis_rate` trait in [-1.0, +1.0]. Proximity tracker looks for a mutual-nearest neighbour held for 30+ consecutive ticks within 6 world units; once locked, each party transfers `rate * 0.05` energy to its partner per tick (negative rate drains). Graphs tab shows mutual-pair count + avg evolved rate. Inspect tab labels each organism parasite/neutral/donor.

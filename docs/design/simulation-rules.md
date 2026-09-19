@@ -1,6 +1,6 @@
 # Simulation rules: direction and design
 
-**Status:** approved in discussion 2026-09-18; phase 0 shipped 2026-09-18 (see "Phase 0 outcome"); phase 1 not started
+**Status:** approved in discussion 2026-09-18; phase 0 shipped 2026-09-18 (see "Phase 0 outcome"); phase 1 in progress under `plans/2026-09-19-diet-axis.md` (step 1, the trait and its instruments, has shipped; grazing is next)
 **Source:** step 3 of `plans/2026-09-17-simulation-rules-rethink.md`
 **Baseline:** `docs/audits/2026-09-18-attractor-audit/` on commit 984aedd
 

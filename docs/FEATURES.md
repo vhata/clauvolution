@@ -18,12 +18,14 @@ One-liner list of what Clauvolution does, grouped by area. For the design ration
 - **Organism aging** — metabolism cost rises past age 500; natural death past age 3000
 - **Chemical signalling** — each organism emits and senses a signal; evolution decides meaning
 - **Symbiosis** — `symbiosis_rate` genome trait; mutual-nearest neighbours within 6 units held for 10+ ticks form a link, exchanging energy per each party's rate (parasite ↔ donor). One tuning pass shipped; population-level selection on the rate is still an open question (see DECISIONS.md).
+- **Diet trait** — `diet` genome trait in -1..1 (herbivore to carnivore) with plant and animal digestion efficiencies of `((1 ∓ diet) / 2)²`, so a generalist digests a quarter of each. Instrumented but not yet acted on: nothing reads the efficiencies until grazing lands (phase 1 step 2 of `docs/design/simulation-rules.md`). Shown in Inspect with both efficiencies, as an average in the Graphs trait plot and stats grid, in the headless summary, and as `avg_diet` in `--dump-history`.
+- **Strategy classification** — `classify_strategy` in `clauvolution_phylogeny` labels every organism plant (photo surface and photosynthesis rate above 0.2), else grazer / hunter / omnivore by `diet` against a threshold of ±1/3. One `Genome::is_photosynthesiser` predicate carries the plant rule for classification, rendering, density competition and niche construction; the photosynthesis yield gate stays looser at 0.01 so a lineage drifting toward plant-hood is paid for the first steps.
 - **Social sensing** — group size + avg nearby signal as brain inputs; small metabolic discount for clustering
 - **Niche construction** — organisms modify the tiles they occupy (vegetation, moisture, nutrients)
 
 ## Speciation & tracking
 
-- **Species classification** — NEAT compatibility distance with hysteresis; re-evaluated every 5 seconds. Trait-led: the body term is normalised to 0..1 across the nine scalar traits and weighted 1.0, the three NEAT brain terms 0.5 each
+- **Species classification** — NEAT compatibility distance with hysteresis; re-evaluated every 5 seconds. Trait-led: the body term is normalised to 0..1 across the ten scalar traits and weighted 1.0, the three NEAT brain terms 0.5 each
 - **Phylogenetic tree** — ancestry tracking with parent/child lineage grouping
 - **Species naming** — three-word trait-based names (habitat + descriptor + strategy noun); children inherit two-of-three from parent
 - **Parent species tracking** — inspect panel shows organism's lineage
@@ -61,7 +63,7 @@ One-liner list of what Clauvolution does, grouped by area. For the design ration
 ## Navigation & camera
 
 - **Minimap** — top-left world overview with click-to-navigate and camera viewport rectangle
-- **Minimap legend** — colour key below the minimap for plants / foragers / predators
+- **Minimap legend** — colour key below the minimap for plants / grazers / hunters / omnivores
 - **Minimap selection marker** — bright yellow plus at the selected organism's position
 - **Population heatmap (M)** — minimap toggles between organism-dots and strategy-coloured density
 - **Pan / zoom / drag** — WASD, arrows, mouse wheel, right-drag, middle-drag
@@ -74,7 +76,7 @@ One-liner list of what Clauvolution does, grouped by area. For the design ration
 
 - **Compact header bar** — always-visible summary: sim time, season, population, species, generation, speed, infection count (when > 0), active bloom effects with seconds remaining
 - **Tabbed right panel** (Inspect / Phylo / Graphs / Chronicle / Events / Help):
-  - **Inspect** — selected organism stats: species/strategy/parent, energy/health bars, body/brain collapsibles, infection state
+  - **Inspect** — selected organism stats: species/strategy/parent, energy/health bars, diet and digestion efficiencies, body/brain collapsibles, infection state
   - **Phylo** — collapsible lineage tree with strategy badges, declining indicators, recently-extinct section; click a species name to select a living member
   - **Graphs** — `egui_plot` line charts for population by strategy, death cause breakdown, infection rate & evolved resistance, trait evolution, pop vs species, symbiosis, energy income and costs per second, ledger residual, food & lifespan. Current-stats readout and average-traits grid.
   - **Chronicle** — scrollable event log with "hide seasons" filter
@@ -92,7 +94,7 @@ One-liner list of what Clauvolution does, grouped by area. For the design ration
 
 ## Tooling
 
-- **Headless mode** — `--headless N` runs N ticks without rendering/UI, prints end-of-run summary (strategy counts, death cause breakdown, trait averages, predation funnel, energy ledger). `--speed N` multiplies virtual time (default 10×, ceiling is CPU-bound at ~85 ticks/sec). `--save-as <name>` writes a save file at end; `--load sessions/<name>` resumes from one. Combine for: evolve headless → save → reload in GUI → script a tour.
+- **Headless mode** — `--headless N` runs N ticks without rendering/UI, prints end-of-run summary (plant / grazer / hunter / omnivore counts, death cause breakdown, trait averages including diet, predation funnel, energy ledger). `--speed N` multiplies virtual time (default 10×, ceiling is CPU-bound at ~85 ticks/sec). `--save-as <name>` writes a save file at end; `--load sessions/<name>` resumes from one. Combine for: evolve headless → save → reload in GUI → script a tour.
 - **Seeded runs** — `--seed N` seeds all sim randomness. Deterministic for ~50 ticks (Bevy task pool parallelism causes later divergence — not yet fully reproducible).
 - **Save/load** — F5 saves full world state to session directory; `--load sessions/<name>` restores
 - **Named sessions** — each run gets a unique cosmic three-word name; logs + screenshots + saves live in `sessions/<name>/`
@@ -109,4 +111,4 @@ One-liner list of what Clauvolution does, grouped by area. For the design ration
 - **Infection stats** — count, percentage of population, spread over time
 - **Trait averages over time** — disease resistance, body size, speed, attack, armor, photo — all plotted
 - **Current-stats readouts in Graphs tab** — pop/food/species/lifespan/infected/per-strategy counts at a glance
-- **Energy ledger** — every flow that moves organism energy (photosynthesis, food, predation, symbiosis, metabolism, movement, disease, reproduction paid and received, energy lost at death, energy destroyed at the `max_organism_energy` clamp) is accumulated per tick and per run in `EnergyLedger`. `ledger_system` compares the change in total live energy against the net of the flows; the residual is zero to f32 rounding when nothing mints or destroys energy unrecorded. Shown as income/cost charts and a residual line on the Graphs tab, as a block in the headless summary, and as columns in `--dump-history`. Past tolerance it is a `debug_assert!` and a rate-limited chronicle warning.
+- **Energy ledger** — every flow that moves organism energy (photosynthesis, food, predation, grazing, symbiosis, metabolism, movement, disease, reproduction paid and received, energy lost at death, energy destroyed at the `max_organism_energy` clamp, energy lost to digestion; grazing and digestion stay at zero until phase 1 step 2) is accumulated per tick and per run in `EnergyLedger`. `ledger_system` compares the change in total live energy against the net of the flows; the residual is zero to f32 rounding when nothing mints or destroys energy unrecorded. Shown as income/cost charts and a residual line on the Graphs tab, as a block in the headless summary, and as columns in `--dump-history`. Past tolerance it is a `debug_assert!` and a rate-limited chronicle warning.
