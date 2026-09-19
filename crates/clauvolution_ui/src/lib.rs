@@ -1301,7 +1301,7 @@ fn graphs_tab(ui: &mut egui::Ui, history: &PopulationHistory) {
 
             ui.label("Infected");
             ui.monospace(format!("{:>3} ({:>2.0}%)", latest.infected, infected_pct));
-            ui.label("Diet");
+            ui.label("Diet (eaters)");
             ui.monospace(format!("{:>+5.2}", latest.avg_diet));
             ui.end_row();
 
@@ -1385,7 +1385,7 @@ fn graphs_tab(ui: &mut egui::Ui, history: &PopulationHistory) {
                 ui.label("Photosynthesis");
                 ui.monospace(format!("{:>4.0}%", latest.avg_photo * 100.0));
                 ui.end_row();
-                ui.label("Diet");
+                ui.label("Diet (eaters)");
                 ui.monospace(format!("{:>+5.2}", latest.avg_diet));
                 ui.end_row();
             });
@@ -1634,7 +1634,7 @@ fn graphs_tab(ui: &mut egui::Ui, history: &PopulationHistory) {
                     plot_ui.line(
                         Line::new(t_diet)
                             .color(egui::Color32::from_rgb(240, 180, 80))
-                            .name("Diet ×100 (−herb, +carn)"),
+                            .name("Eater diet ×100 (−herb, +carn)"),
                     );
                 });
 

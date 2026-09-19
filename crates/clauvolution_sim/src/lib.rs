@@ -1870,11 +1870,16 @@ fn record_population_history(
         std::collections::HashMap::with_capacity(organisms.iter().len());
 
     for (entity, genome, symbiosis, inf) in &organisms {
-        match classify_strategy(genome) {
+        let strategy = classify_strategy(genome);
+        match strategy {
             SpeciesStrategy::Photosynthesizer => plants += 1,
             SpeciesStrategy::Grazer => grazers += 1,
             SpeciesStrategy::Hunter => hunters += 1,
             SpeciesStrategy::Omnivore => omnivores += 1,
+        }
+        if strategy != SpeciesStrategy::Photosynthesizer {
+            // Diet is averaged over the organisms that eat; see PopSnapshot.
+            sum_diet += genome.diet;
         }
         if inf.is_some() {
             infected += 1;
@@ -1885,7 +1890,6 @@ fn record_population_history(
         sum_armor += genome.armor_value();
         sum_attack += genome.claw_power();
         sum_photo += genome.photosynthesis_rate;
-        sum_diet += genome.diet;
         sum_symbiosis += genome.symbiosis_rate;
         n += 1;
 
@@ -1937,7 +1941,7 @@ fn record_population_history(
             avg_armor: sum_armor / div,
             avg_attack: sum_attack / div,
             avg_photo: sum_photo / div,
-            avg_diet: sum_diet / div,
+            avg_diet: sum_diet / (grazers + hunters + omnivores).max(1) as f32,
             symbiotic_pairs,
             avg_symbiosis_rate: sum_symbiosis / div,
         },

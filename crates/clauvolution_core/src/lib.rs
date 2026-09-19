@@ -453,7 +453,10 @@ pub struct PopSnapshot {
     pub avg_armor: f32,
     pub avg_attack: f32,
     pub avg_photo: f32,
-    /// Mean `Genome::diet`, -1 herbivore to +1 carnivore.
+    /// Mean `Genome::diet` over non-plants, -1 herbivore to +1 carnivore.
+    /// Plants carry the trait but never eat, and at 95% of the population
+    /// they swamped the mean, so they are left out. 0.0 when no consumer
+    /// is alive.
     pub avg_diet: f32,
     // Symbiosis metrics
     pub symbiotic_pairs: u32,

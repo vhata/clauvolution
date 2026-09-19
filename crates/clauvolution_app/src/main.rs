@@ -854,7 +854,7 @@ fn print_headless_summary(
         eprintln!("  Attack:              {:.2}", latest.avg_attack);
         eprintln!("  Armor:               {:.2}", latest.avg_armor);
         eprintln!("  Photosynthesis:      {:.0}%", latest.avg_photo * 100.0);
-        eprintln!("  Diet:                {:+.2}", latest.avg_diet);
+        eprintln!("  Diet (consumers):    {:+.2}", latest.avg_diet);
         eprintln!(
             "  Disease resistance:  {:.0}%",
             latest.avg_disease_resistance * 100.0
