@@ -1685,6 +1685,7 @@ fn graphs_tab(ui: &mut egui::Ui, history: &PopulationHistory) {
             let in_photo = flow(|f| f.photosynthesis);
             let in_food = flow(|f| f.food);
             let in_pred = flow(|f| f.predation);
+            let in_graze = flow(|f| f.grazing);
             let in_repro = flow(|f| f.reproduction_received);
             let in_sym = flow(|f| f.symbiosis);
 
@@ -1708,6 +1709,11 @@ fn graphs_tab(ui: &mut egui::Ui, history: &PopulationHistory) {
                             .name("Predation (to killer)"),
                     );
                     plot_ui.line(
+                        Line::new(in_graze)
+                            .color(egui::Color32::from_rgb(230, 200, 90))
+                            .name("Grazing (plant to grazer, transfer)"),
+                    );
+                    plot_ui.line(
                         Line::new(in_repro)
                             .color(egui::Color32::from_rgb(200, 170, 230))
                             .name("Born with"),
@@ -1728,6 +1734,7 @@ fn graphs_tab(ui: &mut egui::Ui, history: &PopulationHistory) {
             let out_repro = flow(|f| f.reproduction_spent);
             let out_death = flow(|f| f.death);
             let out_clamp = flow(|f| f.clamp);
+            let out_digest = flow(|f| f.digestion);
 
             Plot::new("energy_costs")
                 .height(130.0)
@@ -1762,6 +1769,11 @@ fn graphs_tab(ui: &mut egui::Ui, history: &PopulationHistory) {
                         Line::new(out_clamp)
                             .color(egui::Color32::from_rgb(255, 140, 40))
                             .name("Clamped at max"),
+                    );
+                    plot_ui.line(
+                        Line::new(out_digest)
+                            .color(egui::Color32::from_rgb(200, 150, 90))
+                            .name("Lost to digestion"),
                     );
                 });
 

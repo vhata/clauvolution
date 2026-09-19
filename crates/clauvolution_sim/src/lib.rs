@@ -133,6 +133,25 @@ const SYMBIOSIS_RANGE: f32 = 6.0;
 ///   0.15 — (current) reverted. No point in the extra magnitude.
 const SYMBIOSIS_TRANSFER_RATE: f32 = 0.15;
 
+/// Fraction of a plant's current energy that one bite removes. An attack on a
+/// photosynthesiser is a graze, not a kill: the plant lives on with less.
+/// Starts small so grazing is a pressure on plants before it is a way to
+/// finish them; step 3 of `plans/2026-09-19-diet-axis.md` tunes it. See
+/// `docs/DECISIONS.md`, "Grazing".
+const BITE_FRACTION: f32 = 0.1;
+
+/// Fraction of a victim's energy offered to its killer before digestion, the
+/// trophic pyramid. See `docs/DECISIONS.md`, "Energy pyramid".
+const PREDATION_TRANSFER_FRACTION: f32 = 0.1;
+
+/// Split a meal into the share the eater keeps and the share lost to
+/// digestion, from a digestion efficiency in 0..1 (`Genome::plant_efficiency`
+/// or `animal_efficiency`). `kept + wasted == gross`.
+pub fn digest(gross: f32, efficiency: f32) -> (f32, f32) {
+    let kept = gross * efficiency.clamp(0.0, 1.0);
+    (kept, gross - kept)
+}
+
 /// Credit `amount` to `energy`, capped at `cap`, and return the part the cap
 /// discarded so the caller can book it under `EnergyFlows::clamp`. Every
 /// `.min(max_organism_energy)` on income goes through here so the ledger
@@ -729,7 +748,11 @@ fn action_system(
                 }
                 let dist = (pos.0 - food_pos).length();
                 if dist < eat_range {
-                    let gained = food_energy * mouth_bonus;
+                    // Food items are plant tissue. The undigested share is not
+                    // organism energy (nor is the part a weak mouth leaves), so
+                    // only what the eater keeps enters the ledger.
+                    let (gained, _wasted) =
+                        digest(food_energy * mouth_bonus, genome.plant_efficiency());
                     ledger.tick.clamp +=
                         credit_clamped(&mut energy, gained, config.max_organism_energy) as f64;
                     ledger.tick.food += gained as f64;
@@ -786,6 +809,9 @@ fn predation_system(
     // keep scanning. Without this, several attackers could each be paid 10% of
     // the same victim's energy and each count a kill. See DECISIONS.md.
     let mut kills: Vec<(Entity, Entity, f32)> = Vec::new();
+    // (grazer, plant, bite) — an attack on a photosynthesiser is a graze. The
+    // same claim rule applies, so a plant takes one bite per tick.
+    let mut grazes: Vec<(Entity, Entity, f32)> = Vec::new();
     let mut claimed_victims: HashSet<Entity> = HashSet::new();
 
     for (attacker_entity, attacker_pos, attack_str, attack_range, attacker_size) in &attackers {
@@ -821,7 +847,10 @@ fn predation_system(
 
                 let defense = target_genome.armor_value() * target_body_size.0;
                 let damage = (attack_str - defense * 0.5).max(0.0);
-                let size_ok = *attacker_size > target_body_size.0 * 0.6;
+                let is_plant = target_genome.is_photosynthesiser();
+                // A graze passes only the damage gate: a small grazer can bite
+                // a large plant, and plant armour still defends against it.
+                let size_ok = is_plant || *attacker_size > target_body_size.0 * 0.6;
                 let damage_ok = damage > 0.1;
 
                 if !size_ok {
@@ -832,10 +861,12 @@ fn predation_system(
                 }
 
                 if damage_ok && size_ok {
-                    // Energy pyramid: predator gets 10% of prey's actual stored energy.
-                    // This is thermodynamics — most energy is lost as heat.
-                    let energy_gained = target_energy.0 * 0.1;
-                    kills.push((*attacker_entity, target_entity, energy_gained));
+                    if is_plant {
+                        let bite = target_energy.0.max(0.0) * BITE_FRACTION;
+                        grazes.push((*attacker_entity, target_entity, bite));
+                    } else {
+                        kills.push((*attacker_entity, target_entity, target_energy.0));
+                    }
                     claimed_victims.insert(target_entity);
                     break;
                 }
@@ -844,8 +875,44 @@ fn predation_system(
     }
 
     predation_stats.kills += kills.len() as u64;
+    predation_stats.grazes += grazes.len() as u64;
 
-    for (killer, victim, energy_gained) in kills {
+    for (grazer, plant, bite) in grazes {
+        let Ok((_, _, _, _, _, grazer_genome, _, _)) = organisms.get(grazer) else {
+            continue;
+        };
+        let (kept, wasted) = digest(bite, grazer_genome.plant_efficiency());
+        let Ok((_, _, mut plant_energy, _, _, _, _, _)) = organisms.get_mut(plant) else {
+            continue;
+        };
+        // The bite leaves the plant whole or not; the plant keeps its health
+        // and is not marked Killed. If the bite empties it, death_system
+        // reads that as any other energy loss.
+        plant_energy.0 -= bite;
+        if let Ok((_, _, mut grazer_energy, _, mut grazer_flash, _, _, _)) =
+            organisms.get_mut(grazer)
+        {
+            ledger.tick.clamp +=
+                credit_clamped(&mut grazer_energy, kept, config.max_organism_energy) as f64;
+            ledger.tick.grazing += kept as f64;
+            ledger.tick.digestion += wasted as f64;
+            grazer_flash.action = ActionType::Grazing;
+            grazer_flash.timer = 0.3;
+        }
+    }
+
+    for (killer, victim, victim_energy_before) in kills {
+        let Ok((_, _, _, _, _, killer_genome, _, _)) = organisms.get(killer) else {
+            continue;
+        };
+        // Energy pyramid: the killer is offered a fixed share of the prey's
+        // stored energy (most is lost as heat) and keeps what its diet lets
+        // it digest. The undigested share is booked to digestion and the
+        // rest of the victim's energy to death.
+        let (energy_gained, wasted) = digest(
+            victim_energy_before * PREDATION_TRANSFER_FRACTION,
+            killer_genome.animal_efficiency(),
+        );
         if let Ok((_, _, mut killer_energy, _, mut killer_flash, _, _, _)) =
             organisms.get_mut(killer)
         {
@@ -862,8 +929,10 @@ fn predation_system(
             organisms.get_mut(victim)
         {
             // Whatever the victim still holds leaves the world here; the
-            // killer's share was booked above as a separate flow.
-            ledger.tick.death += victim_energy.0 as f64;
+            // killer's share was booked above as a separate flow, and the
+            // undigested part of that share as digestion.
+            ledger.tick.death += (victim_energy.0 - wasted) as f64;
+            ledger.tick.digestion += wasted as f64;
             victim_energy.0 = 0.0;
             victim_health.0 = 0.0;
             // The marker is what makes the kill final: the systems between here
@@ -2319,5 +2388,36 @@ mod tests {
         assert_eq!(total, config.initial_population);
         assert_eq!(per_biome, expected, "founders per biome (areas {areas:?})");
         assert_eq!(plants, config.initial_population / 3);
+    }
+}
+
+#[cfg(test)]
+mod digestion_tests {
+    use super::*;
+
+    #[test]
+    fn digest_conserves_the_meal() {
+        for eff in [0.0, 0.25, 0.44, 1.0] {
+            let (kept, wasted) = digest(40.0, eff);
+            assert!((kept + wasted - 40.0).abs() < 1e-5, "eff {eff}");
+            assert!((kept - 40.0 * eff).abs() < 1e-5, "eff {eff}");
+        }
+    }
+
+    #[test]
+    fn digest_clamps_efficiency_to_unit_range() {
+        assert_eq!(digest(10.0, 2.0), (10.0, 0.0));
+        assert_eq!(digest(10.0, -1.0), (0.0, 10.0));
+    }
+
+    #[test]
+    fn bite_and_pyramid_shares_are_fractions_of_the_prey() {
+        // A bite is BITE_FRACTION of what the plant holds, a kill offers
+        // PREDATION_TRANSFER_FRACTION; both are then digested.
+        let plant_energy = 80.0;
+        let (kept, wasted) = digest(plant_energy * BITE_FRACTION, 1.0);
+        assert!((kept - 8.0).abs() < 1e-5 && wasted.abs() < 1e-5);
+        let (kept, wasted) = digest(plant_energy * PREDATION_TRANSFER_FRACTION, 0.25);
+        assert!((kept - 2.0).abs() < 1e-5 && (wasted - 6.0).abs() < 1e-5);
     }
 }

@@ -809,15 +809,17 @@ fn print_headless_summary(
     eprintln!("  Rejected (size):     {}", predation.rejected_size_gate);
     eprintln!("  Rejected (damage):   {}", predation.rejected_damage);
     eprintln!("  Kills:               {}", predation.kills);
+    eprintln!("  Grazes:              {}", predation.grazes);
     eprintln!();
     // Cumulative flows are magnitudes; the sign column says which way each
-    // one moves organism energy. Symbiosis is a transfer and has no sign.
+    // one moves organism energy. Grazing and symbiosis are transfers between
+    // organisms and have no sign.
     eprintln!("Energy ledger:");
     eprintln!("  Baseline energy:     {:.1}", ledger.baseline);
     eprintln!("  Final live energy:   {:.1}", ledger.total);
     eprintln!("  Cumulative flows:");
     let signs = [
-        "+", "+", "+", "+", " ", "-", "-", "-", "-", "+", "-", "-", "-",
+        "+", "+", "+", " ", " ", "-", "-", "-", "-", "+", "-", "-", "-",
     ];
     for ((label, value), sign) in ledger.cumulative.entries().iter().zip(signs) {
         eprintln!("    {sign} {label:<22} {value:>14.1}");
