@@ -133,13 +133,6 @@ const SYMBIOSIS_RANGE: f32 = 6.0;
 ///   0.15 — (current) reverted. No point in the extra magnitude.
 const SYMBIOSIS_TRANSFER_RATE: f32 = 0.15;
 
-/// Fraction of a plant's current energy that one bite removes. An attack on a
-/// photosynthesiser is a graze, not a kill: the plant lives on with less.
-/// Starts small so grazing is a pressure on plants before it is a way to
-/// finish them; step 3 of `plans/2026-09-19-diet-axis.md` tunes it. See
-/// `docs/DECISIONS.md`, "Grazing".
-const BITE_FRACTION: f32 = 0.1;
-
 /// Fraction of a victim's energy offered to its killer before digestion, the
 /// trophic pyramid. See `docs/DECISIONS.md`, "Energy pyramid".
 const PREDATION_TRANSFER_FRACTION: f32 = 0.1;
@@ -862,7 +855,7 @@ fn predation_system(
 
                 if damage_ok && size_ok {
                     if is_plant {
-                        let bite = target_energy.0.max(0.0) * BITE_FRACTION;
+                        let bite = target_energy.0.max(0.0) * config.bite_fraction;
                         grazes.push((*attacker_entity, target_entity, bite));
                     } else {
                         kills.push((*attacker_entity, target_entity, target_energy.0));
@@ -911,7 +904,7 @@ fn predation_system(
         // rest of the victim's energy to death.
         let (energy_gained, wasted) = digest(
             victim_energy_before * PREDATION_TRANSFER_FRACTION,
-            killer_genome.animal_efficiency(),
+            killer_genome.animal_efficiency() * config.animal_efficiency_multiplier,
         );
         if let Ok((_, _, mut killer_energy, _, mut killer_flash, _, _, _)) =
             organisms.get_mut(killer)
@@ -2156,9 +2149,9 @@ pub fn spawn_initial_population(
         };
 
         let genome = if (i as u32) < photo_count {
-            Genome::new_photosynthesizer(innovation, rng)
+            Genome::new_photosynthesizer_with_diet(innovation, rng, config.founder_diet_spread)
         } else {
-            Genome::new_minimal(innovation, rng)
+            Genome::new_minimal_with_diet(innovation, rng, config.founder_diet_spread)
         };
 
         match classify_strategy(&genome) {
@@ -2415,7 +2408,7 @@ mod digestion_tests {
         // A bite is BITE_FRACTION of what the plant holds, a kill offers
         // PREDATION_TRANSFER_FRACTION; both are then digested.
         let plant_energy = 80.0;
-        let (kept, wasted) = digest(plant_energy * BITE_FRACTION, 1.0);
+        let (kept, wasted) = digest(plant_energy * SimConfig::default().bite_fraction, 1.0);
         assert!((kept - 8.0).abs() < 1e-5 && wasted.abs() < 1e-5);
         let (kept, wasted) = digest(plant_energy * PREDATION_TRANSFER_FRACTION, 0.25);
         assert!((kept - 2.0).abs() < 1e-5 && (wasted - 6.0).abs() < 1e-5);

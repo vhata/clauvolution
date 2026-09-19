@@ -234,6 +234,16 @@ pub struct SimConfig {
     pub food_energy_value: f32,
     pub species_compat_threshold: f32,
     pub terrain_seed: u64,
+    /// Fraction of a plant's current energy that one bite removes. See
+    /// `docs/DECISIONS.md`, "Grazing". Overridable with `--bite-fraction`.
+    pub bite_fraction: f32,
+    /// Founders draw `diet` uniformly from `-spread..spread`. Overridable
+    /// with `--founder-diet-spread`.
+    pub founder_diet_spread: f32,
+    /// Multiplier on every killer's animal digestion efficiency, 1.0 in the
+    /// sim proper. `--animal-efficiency 0` is the interdependence test in
+    /// `plans/2026-09-19-diet-axis.md`: nobody can live by hunting.
+    pub animal_efficiency_multiplier: f32,
     /// Ceiling on the number of living organisms; the only birth limiter in
     /// the sim. Carrying capacity is meant to come from energy, not from this
     /// number, but under the current rules nothing consumes plants, so with
@@ -260,6 +270,9 @@ impl Default for SimConfig {
             base_metabolism_cost: 0.08,
             movement_energy_cost: 0.04,
             reproduction_energy_threshold: 70.0,
+            bite_fraction: 0.1,
+            founder_diet_spread: 0.2,
+            animal_efficiency_multiplier: 1.0,
             reproduction_energy_cost: 40.0,
             max_organism_energy: 120.0,
             food_energy_value: 25.0,
