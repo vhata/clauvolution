@@ -328,6 +328,8 @@ pub struct PredationStats {
     pub rejected_damage: u64,
     /// Successful kills
     pub kills: u64,
+    /// Bites taken from living plants (an attack on a photosynthesiser)
+    pub grazes: u64,
 }
 
 #[derive(Resource)]
@@ -739,6 +741,8 @@ pub enum ActionType {
     None,
     Eating,
     Attacking,
+    /// Took a bite out of a living plant.
+    Grazing,
     Reproducing,
 }
 
@@ -870,8 +874,8 @@ pub struct EnergyFlows {
     pub food: f64,
     /// Energy paid to a killer at a kill (the 10% pyramid share).
     pub predation: f64,
-    /// Energy credited to a grazer from a bite of a living plant. Zero until
-    /// grazing exists (phase 1 step 2 of `docs/design/simulation-rules.md`).
+    /// Energy credited to a grazer from a bite of a living plant: the bite
+    /// times the grazer's plant efficiency.
     pub grazing: f64,
     /// Gross energy moved between symbiotic partners. A transfer, so it does
     /// not change the total and is not part of `net()`.
@@ -887,14 +891,15 @@ pub struct EnergyFlows {
     /// Starting energy handed to children.
     pub reproduction_received: f64,
     /// Energy removed from the world with organisms that died, including the
-    /// share of a victim's energy that does not reach its killer and the
-    /// energy zeroed on a kill, a disease death, or an old-age death.
+    /// share of a victim's energy that is never offered to its killer (the
+    /// trophic pyramid) and the energy zeroed on a kill, a disease death, or
+    /// an old-age death.
     pub death: f64,
     /// Income discarded by the `max_organism_energy` clamp.
     pub clamp: f64,
     /// Energy lost between a meal and its eater: the undigested share of a
-    /// bite, a kill, or a food item. Zero until digestion efficiency exists
-    /// (phase 1 step 2 of `docs/design/simulation-rules.md`).
+    /// bite or of a killer's pyramid share. Food items are not organism
+    /// energy, so their undigested share never enters the ledger.
     pub digestion: f64,
 }
 

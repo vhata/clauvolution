@@ -809,6 +809,7 @@ fn print_headless_summary(
     eprintln!("  Rejected (size):     {}", predation.rejected_size_gate);
     eprintln!("  Rejected (damage):   {}", predation.rejected_damage);
     eprintln!("  Kills:               {}", predation.kills);
+    eprintln!("  Grazes:              {}", predation.grazes);
     eprintln!();
     // Cumulative flows are magnitudes; the sign column says which way each
     // one moves organism energy. Symbiosis is a transfer and has no sign.
