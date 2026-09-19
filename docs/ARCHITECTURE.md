@@ -50,8 +50,9 @@ disease_effects_system        ← per-tick drain, direct mortality chance, timer
 symbiosis_tracking_system     ← nearest-neighbour streak per organism (par_iter_mut)
 symbiosis_transfer_system     ← energy exchange between mutual pairs past the link threshold
 metabolism_system             ← energy costs (quadratic in body/armor/claws/speed), aging (par_iter_mut)
-death_system                  ← energy ≤ 0, health ≤ 0, or `Killed` → cause from the marker, else old age/disease/starvation → despawn
+death_system                  ← energy ≤ 0, health ≤ 0, or `Killed` → cause from the marker, else old age/disease/starvation → despawn; folds the dying organism's `EnergyFlows` and remaining energy into the ledger
 reproduction_system           ← eligible parents → crossover + mutate → spawn child
+ledger_system                 ← close the energy books: sum live energy and per-organism `EnergyFlows`, compare against the tick's recorded flows, record the residual (debug_assert / rate-limited chronicle warning past tolerance)
 species_classification_system ← NEAT compatibility distance with hysteresis (every 5s)
 record_population_history     ← 1Hz snapshot into PopulationHistory ring buffer
 record_trail_history          ← organism position samples (when trails enabled)
@@ -77,6 +78,7 @@ update_minimap                ← repaint the minimap image every 0.5s
 - **Component presence as state.** `Infection` is a component with severity and timer; organisms without it are healthy. Avoids a nullable field and makes `Query<..., With<Infection>>` the natural way to find the sick.
 - **Unified event channel.** `WorldEventRequest` (in `core`) is fired by keyboard *and* UI buttons; one system consumes it. Avoids keyboard/UI code duplication and keeps triggering symmetrical.
 - **Shared mesh handles.** `SharedMeshes` resource holds one circle/food-circle/material handles reused across 2000+ organisms instead of creating unique meshes.
+- **Per-organism scratch for parallel systems.** `photosynthesis_system` and `metabolism_system` run under `par_iter_mut` and cannot write the shared `EnergyLedger` resource, so each organism carries an `EnergyFlows` component that the owning iteration writes; `ledger_system` sums and zeroes those records serially. Serial systems write the resource directly. The same rule applies to any future parallel system that moves energy.
 - **Spatial hash for neighbour queries.** Rebuilt once per fixed tick at the head of the `FixedUpdate` chain, used by sensing, predation, disease transmission, symbiosis tracking and mate search. The readers re-check real distance after the lookup, so entities that moved within the tick (after `action_system`) are missed rather than falsely matched.
 - **try_despawn everywhere.** `commands.entity(e).try_despawn()` and `.try_despawn_recursive()` avoid B0003 errors when two systems both try to despawn the same entity in one frame.
 - **Frustum culling off-screen.** Organisms and food outside the camera viewport get `Visibility::Hidden` — GPU skips them. Margin-padded to prevent pop-in at edges.
@@ -95,6 +97,7 @@ update_minimap                ← repaint the minimap image every 0.5s
 | UI panels | `clauvolution_ui::<tab>_tab` functions |
 | Camera, minimap, gizmos | `clauvolution_render` |
 | Save/load | `clauvolution_sim::save` module |
+| Energy accounting | `EnergyLedger` and `EnergyFlows` in `clauvolution_core`; `clauvolution_sim::ledger_system` |
 
 ## Bevy schedule essentials
 

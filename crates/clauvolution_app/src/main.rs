@@ -237,13 +237,15 @@ fn startup_system(
     season: ResMut<Season>,
     phylo: ResMut<PhyloTree>,
     chronicle: ResMut<WorldChronicle>,
+    ledger: ResMut<EnergyLedger>,
     load_path: Res<LoadPath>,
 ) {
     if let Some(ref path) = load_path.0 {
         let save_path = std::path::Path::new(path).join("save.json");
         if save_path.exists() {
             load_saved_world(
-                commands, config, innovation, stats, tick, season, phylo, chronicle, &save_path,
+                commands, config, innovation, stats, tick, season, phylo, chronicle, ledger,
+                &save_path,
             );
             return;
         } else {
@@ -253,7 +255,7 @@ fn startup_system(
             );
         }
     }
-    fresh_world(commands, config, innovation);
+    fresh_world(commands, config, innovation, ledger);
 }
 
 fn load_saved_world(
@@ -265,6 +267,7 @@ fn load_saved_world(
     mut season: ResMut<Season>,
     mut phylo: ResMut<PhyloTree>,
     mut chronicle: ResMut<WorldChronicle>,
+    mut ledger: ResMut<EnergyLedger>,
     save_path: &std::path::Path,
 ) {
     let Some(state) = save::load_world(save_path) else {
@@ -299,8 +302,10 @@ fn load_saved_world(
     // serialised; same-seed runs from tick 0 still match.)
     commands.insert_resource(SimRng::from_seed(config.terrain_seed));
 
-    // Restore organisms and food
-    save::spawn_saved_organisms(&mut commands, &state.organisms);
+    // Restore organisms and food. The ledger starts from the loaded energy so
+    // the first tick does not compare against an empty world.
+    let total_energy = save::spawn_saved_organisms(&mut commands, &state.organisms);
+    ledger.reset_baseline(total_energy);
     save::spawn_saved_food(&mut commands, &state.food);
 
     // Restore phylo tree and chronicle
@@ -313,14 +318,16 @@ fn fresh_world(
     commands: Commands,
     config: ResMut<SimConfig>,
     innovation: ResMut<InnovationCounter>,
+    ledger: ResMut<EnergyLedger>,
 ) {
-    setup_world(commands, config, innovation);
+    setup_world(commands, config, innovation, ledger);
 }
 
 fn setup_world(
     mut commands: Commands,
     config: ResMut<SimConfig>,
     mut innovation: ResMut<InnovationCounter>,
+    mut ledger: ResMut<EnergyLedger>,
 ) {
     // Seed deterministic terrain generation
     let mut terrain_rng = rand::rngs::StdRng::seed_from_u64(config.terrain_seed);
@@ -330,12 +337,13 @@ fn setup_world(
     // Same seed → same simulation trajectory.
     let mut sim_rng = SimRng::from_seed(config.terrain_seed);
     clauvolution_world::spawn_initial_food(&mut commands, &config, &tile_map, &mut sim_rng.0);
-    clauvolution_sim::spawn_initial_population(
+    let total_energy = clauvolution_sim::spawn_initial_population(
         &mut commands,
         &config,
         &mut innovation,
         &mut sim_rng.0,
     );
+    ledger.reset_baseline(total_energy);
     commands.insert_resource(tile_map);
     commands.insert_resource(sim_rng);
 
@@ -569,12 +577,18 @@ fn dump_history_csv(
         "tick,sim_second,organisms,food,species,plants,foragers,predators,infected,\
          avg_lifespan,avg_body_size,avg_speed,avg_armor,avg_attack,avg_photo,\
          avg_disease_resistance,avg_symbiosis_rate,symbiotic_pairs,\
-         deaths_starvation,deaths_predation,deaths_old_age,deaths_disease,deaths_event"
+         deaths_starvation,deaths_predation,deaths_old_age,deaths_disease,deaths_event,\
+         energy_total,flow_photosynthesis,flow_food,flow_predation,flow_symbiosis,\
+         flow_metabolism,flow_movement,flow_disease,flow_reproduction_spent,\
+         flow_reproduction_received,flow_death,flow_clamp,\
+         ledger_max_residual,ledger_cumulative_residual"
     )?;
     for s in &history.snapshots {
+        let fl = &s.energy_flows;
         writeln!(
             f,
-            "{},{:.1},{},{},{},{},{},{},{},{:.2},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{},{},{},{},{},{}",
+            "{},{:.1},{},{},{},{},{},{},{},{:.2},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{},{},{},{},{},{},\
+             {:.2},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.6},{:.6}",
             s.tick,
             s.tick as f64 / 30.0,
             s.organisms,
@@ -598,6 +612,20 @@ fn dump_history_csv(
             s.deaths_old_age,
             s.deaths_disease,
             s.deaths_event,
+            s.energy_total,
+            fl.photosynthesis,
+            fl.food,
+            fl.predation,
+            fl.symbiosis,
+            fl.metabolism,
+            fl.movement,
+            fl.disease,
+            fl.reproduction_spent,
+            fl.reproduction_received,
+            fl.death,
+            fl.clamp,
+            s.ledger_max_residual,
+            s.ledger_cumulative_residual,
         )?;
     }
     Ok(())
@@ -654,6 +682,7 @@ fn headless_tick_counter(
     stats: Res<clauvolution_core::SimStats>,
     predation: Res<clauvolution_core::PredationStats>,
     history: Res<clauvolution_core::PopulationHistory>,
+    ledger: Res<clauvolution_core::EnergyLedger>,
     save_at_end: Res<HeadlessSaveAtEnd>,
     dump_path: Option<Res<HeadlessDumpHistoryPath>>,
     mut events: EventWriter<clauvolution_core::WorldEventRequest>,
@@ -674,7 +703,7 @@ fn headless_tick_counter(
     }
     match *phase {
         0 => {
-            print_headless_summary(&stats, &predation, &history);
+            print_headless_summary(&stats, &predation, &history, &ledger);
             if let Some(dp) = &dump_path {
                 match dump_history_csv(&dp.0, &history) {
                     Ok(_) => eprintln!("Wrote {} snapshots to {}", history.snapshots.len(), dp.0),
@@ -702,6 +731,7 @@ fn print_headless_summary(
     stats: &clauvolution_core::SimStats,
     predation: &clauvolution_core::PredationStats,
     history: &clauvolution_core::PopulationHistory,
+    ledger: &clauvolution_core::EnergyLedger,
 ) {
     eprintln!();
     // Population is read from the last 1Hz snapshot so it matches the
@@ -750,5 +780,25 @@ fn print_headless_summary(
     eprintln!("  Rejected (size):     {}", predation.rejected_size_gate);
     eprintln!("  Rejected (damage):   {}", predation.rejected_damage);
     eprintln!("  Kills:               {}", predation.kills);
+    eprintln!();
+    // Cumulative flows are magnitudes; the sign column says which way each
+    // one moves organism energy. Symbiosis is a transfer and has no sign.
+    eprintln!("Energy ledger:");
+    eprintln!("  Baseline energy:     {:.1}", ledger.baseline);
+    eprintln!("  Final live energy:   {:.1}", ledger.total);
+    eprintln!("  Cumulative flows:");
+    let signs = ["+", "+", "+", " ", "-", "-", "-", "-", "+", "-", "-"];
+    for ((label, value), sign) in ledger.cumulative.entries().iter().zip(signs) {
+        eprintln!("    {sign} {label:<22} {value:>14.1}");
+    }
+    eprintln!("  Net of flows:        {:+.1}", ledger.cumulative.net());
+    eprintln!(
+        "  Largest |residual|:  {:.6} per tick (tolerance {})",
+        ledger.max_abs_residual,
+        clauvolution_core::EnergyLedger::TOLERANCE
+    );
+    eprintln!("  Final residual:      {:+.6}", ledger.last_residual);
+    eprintln!("  Cumulative residual: {:+.6}", ledger.cumulative_residual);
+    eprintln!("  Ticks over tolerance: {}", ledger.breaches);
     eprintln!();
 }

@@ -31,7 +31,8 @@ impl Plugin for CorePlugin {
             .insert_resource(BloomEffects::default())
             .insert_resource(UiInputState::default())
             .insert_resource(TrailsVisible::default())
-            .insert_resource(FoodSnapshot::default());
+            .insert_resource(FoodSnapshot::default())
+            .insert_resource(EnergyLedger::default());
     }
 }
 
@@ -410,6 +411,12 @@ pub struct PopSnapshot {
     // Symbiosis metrics
     pub symbiotic_pairs: u32,
     pub avg_symbiosis_rate: f32,
+    // Energy ledger: total live energy at the sample, the flows moved during
+    // this one-second interval, and the largest per-tick residual in it.
+    pub energy_total: f32,
+    pub energy_flows: EnergyFlows,
+    pub ledger_max_residual: f32,
+    pub ledger_cumulative_residual: f32,
 }
 
 /// Tracks organism lifespans for fitness measurement
@@ -430,6 +437,7 @@ pub struct PopulationHistory {
     prev_births: u64,
     prev_deaths: u64,
     prev_deaths_by_cause: [u64; DEATH_CAUSE_COUNT],
+    prev_flows: EnergyFlows,
 }
 
 impl Default for PopulationHistory {
@@ -441,17 +449,29 @@ impl Default for PopulationHistory {
             prev_births: 0,
             prev_deaths: 0,
             prev_deaths_by_cause: [0; DEATH_CAUSE_COUNT],
+            prev_flows: EnergyFlows::default(),
         }
     }
 }
 
 impl PopulationHistory {
     #[allow(clippy::too_many_arguments)]
-    pub fn record(&mut self, stats: &SimStats, snapshot: PopSnapshotInput) {
+    pub fn record(
+        &mut self,
+        stats: &SimStats,
+        ledger: &mut EnergyLedger,
+        snapshot: PopSnapshotInput,
+    ) {
         let births_per_sec = (stats.total_births - self.prev_births) as u32;
         let deaths_per_sec = (stats.total_deaths - self.prev_deaths) as u32;
         self.prev_births = stats.total_births;
         self.prev_deaths = stats.total_deaths;
+
+        // Flows since the previous sample; the ledger's interval maximum is
+        // read and reset here so the snapshot owns the peak for its second.
+        let energy_flows = ledger.cumulative.minus(&self.prev_flows);
+        self.prev_flows = ledger.cumulative;
+        let ledger_max_residual = ledger.take_interval_max_residual() as f32;
 
         let ds = (stats.deaths_by_cause[0] - self.prev_deaths_by_cause[0]) as u32;
         let dp = (stats.deaths_by_cause[1] - self.prev_deaths_by_cause[1]) as u32;
@@ -486,6 +506,10 @@ impl PopulationHistory {
             avg_photo: snapshot.avg_photo,
             symbiotic_pairs: snapshot.symbiotic_pairs,
             avg_symbiosis_rate: snapshot.avg_symbiosis_rate,
+            energy_total: ledger.total as f32,
+            energy_flows,
+            ledger_max_residual,
+            ledger_cumulative_residual: ledger.cumulative_residual as f32,
         });
 
         if self.snapshots.len() > self.max_entries {
@@ -789,3 +813,228 @@ pub struct Food;
 
 #[derive(Component)]
 pub struct FoodEnergy(pub f32);
+
+/// Energy moved by each simulation rule, as magnitudes. Every field is
+/// non-negative except `death`, which is the signed energy an organism held
+/// when it was removed and can be slightly negative when metabolism
+/// overdrew it on its final tick.
+///
+/// Used two ways. As a component it is the per-organism scratch record that
+/// `photosynthesis_system` and `metabolism_system` write from inside
+/// `par_iter_mut`, where a shared resource cannot be touched; `ledger_system`
+/// sums those records serially and zeroes them each tick, and `death_system`
+/// folds in a dying organism's record before the despawn removes it. As the
+/// `EnergyLedger` totals it is the same set of flows summed over the tick and
+/// over the run.
+#[derive(Component, Clone, Copy, Default, Debug, PartialEq)]
+pub struct EnergyFlows {
+    /// Sun energy credited to photosynthesisers.
+    pub photosynthesis: f64,
+    /// Energy from food items eaten.
+    pub food: f64,
+    /// Energy paid to a killer at a kill (the 10% pyramid share).
+    pub predation: f64,
+    /// Gross energy moved between symbiotic partners. A transfer, so it does
+    /// not change the total and is not part of `net()`.
+    pub symbiosis: f64,
+    /// Per-tick body maintenance cost.
+    pub metabolism: f64,
+    /// Movement cost paid in `action_system`.
+    pub movement: f64,
+    /// Infection drain.
+    pub disease: f64,
+    /// Energy parents paid to reproduce.
+    pub reproduction_spent: f64,
+    /// Starting energy handed to children.
+    pub reproduction_received: f64,
+    /// Energy removed from the world with organisms that died, including the
+    /// share of a victim's energy that does not reach its killer and the
+    /// energy zeroed on a kill, a disease death, or an old-age death.
+    pub death: f64,
+    /// Income discarded by the `max_organism_energy` clamp.
+    pub clamp: f64,
+}
+
+impl EnergyFlows {
+    /// Signed change in total live energy these flows account for.
+    pub fn net(&self) -> f64 {
+        self.photosynthesis + self.food + self.predation + self.reproduction_received
+            - self.metabolism
+            - self.movement
+            - self.disease
+            - self.reproduction_spent
+            - self.death
+            - self.clamp
+    }
+
+    pub fn add(&mut self, other: &EnergyFlows) {
+        self.photosynthesis += other.photosynthesis;
+        self.food += other.food;
+        self.predation += other.predation;
+        self.symbiosis += other.symbiosis;
+        self.metabolism += other.metabolism;
+        self.movement += other.movement;
+        self.disease += other.disease;
+        self.reproduction_spent += other.reproduction_spent;
+        self.reproduction_received += other.reproduction_received;
+        self.death += other.death;
+        self.clamp += other.clamp;
+    }
+
+    pub fn minus(&self, other: &EnergyFlows) -> EnergyFlows {
+        EnergyFlows {
+            photosynthesis: self.photosynthesis - other.photosynthesis,
+            food: self.food - other.food,
+            predation: self.predation - other.predation,
+            symbiosis: self.symbiosis - other.symbiosis,
+            metabolism: self.metabolism - other.metabolism,
+            movement: self.movement - other.movement,
+            disease: self.disease - other.disease,
+            reproduction_spent: self.reproduction_spent - other.reproduction_spent,
+            reproduction_received: self.reproduction_received - other.reproduction_received,
+            death: self.death - other.death,
+            clamp: self.clamp - other.clamp,
+        }
+    }
+
+    pub fn clear(&mut self) {
+        *self = EnergyFlows::default();
+    }
+
+    /// `(label, value)` pairs in display order, for summaries and CSV.
+    pub fn entries(&self) -> [(&'static str, f64); 11] {
+        [
+            ("photosynthesis", self.photosynthesis),
+            ("food", self.food),
+            ("predation", self.predation),
+            ("symbiosis", self.symbiosis),
+            ("metabolism", self.metabolism),
+            ("movement", self.movement),
+            ("disease", self.disease),
+            ("reproduction_spent", self.reproduction_spent),
+            ("reproduction_received", self.reproduction_received),
+            ("death", self.death),
+            ("clamp", self.clamp),
+        ]
+    }
+}
+
+/// Run-wide energy accounting. Serial systems add to `tick` directly at the
+/// point they move energy; parallel systems write per-organism `EnergyFlows`
+/// components that `ledger_system` sums into `tick`. At the end of each tick
+/// `ledger_system` compares the change in total live energy against
+/// `tick.net()`; the difference is the residual, which is zero up to f32
+/// rounding when every energy movement has been recorded.
+#[derive(Resource, Clone, Debug)]
+pub struct EnergyLedger {
+    /// Flows recorded so far in the current tick.
+    pub tick: EnergyFlows,
+    /// Flows summed over the whole run.
+    pub cumulative: EnergyFlows,
+    /// Total live organism energy at the end of the last closed tick.
+    pub total: f64,
+    /// Total live energy when the world was spawned or loaded.
+    pub baseline: f64,
+    /// Residual of the last closed tick.
+    pub last_residual: f64,
+    /// Largest absolute per-tick residual seen in the run.
+    pub max_abs_residual: f64,
+    /// Sum of every per-tick residual: the drift between the baseline plus
+    /// the cumulative net flows and the live total.
+    pub cumulative_residual: f64,
+    /// Ticks whose residual exceeded `TOLERANCE`.
+    pub breaches: u64,
+    /// Tick of the last chronicle warning, for rate limiting.
+    pub last_warning_tick: Option<u64>,
+    /// Largest absolute residual since the last population snapshot.
+    interval_max_residual: f64,
+    /// Total at the end of the previous tick; `None` until the baseline is
+    /// set by the spawn or load path.
+    prev_total: Option<f64>,
+}
+
+impl Default for EnergyLedger {
+    fn default() -> Self {
+        Self {
+            tick: EnergyFlows::default(),
+            cumulative: EnergyFlows::default(),
+            total: 0.0,
+            baseline: 0.0,
+            last_residual: 0.0,
+            max_abs_residual: 0.0,
+            cumulative_residual: 0.0,
+            breaches: 0,
+            last_warning_tick: None,
+            interval_max_residual: 0.0,
+            prev_total: None,
+        }
+    }
+}
+
+impl EnergyLedger {
+    /// Per-tick residual above which the books are considered out of
+    /// balance. Energy is stored as f32, so each write to an `Energy`
+    /// component rounds by up to half an ulp: about 4e-6 at the 120 cap.
+    /// With 2000 organisms and three to four energy writes each per tick, a
+    /// fully aligned worst case is around 0.03 and the typical random-walk
+    /// value is under 1e-3. 0.1 sits above the worst case and far below any
+    /// rule-sized amount (the smallest is the 0.08 base metabolism cost of a
+    /// single organism), so a breach is a missing or double-counted flow,
+    /// not rounding.
+    pub const TOLERANCE: f64 = 0.1;
+
+    /// Minimum ticks between chronicle warnings about the residual.
+    pub const WARNING_INTERVAL_TICKS: u64 = 300;
+
+    /// Start the books from the energy of a freshly spawned or loaded
+    /// population, so the first tick compares against a real total instead
+    /// of zero.
+    pub fn reset_baseline(&mut self, total: f64) {
+        *self = EnergyLedger {
+            total,
+            baseline: total,
+            prev_total: Some(total),
+            ..EnergyLedger::default()
+        };
+    }
+
+    pub fn has_baseline(&self) -> bool {
+        self.prev_total.is_some()
+    }
+
+    /// Close the tick: record the residual against `total`, roll the tick's
+    /// flows into the cumulative totals, and clear them. Returns the residual.
+    pub fn close_tick(&mut self, total: f64) -> f64 {
+        let prev = self.prev_total.unwrap_or(total);
+        let residual = (total - prev) - self.tick.net();
+        self.last_residual = residual;
+        self.max_abs_residual = self.max_abs_residual.max(residual.abs());
+        self.interval_max_residual = self.interval_max_residual.max(residual.abs());
+        self.cumulative_residual += residual;
+        if residual.abs() > Self::TOLERANCE {
+            self.breaches += 1;
+        }
+        self.cumulative.add(&self.tick);
+        self.tick.clear();
+        self.total = total;
+        self.prev_total = Some(total);
+        residual
+    }
+
+    /// Whether a chronicle warning is due for this tick, and if so record it.
+    pub fn should_warn(&mut self, tick: u64) -> bool {
+        let due = match self.last_warning_tick {
+            None => true,
+            Some(last) => tick.saturating_sub(last) >= Self::WARNING_INTERVAL_TICKS,
+        };
+        if due {
+            self.last_warning_tick = Some(tick);
+        }
+        due
+    }
+
+    /// The largest absolute residual since the last call, then reset.
+    pub fn take_interval_max_residual(&mut self) -> f64 {
+        std::mem::take(&mut self.interval_max_residual)
+    }
+}
