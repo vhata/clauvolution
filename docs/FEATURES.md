@@ -9,6 +9,7 @@ One-liner list of what Clauvolution does, grouped by area. For the design ration
 - **Genetic system** — neurons, connections, body segments, traits; mutation + crossover + structural innovations (add-neuron, add-connection). Crossover blends each scalar trait with its own factor, so a child can take one parent's speed and the other's armour
 - **Body segments** — torso, limb, fin, eye, mouth, photo surface, claw, armor plate; each affects gameplay
 - **Sexual reproduction** — genome crossover with nearby same-species mates; asexual fallback if no mate
+- **Population ceiling, instrumented** — `SimConfig::population_ceiling` (2000) is the only birth limiter. Each engagement episode writes a chronicle entry, and the headless summary reports how often it engaged and how many births it blocked, so the cap is visible as the rule it currently is. Raising it is sequenced after the diet axis gives plants a consumer (see DECISIONS.md)
 - **Predation** — attack + damage calculation (claws vs armor, size advantage); 10% trophic energy transfer (thermodynamic energy pyramid)
 - **Photosynthesis** — organisms with photo surfaces gain energy from sunlight; scaled by tile light and season
 - **Plant density competition** — photosynthesis yield drops with local plant density (shading)

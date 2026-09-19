@@ -683,6 +683,7 @@ fn headless_tick_counter(
     predation: Res<clauvolution_core::PredationStats>,
     history: Res<clauvolution_core::PopulationHistory>,
     ledger: Res<clauvolution_core::EnergyLedger>,
+    config: Res<clauvolution_core::SimConfig>,
     save_at_end: Res<HeadlessSaveAtEnd>,
     dump_path: Option<Res<HeadlessDumpHistoryPath>>,
     mut events: EventWriter<clauvolution_core::WorldEventRequest>,
@@ -703,7 +704,7 @@ fn headless_tick_counter(
     }
     match *phase {
         0 => {
-            print_headless_summary(&stats, &predation, &history, &ledger);
+            print_headless_summary(&stats, &predation, &history, &ledger, &config);
             if let Some(dp) = &dump_path {
                 match dump_history_csv(&dp.0, &history) {
                     Ok(_) => eprintln!("Wrote {} snapshots to {}", history.snapshots.len(), dp.0),
@@ -732,6 +733,7 @@ fn print_headless_summary(
     predation: &clauvolution_core::PredationStats,
     history: &clauvolution_core::PopulationHistory,
     ledger: &clauvolution_core::EnergyLedger,
+    config: &clauvolution_core::SimConfig,
 ) {
     eprintln!();
     // Population is read from the last 1Hz snapshot so it matches the
@@ -751,6 +753,12 @@ fn print_headless_summary(
     eprintln!("  by Old age:            {}", stats.deaths_by_cause[2]);
     eprintln!("  by Disease:            {}", stats.deaths_by_cause[3]);
     eprintln!("  by Event:              {}", stats.deaths_by_cause[4]);
+    // Any engagement here means the population was capped by a rule rather
+    // than by energy; the counts make that visible in every audit summary.
+    eprintln!(
+        "Population ceiling:      {} (engaged {} times, {} births blocked)",
+        config.population_ceiling, stats.ceiling_episodes, stats.ceiling_blocked_births
+    );
     if let Some(latest) = latest {
         eprintln!();
         eprintln!("Final strategy breakdown:");

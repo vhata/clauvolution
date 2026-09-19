@@ -226,6 +226,16 @@ pub struct SimConfig {
     pub food_energy_value: f32,
     pub species_compat_threshold: f32,
     pub terrain_seed: u64,
+    /// Ceiling on the number of living organisms; the only birth limiter in
+    /// the sim. Carrying capacity is meant to come from energy, not from this
+    /// number, but under the current rules nothing consumes plants, so with
+    /// the ceiling raised every seed runs straight to it. It therefore ships
+    /// at the historical 2000 and is instrumented: when it blocks births,
+    /// `reproduction_system` writes a chronicle entry per episode and counts
+    /// it in `SimStats`, so the cap is visible as the rule it currently is.
+    /// The raise is sequenced after phase 1 of the simulation-rules design.
+    /// See DECISIONS.md "Emergent carrying capacity".
+    pub population_ceiling: u32,
 }
 
 impl Default for SimConfig {
@@ -252,6 +262,7 @@ impl Default for SimConfig {
             // 22-species / 80-predator ecosystem. See DECISIONS.md.
             species_compat_threshold: 1.0,
             terrain_seed: rand::random(),
+            population_ceiling: 2000,
         }
     }
 }
@@ -281,6 +292,14 @@ pub struct SimStats {
     /// Deaths categorised by cause, indexed by DeathCause as usize.
     /// The entries sum to `total_deaths`.
     pub deaths_by_cause: [u64; DEATH_CAUSE_COUNT],
+    /// Tick at which the current population-ceiling episode began, or
+    /// `None` while the ceiling is not engaged. `reproduction_system` uses
+    /// it to write one chronicle entry per episode rather than one per tick.
+    pub ceiling_engaged_since: Option<u64>,
+    /// Number of times `SimConfig::population_ceiling` has engaged.
+    pub ceiling_episodes: u64,
+    /// Births blocked by the population ceiling over the whole run.
+    pub ceiling_blocked_births: u64,
 }
 
 /// Instrumentation counters for the attack path. Rolled up over a whole run
