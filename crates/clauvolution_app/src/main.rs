@@ -582,10 +582,15 @@ fn run_headless(
         app.insert_resource(HeadlessDumpHistoryPath(path.clone()));
     }
 
-    app.run();
+    let exit = app.run();
 
     let elapsed = start.elapsed();
     eprintln!("Headless run complete in {:.2}s", elapsed.as_secs_f64());
+
+    // A failed end-of-run save exits non-zero so scripts notice.
+    if let AppExit::Error(code) = exit {
+        std::process::exit(i32::from(code.get()));
+    }
 }
 
 #[derive(Resource)]
