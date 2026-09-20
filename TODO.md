@@ -12,9 +12,6 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 
 ### P3 Low
 
-- [PERSIST] `save-write-error-handling` — **Handle save write failures without panicking.** `save_system` wraps save writes in `.expect("Failed to write save file")`, so a full disk or a permissions problem takes the whole sim down.
-  - Starting point: Decide whether a failed save should surface as a UI warning instead of a panic. Acceptable for a personal tool, so the first question is whether it is worth changing at all.
-  - Source: docs/ROADMAP.md (Known tech debt), 2026-09-16
 - [TOOLING] `wasm-webgpu-build` — **Build for WASM and WebGPU so the sim runs in a browser.** Removes the install step for anyone who wants to look at a running world.
   - Starting point: Only matters if the sim is ever shared, and it needs performance work first, so confirm the goal before starting.
   - Source: docs/ROADMAP.md (Backlog), 2026-09-16
