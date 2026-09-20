@@ -143,8 +143,17 @@ fn tile_index(pos: Vec2, w: usize, h: usize) -> (usize, usize) {
 /// `sat[(y + 1) * (w + 1) + (x + 1)]` is the sum of every cell with column
 /// `<= x` and row `<= y`. Any rectangle's total is then four lookups.
 pub fn summed_area_table(grid: &[f32], w: usize, h: usize) -> Vec<f32> {
+    let mut sat = Vec::new();
+    summed_area_table_into(grid, w, h, &mut sat);
+    sat
+}
+
+/// `summed_area_table` into a caller-owned buffer, resized as needed, so a
+/// per-tick caller allocates nothing once warm.
+pub fn summed_area_table_into(grid: &[f32], w: usize, h: usize, sat: &mut Vec<f32>) {
     let stride = w + 1;
-    let mut sat = vec![0.0f32; stride * (h + 1)];
+    sat.clear();
+    sat.resize(stride * (h + 1), 0.0);
     for y in 0..h {
         let mut row = 0.0f32;
         for x in 0..w {
@@ -152,7 +161,6 @@ pub fn summed_area_table(grid: &[f32], w: usize, h: usize) -> Vec<f32> {
             sat[(y + 1) * stride + (x + 1)] = sat[y * stride + (x + 1)] + row;
         }
     }
-    sat
 }
 
 /// Total over the square window of half-width `radius` around `(cx, cy)`,
@@ -267,7 +275,8 @@ impl Plugin for SimPlugin {
         .insert_resource(PopHistoryTimer(Timer::from_seconds(
             POP_HISTORY_SAMPLE_SECS,
             TimerMode::Repeating,
-        )));
+        )))
+        .init_resource::<CanopyGrid>();
     }
 }
 
@@ -276,6 +285,23 @@ struct SpeciesClassificationTimer(Timer);
 
 #[derive(Resource)]
 struct PopHistoryTimer(Timer);
+
+/// Scratch buffers for canopy light sharing, kept between ticks so
+/// `photosynthesis_system` allocates nothing per tick: leaf area per tile and
+/// its summed-area table (`(w + 1) * (h + 1)` entries).
+#[derive(Resource, Default)]
+struct CanopyGrid {
+    leaf: Vec<f32>,
+    sat: Vec<f32>,
+}
+
+impl CanopyGrid {
+    /// Zero the leaf grid for a `w` by `h` map, resizing on first use.
+    fn reset(&mut self, w: usize, h: usize) {
+        self.leaf.clear();
+        self.leaf.resize(w * h, 0.0);
+    }
+}
 
 #[derive(Resource)]
 struct ExtinctionCooldown(Timer);
@@ -1028,6 +1054,7 @@ fn photosynthesis_system(
     config: Res<SimConfig>,
     season: Res<Season>,
     bloom: Res<BloomEffects>,
+    mut canopy: ResMut<CanopyGrid>,
 ) {
     let light_mult = season.light_multiplier() * bloom.light_multiplier();
 
@@ -1036,14 +1063,16 @@ fn photosynthesis_system(
     // organism that earns any sun also shades (`can_photosynthesise`).
     let w = tile_map.width as usize;
     let h = tile_map.height as usize;
-    let mut leaf = vec![0.0f32; w * h];
+    canopy.reset(w, h);
+    let CanopyGrid { leaf, sat } = &mut *canopy;
     for (pos, _, _, _, genome) in organisms.iter() {
         if genome.can_photosynthesise() {
             let (tx, ty) = tile_index(pos.0, w, h);
             leaf[ty * w + tx] += genome.total_photo_surface_area();
         }
     }
-    let sat = summed_area_table(&leaf, w, h);
+    summed_area_table_into(leaf, w, h, sat);
+    let sat: &[f32] = sat;
 
     // Second pass: each photosynthesiser's light share is what its window's
     // tiles can light divided by the leaf area in the window, capped at 1,
@@ -1059,7 +1088,7 @@ fn photosynthesis_system(
                 let photo_area = genome.total_photo_surface_area();
 
                 let (tx, ty) = tile_index(pos.0, w, h);
-                let (leaf_in_window, tiles) = window_sum(&sat, w, h, tx, ty, CANOPY_RADIUS);
+                let (leaf_in_window, tiles) = window_sum(sat, w, h, tx, ty, CANOPY_RADIUS);
                 let share =
                     canopy_light_share(leaf_in_window, tiles, config.leaf_capacity_per_tile);
                 light_share.0 = share;
