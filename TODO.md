@@ -78,6 +78,11 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 
 ### P2 Normal
 
+- [SIM] `hunter-emergence` — **Find what lets a hunter level exist.** With canopy light sharing and grazing, plants and grazers persist and cycle on every seed, but hunters (diet at or above +1/3) are gone by tick 600 to 1000 on every seed and every configuration tried: kill share 0.1, 0.5 and 1.0, food items at 0.1 and 0.02. Payoff is not what binds (a share of 1.0 hands over the whole prey); a founding hunter digests 11% or less of plant tissue, so it has no food-item bridge while its random brain learns to chase, and it starves in a few hundred ticks. The interdependence test in `plans/2026-09-19-diet-axis.md` cannot pass until a top level exists.
+  - Starting point: three candidates, cheapest first. A `nearest eater` brain input (direction, distance, size of the nearest non-photosynthesiser), the analogue of the existing nearest-food and photo-hint inputs, so a hunter can steer at prey rather than at whatever organism is nearest, which with plants at half the population is usually a plant. Second, the size gate in `predation_system` (attacker above 0.6 of the prey's size) applied to consumer prey, which may exclude small early hunters. Third, time: carnivory in nature emerges from omnivory, so a 15k-tick audit may show late hunters that 5000-tick runs cannot; check the audit before building anything. Whatever is tried, measure hunters per seed at 5000 and 15000 ticks and record it under "Diet axis tuning pass" in `docs/DECISIONS.md`.
+  - Source: plant-physics step 4 (resumed diet pass), 2026-09-20
+  - Related: `founding-boom-food-regen`
+
 ### P3 Low
 
 - [RENDER] `gpu-instanced-rendering` — **Draw all organisms in one instanced draw call.** Each organism currently gets its own `ColorMaterial`, so the draw call count scales with population.
