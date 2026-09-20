@@ -1,7 +1,7 @@
 # Plan: plant physics, so that plants sit down of their own accord
 
 **Date:** 2026-09-20
-**Status:** in progress. Step 1 (instruments) landed in #21, step 2 (drag) in #22; step 3 (canopy light sharing) landed as the pull request that carries this line; step 4 not started.
+**Status:** in progress. Step 1 (instruments) landed in #21, step 2 (drag) in #22; step 3 (canopy light sharing, plus the ceiling raised to 6000 and the diet-pass defaults of spread 1.0 and bite 0.3 shipped) landed as the pull request that carries this line; step 4 not started.
 **Scope:** two physical couplings that the sim is missing, then the resumption of step 3 of `plans/2026-09-19-diet-axis.md`. Not a rule that names a strategy. Not nutrients as a consumed resource (phase 2 of `docs/design/simulation-rules.md`).
 
 ## Why

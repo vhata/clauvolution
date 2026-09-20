@@ -261,15 +261,16 @@ pub struct SimConfig {
     /// sim proper. `--animal-efficiency 0` is the interdependence test in
     /// `plans/2026-09-19-diet-axis.md`: nobody can live by hunting.
     pub animal_efficiency_multiplier: f32,
-    /// Ceiling on the number of living organisms; the only birth limiter in
-    /// the sim. Carrying capacity is meant to come from energy, not from this
-    /// number, but under the current rules nothing consumes plants, so with
-    /// the ceiling raised every seed runs straight to it. It therefore ships
-    /// at the historical 2000 and is instrumented: when it blocks births,
-    /// `reproduction_system` writes a chronicle entry per episode and counts
-    /// it in `SimStats`, so the cap is visible as the rule it currently is.
-    /// The raise is sequenced after phase 1 of the simulation-rules design.
-    /// See DECISIONS.md "Emergent carrying capacity".
+    /// Safety ceiling on the number of living organisms. Carrying capacity
+    /// comes from energy: canopy light sharing (`leaf_capacity_per_tile`)
+    /// shades crowded plants until they earn near their upkeep, and grazers
+    /// eat them, so populations oscillate in the low thousands and only a
+    /// seed whose consumers never take hold runs into this number. When it
+    /// blocks births `reproduction_system` writes a chronicle entry per
+    /// episode and counts it in `SimStats`, and births are admitted by
+    /// probability rather than query order while it holds. Shipped at 2000
+    /// as the historical cap until 2026-09-20; see DECISIONS.md "Emergent
+    /// carrying capacity".
     pub population_ceiling: u32,
 }
 
@@ -287,11 +288,11 @@ impl Default for SimConfig {
             base_metabolism_cost: 0.08,
             movement_energy_cost: 0.04,
             reproduction_energy_threshold: 70.0,
-            bite_fraction: 0.1,
+            bite_fraction: 0.3,
             kill_transfer_fraction: 0.1,
             photo_drag: 1.0,
             leaf_capacity_per_tile: 0.02,
-            founder_diet_spread: 0.2,
+            founder_diet_spread: 1.0,
             animal_efficiency_multiplier: 1.0,
             reproduction_energy_cost: 40.0,
             max_organism_energy: 120.0,
@@ -304,7 +305,7 @@ impl Default for SimConfig {
             // 22-species / 80-predator ecosystem. See DECISIONS.md.
             species_compat_threshold: 1.0,
             terrain_seed: rand::random(),
-            population_ceiling: 2000,
+            population_ceiling: 6000,
         }
     }
 }

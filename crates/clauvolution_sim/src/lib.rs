@@ -2616,8 +2616,10 @@ mod digestion_tests {
         // A bite is `bite_fraction` of what the plant holds, a kill offers
         // `kill_transfer_fraction`; both are then digested.
         let plant_energy = 80.0;
-        let (kept, wasted) = digest(plant_energy * SimConfig::default().bite_fraction, 1.0);
-        assert!((kept - 8.0).abs() < 1e-5 && wasted.abs() < 1e-5);
+        let bite = plant_energy * SimConfig::default().bite_fraction;
+        let (kept, wasted) = digest(bite, 1.0);
+        assert!((kept - bite).abs() < 1e-5 && wasted.abs() < 1e-5);
+        assert!(bite > 0.0 && bite < plant_energy);
         let (kept, wasted) = digest(
             plant_energy * SimConfig::default().kill_transfer_fraction,
             0.25,
