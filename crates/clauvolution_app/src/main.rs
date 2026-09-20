@@ -21,11 +21,23 @@ use script::{load_script, script_runner_system, ScriptState};
 /// bog everything else down. Override with the `CLAU_WORKERS` env var.
 const DEFAULT_WORKER_CAP: usize = 6;
 
-/// Default virtual-time multiplier in headless mode. 10× real-time is
-/// a sensible default — most laptops keep up, and it cuts validation
-/// cycles from minutes to seconds. Override with `--speed N` on the CLI.
-/// 1.0 reproduces the old behaviour (paced to wall clock).
+/// Default virtual-time multiplier in headless mode. Headless frames advance
+/// the clock by exactly one fixed timestep (see `HEADLESS_FRAME_DELTA`), so
+/// `--speed N` means N simulation ticks per frame; the run itself goes as
+/// fast as the CPU allows at every speed. Override with `--speed N`.
 const DEFAULT_HEADLESS_SPEED: f32 = 10.0;
+
+/// Real-time delta applied per headless frame: one 30 Hz fixed timestep.
+///
+/// Headless runs use `TimeUpdateStrategy::ManualDuration` instead of the wall
+/// clock. With the wall clock, the number of fixed ticks a frame ran depended
+/// on how long the previous frame took, and the per-frame schedules
+/// (`PostUpdate`'s `update_body_plans`, which moves new organisms into a new
+/// archetype) therefore interleaved with the tick chain differently on every
+/// run. Archetype layout sets Query iteration order, and the serial systems
+/// consume `SimRng` in that order, so same-seed runs diverged. Fixing the
+/// per-frame delta removes wall clock from the simulation entirely.
+const HEADLESS_FRAME_DELTA: std::time::Duration = std::time::Duration::from_nanos(33_333_333);
 
 fn compute_worker_cap() -> usize {
     std::env::var("CLAU_WORKERS")
@@ -503,6 +515,11 @@ fn run_headless(
             .set(ScheduleRunnerPlugin::run_loop(std::time::Duration::ZERO))
             .set(task_pool_plugin(worker_cap)),
     );
+    // Decouple the clock from wall time so the tick/frame interleaving, and
+    // with it the whole run, is a function of the seed alone.
+    app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+        HEADLESS_FRAME_DELTA,
+    ));
     // InputPlugin registers ButtonInput<KeyCode> etc. The sim's
     // keyboard_to_events_system reads it; it'll just be empty in headless
     // (no keys ever pressed) but the resource has to exist.
