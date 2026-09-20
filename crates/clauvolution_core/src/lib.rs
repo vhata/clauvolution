@@ -250,6 +250,13 @@ pub struct SimConfig {
     /// See `docs/DECISIONS.md`, "Photosynthetic surface drag". Overridable
     /// with `--photo-drag`.
     pub photo_drag: f32,
+    /// Leaf area one tile can fully light. A photosynthesiser's light share is
+    /// `min(1, window tiles × capacity / leaf area in the window)` over the
+    /// canopy window around it, so where leaves exceed what the ground can
+    /// light, everyone there is shaded in proportion. This is what sets how
+    /// many fully lit plants the world holds. See `docs/DECISIONS.md`,
+    /// "Canopy light sharing". Overridable with `--leaf-capacity`.
+    pub leaf_capacity_per_tile: f32,
     /// Multiplier on every killer's animal digestion efficiency, 1.0 in the
     /// sim proper. `--animal-efficiency 0` is the interdependence test in
     /// `plans/2026-09-19-diet-axis.md`: nobody can live by hunting.
@@ -283,6 +290,7 @@ impl Default for SimConfig {
             bite_fraction: 0.1,
             kill_transfer_fraction: 0.1,
             photo_drag: 1.0,
+            leaf_capacity_per_tile: 0.02,
             founder_diet_spread: 0.2,
             animal_efficiency_multiplier: 1.0,
             reproduction_energy_cost: 40.0,
