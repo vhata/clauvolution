@@ -1,0 +1,73 @@
+Compute pool capped at 6 workers (set CLAU_WORKERS to override)
+Headless run: 15000 ticks, seed 7 at 10× virtual-time
+
+=== Headless summary ===
+Founders by biome: Sand 1 (tiles 220), Grassland 148 (tiles 30459), Forest 251 (tiles 51395), Rock 0 (tiles 0); strategies: 133 plants, 95 grazers, 85 hunters, 87 omnivores; starting energy 41.2..78.7
+Total organisms (final): 996
+Species (final):         8
+Max generation:          158
+Total births:            119651
+Total deaths:            118943
+  by Starvation:         60973
+  by Predation:          46808
+  by Old age:            165
+  by Disease:            10997
+  by Event:              0
+Population ceiling:      6000 (engaged 0 times, 0 births blocked)
+
+Final strategy breakdown:
+  Plants:              18
+  Grazers:             978
+  Hunters:             0
+  Omnivores:           0
+  Infected:            6
+
+Final trait averages:
+  Body size:           1.89
+  Speed:               2.60
+  Attack:              0.52
+  Armor:               2.34
+  Photosynthesis:      12%
+  Diet (consumers):    -0.95
+  Leaf area (plants):  1.34
+  Speed plants/eaters: 0.599 / 2.676 per tick
+  Light share (plants): 0.88
+  Ready plants/eaters: 0% / 1%
+  Disease resistance:  5%
+  Symbiosis rate:      -0.21
+  Symbiotic pairs:     58
+  Avg lifespan:        91 ticks
+
+Predation funnel:
+  Attack intents:      13642726
+  Targets considered:  16185973
+  Rejected (size):     190518
+  Rejected (damage):   15021031
+  Kills:               46808
+  Grazes:              1116833
+
+Energy ledger:
+  Baseline energy:     23431.4
+  Final live energy:   52444.4
+  Cumulative flows:
+    + photosynthesis              2917297.2
+    + food                       16115029.2
+    + predation                      4306.6
+      grazing                     1246845.5
+      symbiosis                     11929.3
+    - metabolism                 12288088.4
+    - movement                    2346077.6
+    - disease                      237916.8
+    - reproduction_spent          6325794.2
+    + reproduction_received       5060635.4
+    - death                       1977158.8
+    - clamp                        250346.0
+    - digestion                    642873.5
+  Net of flows:        +29013.1
+  Largest |residual|:  0.000404 per tick (tolerance 0.1)
+  Final residual:      -0.000019
+  Cumulative residual: -0.039332
+  Ticks over tolerance: 0
+
+Wrote 499 snapshots to /Users/jonathan.hitchcock/src/clauvolution-plant-physics-resume-diet/docs/audits/2026-09-20-phase1-audit/seed7-run1.csv
+Headless run complete in 610.20s
