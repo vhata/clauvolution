@@ -4,8 +4,16 @@ use clauvolution_genome::{Genome, SegmentType, Symmetry};
 pub struct BodyPlugin;
 
 impl Plugin for BodyPlugin {
-    fn build(&self, app: &mut App) {
-        app.add_systems(PostUpdate, update_body_plans);
+    fn build(&self, _app: &mut App) {
+        // `update_body_plans` is registered by the app in `FixedUpdate`,
+        // ordered after the simulation tick, rather than here in
+        // `PostUpdate`. Inserting `BodyPlan` moves an organism to a new
+        // archetype, and archetype layout is Query iteration order, which the
+        // serial sim systems consume `SimRng` in. Run once per frame, the
+        // insertion landed after a different number of ticks depending on
+        // frame pacing, so the same seed produced different runs. This crate
+        // does not depend on the sim crate, so it cannot name the tick set
+        // itself.
     }
 }
 
@@ -70,8 +78,12 @@ impl BodyPlan {
     }
 }
 
-/// System that creates/updates body plans from genomes
-fn update_body_plans(mut commands: Commands, query: Query<(Entity, &Genome), Without<BodyPlan>>) {
+/// System that creates/updates body plans from genomes. Scheduled by the app
+/// in `FixedUpdate` after the simulation tick; see `BodyPlugin`.
+pub fn update_body_plans(
+    mut commands: Commands,
+    query: Query<(Entity, &Genome), Without<BodyPlan>>,
+) {
     for (entity, genome) in &query {
         let body_plan = BodyPlan::from_genome(genome);
         commands.entity(entity).insert(body_plan);

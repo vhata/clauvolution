@@ -11,7 +11,10 @@ use clauvolution_genome::{Genome, InnovationCounter, NUM_INPUTS, NUM_MEMORY};
 /// Re-exported so callers that classified through this crate keep working.
 pub use clauvolution_phylogeny::classify_strategy;
 use clauvolution_phylogeny::{PhyloTree, SpeciesStrategy, SpeciesTraits, WorldChronicle};
-use clauvolution_world::{update_spatial_hash, SpatialHash, TerrainType, TileMap};
+use clauvolution_world::{
+    food_regeneration_system, tile_dynamics_system, update_spatial_hash, SpatialHash, TerrainType,
+    TileMap,
+};
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
 
@@ -160,6 +163,15 @@ fn credit_clamped(energy: &mut Energy, amount: f32, cap: f32) -> f32 {
 
 pub struct SimPlugin;
 
+/// The simulation tick: every `FixedUpdate` system that reads or writes
+/// simulation state runs inside this set, in one fixed chain. Anything else
+/// scheduled in `FixedUpdate` (the headless tick counter, for example) orders
+/// itself `.after(SimTick)` so it sees a complete tick. Bevy's executor is
+/// otherwise free to run an unordered system anywhere in the tick that its
+/// data access allows, and where that lands can vary from run to run.
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SimTick;
+
 impl Plugin for SimPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
@@ -172,30 +184,41 @@ impl Plugin for SimPlugin {
             )
                 .chain(),
         )
+        // One strict chain. Bevy implements the system-tuple traits up to
+        // twenty elements, so the chain is written as two chained groups.
         .add_systems(
             FixedUpdate,
             (
-                tick_counter_system,
-                update_spatial_hash,
-                update_food_snapshot,
-                sensing_and_brain_system,
-                action_system,
-                predation_system,
-                photosynthesis_system,
-                niche_construction_system,
-                disease_transmission_system,
-                disease_effects_system,
-                symbiosis_tracking_system,
-                symbiosis_transfer_system,
-                metabolism_system,
-                death_system,
-                reproduction_system,
-                ledger_system,
-                species_classification_system,
-                record_population_history,
-                record_trail_history,
+                (
+                    tick_counter_system,
+                    tile_dynamics_system,
+                    food_regeneration_system,
+                    update_spatial_hash,
+                    update_food_snapshot,
+                    sensing_and_brain_system,
+                    action_system,
+                    predation_system,
+                    photosynthesis_system,
+                    niche_construction_system,
+                )
+                    .chain(),
+                (
+                    disease_transmission_system,
+                    disease_effects_system,
+                    symbiosis_tracking_system,
+                    symbiosis_transfer_system,
+                    metabolism_system,
+                    death_system,
+                    reproduction_system,
+                    ledger_system,
+                    species_classification_system,
+                    record_population_history,
+                    record_trail_history,
+                )
+                    .chain(),
             )
-                .chain(),
+                .chain()
+                .in_set(SimTick),
         )
         .insert_resource(Time::<Fixed>::from_hz(30.0))
         .insert_resource(Time::<Virtual>::from_max_delta(

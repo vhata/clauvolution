@@ -4,13 +4,13 @@ use bevy::core::{TaskPoolOptions, TaskPoolPlugin, TaskPoolThreadAssignmentPolicy
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{save_to_disk, Screenshot};
 use bevy::window::PrimaryWindow;
-use clauvolution_body::BodyPlugin;
+use clauvolution_body::{update_body_plans, BodyPlugin};
 use clauvolution_core::*;
 use clauvolution_genome::InnovationCounter;
 use clauvolution_phylogeny::{PhyloTree, PhylogenyPlugin, WorldChronicle};
 use clauvolution_render::{MainCamera, RenderPlugin};
 use clauvolution_sim::save;
-use clauvolution_sim::SimPlugin;
+use clauvolution_sim::{SimPlugin, SimTick};
 use clauvolution_ui::UiPlugin;
 use clauvolution_world::{self, TileMap, WorldPlugin};
 use rand::SeedableRng;
@@ -31,12 +31,11 @@ const DEFAULT_HEADLESS_SPEED: f32 = 10.0;
 ///
 /// Headless runs use `TimeUpdateStrategy::ManualDuration` instead of the wall
 /// clock. With the wall clock, the number of fixed ticks a frame ran depended
-/// on how long the previous frame took, and the per-frame schedules
-/// (`PostUpdate`'s `update_body_plans`, which moves new organisms into a new
-/// archetype) therefore interleaved with the tick chain differently on every
-/// run. Archetype layout sets Query iteration order, and the serial systems
-/// consume `SimRng` in that order, so same-seed runs diverged. Fixing the
-/// per-frame delta removes wall clock from the simulation entirely.
+/// on how long the previous frame took, so anything scheduled per frame
+/// interleaved with the tick chain differently on every run (at the time,
+/// `update_body_plans` in `PostUpdate`; see `BodyPlugin`). Fixing the
+/// per-frame delta removes wall-clock time from the run entirely, whatever
+/// the per-frame schedules hold.
 const HEADLESS_FRAME_DELTA: std::time::Duration = std::time::Duration::from_nanos(33_333_333);
 
 fn compute_worker_cap() -> usize {
@@ -189,7 +188,9 @@ fn main() {
             set_window_title,
         )
             .chain(),
-    );
+    )
+    // Body plans are part of the tick, not the frame; see `BodyPlugin`.
+    .add_systems(FixedUpdate, update_body_plans.after(SimTick));
 
     if screenshot_mode {
         app.insert_resource(ScreenshotSchedule::new())
@@ -552,11 +553,19 @@ fn run_headless(
     // Counter system that exits after N FixedUpdate ticks from whatever
     // tick we're at when the loop starts (so `--load X --headless 300`
     // runs 300 more ticks on top of the loaded state, not 300 absolute).
+    // Ordered after the sim chain so the summary and history dump describe
+    // the completed target tick rather than whatever point in the tick the
+    // executor happened to reach.
     app.insert_resource(HeadlessTickTarget {
         ticks_to_run: ticks,
         absolute_target: None,
     })
-    .add_systems(FixedUpdate, headless_tick_counter);
+    .add_systems(
+        FixedUpdate,
+        (update_body_plans, headless_tick_counter)
+            .chain()
+            .after(SimTick),
+    );
 
     // Headless runs virtual time at `--speed` ×, so FixedUpdate can fire
     // faster than 30Hz wall-clock up to whatever the CPU can sustain. The
