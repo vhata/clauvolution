@@ -284,6 +284,7 @@ impl Plugin for SimPlugin {
                 .in_set(SimTick),
         )
         .insert_resource(Time::<Fixed>::from_hz(30.0))
+        .insert_resource(SaveReport::default())
         .insert_resource(Time::<Virtual>::from_max_delta(
             std::time::Duration::from_millis(100),
         ))
@@ -2432,7 +2433,8 @@ fn save_system(
     >,
     food: Query<(&Position, &FoodEnergy), With<Food>>,
     phylo: Res<PhyloTree>,
-    chronicle: Res<WorldChronicle>,
+    mut chronicle: ResMut<WorldChronicle>,
+    mut report: ResMut<SaveReport>,
 ) {
     let save_requested = events.read().any(|r| matches!(r, WorldEventRequest::Save));
     if !save_requested {
@@ -2461,7 +2463,7 @@ fn save_system(
     let food_data: Vec<_> = food.iter().map(|(pos, fe)| (pos.0, fe.0)).collect();
 
     let save_path = session.dir.join("save.json");
-    save::save_world(
+    let result = save::save_world(
         &save_path,
         &tick,
         &season,
@@ -2473,6 +2475,30 @@ fn save_system(
         &phylo,
         &chronicle,
     );
+
+    // Surface the outcome everywhere the user might be looking: the log,
+    // the chronicle panel, and the SaveReport resource the headless runner
+    // prints from. A failed write costs one save, not the running world.
+    match &result {
+        Ok(()) => {
+            info!("World saved to {}", save_path.display());
+            chronicle.log(tick.0, format!("World saved to {}", save_path.display()));
+        }
+        Err(e) => {
+            error!("Save failed: {}", e);
+            chronicle.log(tick.0, format!("Save failed: {}", e));
+        }
+    }
+    report.last = Some(result.map(|()| save_path).map_err(|e| e.to_string()));
+}
+
+/// Outcome of the most recent save request, for callers outside the sim
+/// (the headless runner) that cannot see the log. `None` until a save has
+/// been attempted this run.
+#[derive(Resource, Default)]
+pub struct SaveReport {
+    /// The path written on success, or the error text on failure.
+    pub last: Option<Result<std::path::PathBuf, String>>,
 }
 
 #[cfg(test)]

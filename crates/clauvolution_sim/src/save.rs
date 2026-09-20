@@ -4,7 +4,42 @@ use clauvolution_core::*;
 use clauvolution_genome::*;
 use clauvolution_phylogeny::{PhyloNode, PhyloTree, SpeciesStrategy, WorldChronicle};
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::fmt;
+use std::path::{Path, PathBuf};
+
+/// Why a save could not be written. Surfaced to the log and the chronicle
+/// rather than panicking, so a full disk or a permissions problem costs the
+/// user one save, not the running world.
+#[derive(Debug)]
+pub enum SaveError {
+    /// The world state could not be serialised to JSON.
+    Serialize(serde_json::Error),
+    /// The save file could not be written to `path`.
+    Write {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+}
+
+impl fmt::Display for SaveError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SaveError::Serialize(e) => write!(f, "could not serialise world state: {}", e),
+            SaveError::Write { path, source } => {
+                write!(f, "could not write {}: {}", path.display(), source)
+            }
+        }
+    }
+}
+
+impl std::error::Error for SaveError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            SaveError::Serialize(e) => Some(e),
+            SaveError::Write { source, .. } => Some(source),
+        }
+    }
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct SaveState {
@@ -248,7 +283,12 @@ fn save_to_genome(s: &SaveGenome) -> Genome {
     }
 }
 
-/// Save the current simulation state to a file
+/// Save the current simulation state to a file.
+///
+/// The JSON is written to a sibling temporary file and renamed into place,
+/// so a write that fails part way (disk full, permissions) leaves any
+/// previous save at `path` intact. Returns the error instead of panicking;
+/// the caller decides how to surface it.
 pub fn save_world(
     path: &Path,
     tick: &TickCounter,
@@ -260,7 +300,7 @@ pub fn save_world(
     food: &[(Vec2, f32)],
     phylo: &PhyloTree,
     chronicle: &WorldChronicle,
-) {
+) -> Result<(), SaveError> {
     let state = SaveState {
         tick: tick.0,
         season_tick: season.current_tick,
@@ -326,9 +366,25 @@ pub fn save_world(
             .collect(),
     };
 
-    let json = serde_json::to_string(&state).expect("Failed to serialize save state");
-    std::fs::write(path, json).expect("Failed to write save file");
-    info!("World saved to {}", path.display());
+    let json = serde_json::to_string(&state).map_err(SaveError::Serialize)?;
+    write_atomically(path, json.as_bytes()).map_err(|source| SaveError::Write {
+        path: path.to_path_buf(),
+        source,
+    })
+}
+
+/// Write `bytes` to `path` via a temporary file in the same directory and a
+/// rename, so `path` only ever holds a complete file. The temporary file is
+/// removed on failure as far as the filesystem allows.
+fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(".tmp");
+    let tmp = PathBuf::from(tmp);
+    let result = std::fs::write(&tmp, bytes).and_then(|_| std::fs::rename(&tmp, path));
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result
 }
 
 /// Load simulation state from a file. Performs a basic structural sanity
@@ -472,5 +528,84 @@ pub fn restore_chronicle(chronicle: &mut WorldChronicle, entries: &[SaveChronicl
                 tick: e.tick,
                 text: e.text.clone(),
             });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A unique scratch directory under the system temp dir, removed on drop.
+    struct ScratchDir(PathBuf);
+
+    impl ScratchDir {
+        fn new(tag: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!(
+                "clauvolution-save-test-{}-{}",
+                tag,
+                std::process::id()
+            ));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            Self(dir)
+        }
+    }
+
+    impl Drop for ScratchDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn save_empty_world(path: &Path) -> Result<(), SaveError> {
+        save_world(
+            path,
+            &TickCounter(7),
+            &Season::default(),
+            &SimStats::default(),
+            &InnovationCounter(100),
+            &SimConfig::default(),
+            &[],
+            &[],
+            &PhyloTree::default(),
+            &WorldChronicle::default(),
+        )
+    }
+
+    #[test]
+    fn save_to_missing_directory_returns_error_instead_of_panicking() {
+        let scratch = ScratchDir::new("missing-dir");
+        let path = scratch.0.join("does-not-exist").join("save.json");
+        let err = save_empty_world(&path).expect_err("write into a missing directory must fail");
+        match &err {
+            SaveError::Write { path: p, .. } => assert_eq!(p, &path),
+            other => panic!("expected a write error, got {:?}", other),
+        }
+        assert!(err.to_string().contains("save.json"));
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn save_to_writable_directory_round_trips_through_load() {
+        let scratch = ScratchDir::new("round-trip");
+        let path = scratch.0.join("save.json");
+        save_empty_world(&path).expect("save into a writable directory");
+        assert!(path.exists());
+        assert!(!scratch.0.join("save.json.tmp").exists());
+        let state = load_world(&path).expect("the written file loads");
+        assert_eq!(state.tick, 7);
+        assert!(state.organisms.is_empty());
+    }
+
+    #[test]
+    fn failed_save_leaves_the_previous_file_untouched() {
+        let scratch = ScratchDir::new("keep-previous");
+        // Occupy the temp-file path with a directory so the write fails
+        // before the rename can replace the existing save.
+        let path = scratch.0.join("save.json");
+        std::fs::write(&path, b"previous").unwrap();
+        std::fs::create_dir(scratch.0.join("save.json.tmp")).unwrap();
+        save_empty_world(&path).expect_err("writing over a directory must fail");
+        assert_eq!(std::fs::read(&path).unwrap(), b"previous");
     }
 }
