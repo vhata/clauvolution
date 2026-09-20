@@ -141,19 +141,13 @@ What headless gives us:
 - 2.8× speedup via `--speed N` for fast validation loops
 
 ### Session seeds — full reproducibility
-⚠️ **Partial (v1).** `--seed <u64>` CLI flag + SimRng resource makes food regen, mutation, disease rolls, reproduction and asteroid targeting all derive from the master seed.
+✅ **Headless runs are reproducible (2026-09-20).** `--seed <u64>` CLI flag + SimRng resource makes food regen, mutation, disease rolls, reproduction and asteroid targeting all derive from the master seed, and a headless run advances its clock by a fixed step per frame, so the whole run is a function of the seed and the flags. Same-seed `--headless` runs are bit-identical in summary and history CSV at any compute pool size. See "Headless runs are deterministic" in `docs/DECISIONS.md` for the evidence and the mechanism that used to break it (wall-clock frame pacing, not the task pool).
 
-What works: same seed → identical state for first ~50 ticks.
-What doesn't: runs diverge after that due to Bevy's parallel task pool and archetype-based Query iteration order.
-Enough for "same config, comparable outcomes" validation; not enough for exact integration-test bounds or bit-identical replay.
+What is not reproducible:
+- GUI runs. The GUI is paced by the wall clock, so the per-frame schedules interleave with the tick chain differently on every run. Nothing watched depends on it.
+- `SimRng` state is not saved, so a loaded world re-seeds from `terrain_seed` and diverges from the original run immediately.
 
-**For full determinism (follow-up):**
-- Force single-threaded Bevy task pool (config `TaskPoolPlugin` with 1 worker) — costs parallelism but recovers determinism
-- Alternatively: sort query results by Entity ID before iterating anywhere order-sensitive (species classification, etc.)
-- Investigate whether HashMap iteration order (`seen_species`, etc.) contributes — swap to BTreeMap or explicit sorts
-- `SimRng` state is not saved, so a loaded world re-seeds from `terrain_seed` and diverges from the original run immediately
-
-**Nice-to-have once determinism holds:**
+**Nice-to-have now that determinism holds:**
 - `--compare-seed N --feature-a disease_on --feature-b disease_off` — runs two sims with same seed, one feature toggled. Direct A/B testing of changes.
 
 ### Parameter sweep mode (builds on headless)
@@ -233,7 +227,7 @@ Headless mode (Theme 4) is the fast version of this loop: `cargo run --release -
 - **Body size** ended between 0.47 and 0.60 on every run. The minimal-viable drift persists.
 - **Death causes**, as shares of total deaths across the 16 runs: predation 40% to 75%, starvation 9% to 29%, disease 11% to 18%, old age 1% to 18%. Old age had always read zero before the `Killed` marker fixed its attribution.
 - **Lock-in is early.** Where plants cross 80% of the population they do so between 42 and 372 sim-seconds (ticks 1260 to 11160); seed 3 on both runs and seed 42 on run 1 never cross it. The 5000-tick view in the corpse-fountain branch was too short to see the plant creep finish.
-- **Same-seed runs are reproducible on some seeds and not others.** Seeds 7, 99, 314, 1000 produced bit-identical summaries on their two runs; seeds 1, 2, 3, 42 diverged, seed 42 from 68% to 91% plants. The determinism probe, two simultaneous runs of seed 42, came out bit-identical to each other at 88% plants and 6 predators, a third distinct outcome for the seed after 68% and 91%. Across the whole audit, runs that started at the same moment matched and runs that started at different moments did not: the four seeds that diverged are the four whose first run was in the first batch after launch. Tracked as `determinism-claim-recheck` in `TODO.md`.
+- **Same-seed runs are reproducible on some seeds and not others.** Seeds 7, 99, 314, 1000 produced bit-identical summaries on their two runs; seeds 1, 2, 3, 42 diverged, seed 42 from 68% to 91% plants. The determinism probe, two simultaneous runs of seed 42, came out bit-identical to each other at 88% plants and 6 predators, a third distinct outcome for the seed after 68% and 91%. Across the whole audit, runs that started at the same moment matched and runs that started at different moments did not: the four seeds that diverged are the four whose first run was in the first batch after launch. Resolved 2026-09-20: the source was wall-clock frame pacing in headless mode, since removed; see "Headless runs are deterministic" in `docs/DECISIONS.md`.
 
 **Direction:** the response to this audit is [`docs/design/simulation-rules.md`](design/simulation-rules.md). Each of its phases ends with the audit re-run and a new dated block here.
 

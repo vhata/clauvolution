@@ -76,7 +76,7 @@ This changes the local toolchain from nightly to stable. Nothing in the code nee
 - **Render, UI, and app-wiring changes** need no tests. They are verified by hand in a release build.
 - **Tuning constant changes** need no tests. They need a headless before-and-after summary in the PR body, which the code review guide already asks for.
 
-An integration test crate that spawns a headless app, runs a few hundred ticks, and asserts invariants (no negative energy, population above zero, ledger balances) is on the roadmap and belongs here once same-seed runs are known to be reproducible. Until `determinism-claim-recheck` in `TODO.md` is resolved, such tests can only assert loose bounds, and loose-bound tests that flake are worse than no tests. The `scripts/smoke.sh` gate covers the "does it still run" half of that idea now.
+An integration test crate that spawns a headless app, runs a few hundred ticks, and asserts invariants (no negative energy, population above zero, ledger balances) is on the roadmap and belongs here. Same-seed headless runs are bit-identical since 2026-09-20 (see "Headless runs are deterministic" in `DECISIONS.md`), so such tests can assert exact values for a given seed rather than loose bounds; a test that pins an exact value will need updating whenever a simulation rule changes, which is the intended signal. The `scripts/smoke.sh` gate covers the "does it still run" half of that idea now.
 
 ### Pre-commit and pre-push hooks
 
@@ -112,7 +112,7 @@ This is the one place the project needs more than a standard Rust CI, because th
   - **Weekly**: the full audit shape, eight seeds, two runs each, 15000 ticks, sixteen jobs. This is the "as long as necessary for best signal" run. It matches the audit protocol, so its artifacts are directly comparable to the entries under `docs/audits/`, and it catches toolchain and dependency drift when main has been idle. At the measured rate a 15000-tick run should take around fifteen minutes per job, well inside GitHub's six-hour job limit, and the runner minutes are free on a public repository.
 - **Pass criteria**: each job exits 0 and ends with a living population. Nothing more. Asserting on strategy mix or species count would encode today's attractor as correct, which is the opposite of what the project wants.
 - **Output**: per-run summary and history CSV uploaded as artifacts, retained for 90 days, so that when a change in dynamics is suspected the evidence is already there. A short job-summary table (final population, plants, foragers, predators, species per seed) is written to the workflow run page.
-- **Determinism probe**: one extra job runs seed 42 twice, back to back, and diffs the two summaries. It reports match or mismatch in the job summary and never fails the workflow. This gives `determinism-claim-recheck` a steady stream of data points from a different machine class at no cost.
+- **Determinism probe**: one extra job runs seed 42 twice, back to back, and diffs the two summaries. It reports match or mismatch in the job summary and never fails the workflow. Headless runs are deterministic since 2026-09-20, so a mismatch here is a regression: something has let wall-clock time, thread scheduling, or hash iteration order back into the simulation.
 
 Failure of the probe workflow is a notification, not a block, because by the time it runs the change is already merged. The response to a red probe is a `TODO.md` entry or a revert, decided by a human.
 
@@ -159,7 +159,7 @@ Once `scripts/setup.sh` has installed the hooks, they apply to every worktree, s
 
 - GUI or screenshot testing in CI. No GPU on runners; software rendering under Bevy is possible but brittle. Filed as `ci-scripted-tour-software-renderer` in `TODO.md` at low priority.
 - A coverage tool or coverage threshold.
-- Integration tests with tight bounds on simulation outcomes. Blocked on `determinism-claim-recheck`.
+- Integration tests with tight bounds on simulation outcomes. Unblocked by headless determinism (2026-09-20); still on the roadmap rather than in this work.
 - Release packaging or the macOS app bundle script. Unchanged by this work.
 - Reformatting or lint-fixing the four open roadmap branches. Each branch handles its own rebase.
 

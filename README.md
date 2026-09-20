@@ -15,14 +15,14 @@ Each run gets a unique cosmic name (e.g. "pale-fading-shard"). Session data — 
 ```bash
 # Save: press F5 during gameplay
 cargo run --release -- --load sessions/pale-fading-shard   # load a saved session
-cargo run --release -- --seed 42                           # deterministic-ish sim (see docs)
+cargo run --release -- --seed 42                           # seeded sim (reproducible headless; the GUI is wall-clock paced, see docs)
 cargo run --release -- --species-threshold 1.0             # override the NEAT compatibility threshold (GUI or headless)
 cargo run --release -- --script tours/demo.json            # scripted tour with egui-aware screenshots
 cargo run --release -- --screenshot                        # legacy fixed tour (camera only, no panels)
 
 # Headless (no window). Ticks are relative to the starting tick, so --load + --headless resumes.
-cargo run --release -- --headless 1000 --seed 42           # run 1000 ticks, print a summary at the end
-cargo run --release -- --headless 1000 --speed 20          # virtual-time multiplier (default 10; CPU-bound past ~5)
+cargo run --release -- --headless 1000 --seed 42           # run 1000 ticks, print a summary at the end; same seed, same run
+cargo run --release -- --headless 1000 --speed 20          # ticks per headless frame (default 10); runs as fast as the CPU allows regardless
 cargo run --release -- --headless 1000 --save-as my-world  # write sessions/my-world/save.json at the end
 cargo run --release -- --headless 1000 --dump-history h.csv   # 1 Hz population history for the whole run as CSV
 scripts/attractor_audit.sh docs/audits/$(date +%F)-attractor-audit   # 8 seeds x 2 runs x 15k ticks; summarise with scripts/attractor_audit_summary.py
