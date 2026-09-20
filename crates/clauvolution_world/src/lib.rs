@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use clauvolution_core::{Food, FoodEnergy, Position, Season, SimConfig, SimRng};
+use clauvolution_core::{Food, FoodEnergy, Organism, Position, Season, SimConfig, SimRng};
 use rand::Rng;
 use std::collections::HashMap;
 
@@ -301,16 +301,22 @@ impl SpatialHash {
     }
 }
 
-/// Rebuild the spatial hash from every `Position` in the world.
+/// Rebuild the spatial hash from every organism `Position` in the world.
 ///
 /// Runs once per FixedUpdate tick, ordered by `SimPlugin` directly after
 /// `tick_counter_system` and before any system that queries neighbours.
 /// Positions change once per tick, so rebuilding per frame (the previous
 /// `PreUpdate` placement) left every tick after the first in a frame reading
 /// stale cells whenever a frame ran several ticks.
+///
+/// Food is not indexed. Every reader (sensing, predation, disease
+/// transmission, symbiosis tracking, mate search) resolves the returned
+/// entities through an organism-only query and would discard food anyway,
+/// and food is sensed through `FoodSnapshot` instead. Indexing it only made
+/// every neighbour query walk and reject the food in the surrounding cells.
 pub fn update_spatial_hash(
     mut spatial_hash: ResMut<SpatialHash>,
-    query: Query<(Entity, &Position)>,
+    query: Query<(Entity, &Position), With<Organism>>,
 ) {
     spatial_hash.clear();
     if spatial_hash.cell_size < 1.0 {
@@ -386,6 +392,46 @@ pub fn food_regeneration_system(
 mod tests {
     use super::*;
     use rand::{rngs::StdRng, SeedableRng};
+
+    /// The hash indexes organisms only. Food has its own per-tick snapshot,
+    /// and every neighbour reader resolves hits through an organism query, so
+    /// a food entity in the hash is pure cost for each query that walks it.
+    #[test]
+    fn spatial_hash_indexes_organisms_and_skips_food() {
+        let mut world = World::new();
+        world.insert_resource(SpatialHash::new(16.0));
+        let origin = Vec2::new(100.0, 100.0);
+        let organism = world.spawn((Organism, Position(origin))).id();
+        let food = world
+            .spawn((
+                Food,
+                FoodEnergy(10.0),
+                Position(origin + Vec2::new(1.0, 1.0)),
+            ))
+            .id();
+        let far_organism = world
+            .spawn((Organism, Position(origin + Vec2::new(500.0, 0.0))))
+            .id();
+
+        let mut schedule = Schedule::default();
+        schedule.add_systems(update_spatial_hash);
+        schedule.run(&mut world);
+
+        let hash = world.resource::<SpatialHash>();
+        let nearby = hash.query_radius(origin, 8.0);
+        assert!(
+            nearby.contains(&organism),
+            "organism at the origin is missing"
+        );
+        assert!(!nearby.contains(&food), "food must not be indexed");
+        assert!(
+            !nearby.contains(&far_organism),
+            "distant organism leaked in"
+        );
+
+        let indexed: usize = hash.cells.values().map(Vec::len).sum();
+        assert_eq!(indexed, 2, "only the two organisms should be indexed");
+    }
 
     /// Moisture must span 0..1 (the biome thresholds and the vegetation
     /// carrying capacity assume it) while elevation stays signed so that
