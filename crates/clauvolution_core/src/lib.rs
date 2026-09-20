@@ -244,6 +244,12 @@ pub struct SimConfig {
     /// the per-meal trophic share. See `docs/DECISIONS.md`, "Energy pyramid".
     /// Overridable with `--kill-transfer`.
     pub kill_transfer_fraction: f32,
+    /// Drag per unit of photosynthetic surface area in the speed formula:
+    /// `speed × 1 / (1 + photo_area × photo_drag)`, beside armour's 0.3 per
+    /// unit. A light-catching surface is broad and flat, so it is a sail.
+    /// See `docs/DECISIONS.md`, "Photosynthetic surface drag". Overridable
+    /// with `--photo-drag`.
+    pub photo_drag: f32,
     /// Multiplier on every killer's animal digestion efficiency, 1.0 in the
     /// sim proper. `--animal-efficiency 0` is the interdependence test in
     /// `plans/2026-09-19-diet-axis.md`: nobody can live by hunting.
@@ -276,6 +282,7 @@ impl Default for SimConfig {
             reproduction_energy_threshold: 70.0,
             bite_fraction: 0.1,
             kill_transfer_fraction: 0.1,
+            photo_drag: 1.0,
             founder_diet_spread: 0.2,
             animal_efficiency_multiplier: 1.0,
             reproduction_energy_cost: 40.0,

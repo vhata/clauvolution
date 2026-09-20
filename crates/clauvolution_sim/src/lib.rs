@@ -133,6 +133,12 @@ const SYMBIOSIS_RANGE: f32 = 6.0;
 ///   0.15 — (current) reverted. No point in the extra magnitude.
 const SYMBIOSIS_TRANSFER_RATE: f32 = 0.15;
 
+/// Speed multiplier from photosynthetic surface area: `1 / (1 + area × drag)`,
+/// the same shape as armour drag. `SimConfig::photo_drag` is the coefficient.
+pub fn photo_drag_factor(photo_area: f32, drag: f32) -> f32 {
+    1.0 / (1.0 + photo_area.max(0.0) * drag.max(0.0))
+}
+
 /// Split a meal into the share the eater keeps and the share lost to
 /// digestion, from a digestion efficiency in 0..1 (`Genome::plant_efficiency`
 /// or `animal_efficiency`). `kept + wasted == gross`.
@@ -711,7 +717,11 @@ fn action_system(
         let move_dir = Vec2::new(output.move_x, output.move_y);
         // Armor slows you down — heavy organisms are slower
         let armor_drag = 1.0 / (1.0 + genome.armor_value() * 0.3);
-        let speed = genome.speed_factor * 2.0 / body_size.0.sqrt() * armor_drag;
+        // So does a light-catching surface: broad and flat, it is a sail.
+        // Nothing forbids a photosynthesiser from moving; a leafy one is
+        // slow and a small-leaved one is not. See DECISIONS.md.
+        let photo_drag = photo_drag_factor(genome.total_photo_surface_area(), config.photo_drag);
+        let speed = genome.speed_factor * 2.0 / body_size.0.sqrt() * armor_drag * photo_drag;
         let movement = move_dir * speed;
         // Recorded so the history can average movement by strategy.
         velocity.0 = movement;
@@ -2468,6 +2478,17 @@ mod tests {
 #[cfg(test)]
 mod digestion_tests {
     use super::*;
+
+    #[test]
+    fn photo_drag_leaves_the_leafless_alone_and_slows_the_leafy() {
+        assert_eq!(photo_drag_factor(0.0, 1.0), 1.0);
+        assert_eq!(photo_drag_factor(2.0, 0.0), 1.0);
+        assert!((photo_drag_factor(1.0, 1.0) - 0.5).abs() < 1e-6);
+        assert!((photo_drag_factor(2.0, 1.0) - 1.0 / 3.0).abs() < 1e-6);
+        // Monotone in area and in the coefficient.
+        assert!(photo_drag_factor(0.5, 1.0) > photo_drag_factor(1.5, 1.0));
+        assert!(photo_drag_factor(1.0, 0.3) > photo_drag_factor(1.0, 3.0));
+    }
 
     #[test]
     fn digest_conserves_the_meal() {

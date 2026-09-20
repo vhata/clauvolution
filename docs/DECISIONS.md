@@ -48,6 +48,21 @@ The 6000 runs cost 2.5x to 3.4x the tick time on seeds 1 and 3, which ran on a l
 **Why:** prevents "stack everything" meta. If costs were linear, evolution would converge on maxed-out big armored fast predators. Quadratic costs force trade-offs — you can be fast *or* armored *or* big, but not all three cheaply.
 **Accepted tradeoff:** organisms might never evolve extreme traits because the marginal cost becomes prohibitive. If we see everyone converging to tiny low-trait organisms, that's the sign we've overtuned it.
 
+### Photosynthetic surface drag — `speed × 1 / (1 + photo_area × photo_drag)`
+**Chosen (2026-09-20, step 2 of `plans/2026-09-20-plant-physics.md`):** an organism's speed is multiplied by `1 / (1 + total photo surface area × photo_drag)`, beside the existing armour drag `1 / (1 + armour × 0.3)`. `SimConfig::photo_drag` is 1.0 by default (`--photo-drag`). A plant with the typical 1.5 to 1.7 units of surface moves at 37% to 40% of the speed it had; a photosynthesiser with a single small surface is barely touched.
+**Alternatives:** a rule that photosynthesisers cannot move (rejected: it names a strategy, and nothing in nature says it; algae swim); coupling drag to `photosynthesis_rate` (rejected: the rate is chemistry, the surface is the thing with physical consequences, and a high-rate small-surface organism is a plausible motile alga); a movement energy surcharge instead of a speed cut (not taken: cost is already proportional to distance, so slower already means cheaper per tick, and a plant's surplus made any energy price invisible until light is scarce).
+**Why:** what roots an oak is that light is a thin income, so a light-eater spreads a large flat surface, and a large flat surface is a sail. The sim already said this about armour plates; leaving leaves out of the same formula was the arbitrary choice. Step 1's instruments showed plants moving at nearly half an eater's speed (about 1.0 against 2.2 world units per tick) and paying for it from income the clamp discarded. Drag on its own is not expected to change the population outcome; it makes locomotion a thing a plant's surplus is spent on, so that when light becomes scarce (step 3, canopy sharing) sitting still is selected for rather than decreed. Carnivorous plants remain possible and become ambushers, which is what they are.
+**Sweep (2026-09-20, 5000 headless ticks, founder spread 1.0, bite 0.3, seeds 1 / 3 / 42; mean movement per tick, final grazers):**
+
+| `photo_drag` | plant speed | eater speed | grazers | mean leaf area |
+| --- | --- | --- | --- | --- |
+| 0 (step 1) | 0.95 | 2.27 | 44 (seed 42 only) | 1.61 |
+| 0.3 | 0.62 / 0.61 / 0.60 | 2.02 / 2.04 / 2.33 | 59 / 45 / 134 | 1.74 / 1.60 / 1.59 |
+| 1.0 | 0.37 / 0.33 / 0.32 | 2.23 / 2.37 / 1.88 | 99 / 53 / 39 | 1.77 / 1.66 / 2.03 |
+| 3.0 | 0.16 / 0.15 / 0.17 | 1.90 / 2.69 / 2.05 | 112 / 194 / 87 | 1.74 / 1.94 / 1.61 |
+
+Eaters are untouched at every coefficient, as the formula says they should be. At 1.0 plants move at about a third of their step 1 speed. The distribution from the saved seed 42 world at 1.0 (speed the physics permits, before the brain's choice): plants with 0.5 to 1.0 units of leaf average 0.55 per tick with a maximum of 1.53, plants with 1.5 to 2.0 average 0.44, plants above 3.0 average 0.25, eaters average 1.85. Small-leaved photosynthesisers still move; the leafy ones are slow. Grazer counts rise a little with drag (a slower plant is easier to bite and does not walk away from its grazer), and leaf area keeps rising under selection at every coefficient, which says drag costs a plant nothing it was using. 1.0 is kept: it is the physically moderate value (a sail drags more than a plate, three times armour's coefficient), and the plan makes no population claim for drag alone; that is step 3's job.
+
 ### Plant density competition — `yield × 1/(1 + others_on_tile × 0.3)`
 **Chosen:** photosynthesis yield drops inversely with the number of other plants on the same tile.
 **Alternatives:** no competition (100% plant worlds), linear penalty (too harsh — nobody survives clustering), carrying-capacity cliff (abrupt and unfair).
