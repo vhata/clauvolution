@@ -133,17 +133,6 @@ const SYMBIOSIS_RANGE: f32 = 6.0;
 ///   0.15 — (current) reverted. No point in the extra magnitude.
 const SYMBIOSIS_TRANSFER_RATE: f32 = 0.15;
 
-/// Fraction of a plant's current energy that one bite removes. An attack on a
-/// photosynthesiser is a graze, not a kill: the plant lives on with less.
-/// Starts small so grazing is a pressure on plants before it is a way to
-/// finish them; step 3 of `plans/2026-09-19-diet-axis.md` tunes it. See
-/// `docs/DECISIONS.md`, "Grazing".
-const BITE_FRACTION: f32 = 0.1;
-
-/// Fraction of a victim's energy offered to its killer before digestion, the
-/// trophic pyramid. See `docs/DECISIONS.md`, "Energy pyramid".
-const PREDATION_TRANSFER_FRACTION: f32 = 0.1;
-
 /// Split a meal into the share the eater keeps and the share lost to
 /// digestion, from a digestion efficiency in 0..1 (`Genome::plant_efficiency`
 /// or `animal_efficiency`). `kept + wasted == gross`.
@@ -862,7 +851,7 @@ fn predation_system(
 
                 if damage_ok && size_ok {
                     if is_plant {
-                        let bite = target_energy.0.max(0.0) * BITE_FRACTION;
+                        let bite = target_energy.0.max(0.0) * config.bite_fraction;
                         grazes.push((*attacker_entity, target_entity, bite));
                     } else {
                         kills.push((*attacker_entity, target_entity, target_energy.0));
@@ -910,8 +899,8 @@ fn predation_system(
         // it digest. The undigested share is booked to digestion and the
         // rest of the victim's energy to death.
         let (energy_gained, wasted) = digest(
-            victim_energy_before * PREDATION_TRANSFER_FRACTION,
-            killer_genome.animal_efficiency(),
+            victim_energy_before * config.kill_transfer_fraction,
+            killer_genome.animal_efficiency() * config.animal_efficiency_multiplier,
         );
         if let Ok((_, _, mut killer_energy, _, mut killer_flash, _, _, _)) =
             organisms.get_mut(killer)
@@ -1455,6 +1444,25 @@ fn reproduction_system(
     let mut blocked_births = 0u64;
     let mut already_mated: Vec<Entity> = Vec::new();
 
+    // When more parents want a child than the ceiling has room for, admit
+    // each with probability slots / wanting rather than in query iteration
+    // order. Iteration order follows archetype and spawn order, so first
+    // come first served handed the slots to whichever lineage happened to
+    // sit first in the tables, tick after tick. See DECISIONS.md, "Diet
+    // axis tuning pass".
+    let slots = ceiling.saturating_sub(current_pop);
+    let wanting = organisms
+        .iter()
+        .filter(|(_, _, energy, _, _, output, body_size, _, _)| {
+            output.reproduce > 0.5 && energy.0 > reproduction_threshold(&config, body_size.0)
+        })
+        .count();
+    let admit_probability = if wanting > slots {
+        slots as f32 / wanting as f32
+    } else {
+        1.0
+    };
+
     for (entity, pos, mut energy, mut flash, genome, output, body_size, species, generation) in
         &mut organisms
     {
@@ -1465,6 +1473,10 @@ fn reproduction_system(
         let repro_cost = config.reproduction_energy_cost * (0.5 + body_size.0 * 0.5);
         let repro_threshold = reproduction_threshold(&config, body_size.0);
         let wants_child = output.reproduce > 0.5 && energy.0 > repro_threshold;
+        if wants_child && admit_probability < 1.0 && rng.gen::<f32>() >= admit_probability {
+            blocked_births += 1;
+            continue;
+        }
         if current_pop + new_organisms.len() >= ceiling {
             // Blocked parents keep their energy; only the birth is refused.
             if wants_child {
@@ -1877,11 +1889,16 @@ fn record_population_history(
         std::collections::HashMap::with_capacity(organisms.iter().len());
 
     for (entity, genome, symbiosis, inf) in &organisms {
-        match classify_strategy(genome) {
+        let strategy = classify_strategy(genome);
+        match strategy {
             SpeciesStrategy::Photosynthesizer => plants += 1,
             SpeciesStrategy::Grazer => grazers += 1,
             SpeciesStrategy::Hunter => hunters += 1,
             SpeciesStrategy::Omnivore => omnivores += 1,
+        }
+        if strategy != SpeciesStrategy::Photosynthesizer {
+            // Diet is averaged over the organisms that eat; see PopSnapshot.
+            sum_diet += genome.diet;
         }
         if inf.is_some() {
             infected += 1;
@@ -1892,7 +1909,6 @@ fn record_population_history(
         sum_armor += genome.armor_value();
         sum_attack += genome.claw_power();
         sum_photo += genome.photosynthesis_rate;
-        sum_diet += genome.diet;
         sum_symbiosis += genome.symbiosis_rate;
         n += 1;
 
@@ -1944,7 +1960,7 @@ fn record_population_history(
             avg_armor: sum_armor / div,
             avg_attack: sum_attack / div,
             avg_photo: sum_photo / div,
-            avg_diet: sum_diet / div,
+            avg_diet: sum_diet / (grazers + hunters + omnivores).max(1) as f32,
             symbiotic_pairs,
             avg_symbiosis_rate: sum_symbiosis / div,
         },
@@ -2156,9 +2172,9 @@ pub fn spawn_initial_population(
         };
 
         let genome = if (i as u32) < photo_count {
-            Genome::new_photosynthesizer(innovation, rng)
+            Genome::new_photosynthesizer_with_diet(innovation, rng, config.founder_diet_spread)
         } else {
-            Genome::new_minimal(innovation, rng)
+            Genome::new_minimal_with_diet(innovation, rng, config.founder_diet_spread)
         };
 
         match classify_strategy(&genome) {
@@ -2412,12 +2428,15 @@ mod digestion_tests {
 
     #[test]
     fn bite_and_pyramid_shares_are_fractions_of_the_prey() {
-        // A bite is BITE_FRACTION of what the plant holds, a kill offers
-        // PREDATION_TRANSFER_FRACTION; both are then digested.
+        // A bite is `bite_fraction` of what the plant holds, a kill offers
+        // `kill_transfer_fraction`; both are then digested.
         let plant_energy = 80.0;
-        let (kept, wasted) = digest(plant_energy * BITE_FRACTION, 1.0);
+        let (kept, wasted) = digest(plant_energy * SimConfig::default().bite_fraction, 1.0);
         assert!((kept - 8.0).abs() < 1e-5 && wasted.abs() < 1e-5);
-        let (kept, wasted) = digest(plant_energy * PREDATION_TRANSFER_FRACTION, 0.25);
+        let (kept, wasted) = digest(
+            plant_energy * SimConfig::default().kill_transfer_fraction,
+            0.25,
+        );
         assert!((kept - 2.0).abs() < 1e-5 && (wasted - 6.0).abs() < 1e-5);
     }
 }

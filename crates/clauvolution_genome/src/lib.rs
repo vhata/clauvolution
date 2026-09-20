@@ -241,6 +241,21 @@ pub const PHOTOSYNTHESISER_RATE_THRESHOLD: f32 = 0.2;
 /// See `Genome::can_photosynthesise`.
 pub const PHOTOSYNTHESIS_YIELD_THRESHOLD: f32 = 0.01;
 
+/// Half-width of the band founders draw `diet` from when no spread is given:
+/// the same near-neutral start as the other traits.
+pub const DEFAULT_FOUNDER_DIET_SPREAD: f32 = 0.2;
+
+/// Draw a founder's `diet` uniformly from `-spread..spread`, clamped to the
+/// trait bounds; a zero spread is exactly neutral.
+fn founder_diet(rng: &mut impl Rng, spread: f32) -> f32 {
+    let s = spread.abs().min(DIET_BOUNDS.max);
+    if s <= f32::EPSILON {
+        0.0
+    } else {
+        rng.gen_range(-s..s)
+    }
+}
+
 /// Number of scalar traits on the genome (every field after `body_segments`).
 pub const SCALAR_TRAIT_COUNT: usize = 10;
 
@@ -283,8 +298,18 @@ pub struct Genome {
 }
 
 impl Genome {
-    /// Create a minimal starting genome
+    /// Create a minimal starting genome with the default founder diet spread.
     pub fn new_minimal(innovation: &mut InnovationCounter, rng: &mut impl Rng) -> Self {
+        Self::new_minimal_with_diet(innovation, rng, DEFAULT_FOUNDER_DIET_SPREAD)
+    }
+
+    /// Create a minimal starting genome whose `diet` is drawn uniformly from
+    /// `-diet_spread..diet_spread` (`SimConfig::founder_diet_spread`).
+    pub fn new_minimal_with_diet(
+        innovation: &mut InnovationCounter,
+        rng: &mut impl Rng,
+        diet_spread: f32,
+    ) -> Self {
         let mut neurons = Vec::new();
 
         for i in 0..NUM_INPUTS {
@@ -356,16 +381,26 @@ impl Genome {
             // Start near-neutral; selection decides whether parasitism or
             // mutualism pays off in this world.
             symbiosis_rate: rng.gen_range(-0.2..0.2),
-            // Start near the generalist middle, like the other traits; the
-            // squared efficiency curve makes the middle a real cost, so
-            // selection decides which way each lineage specialises.
-            diet: rng.gen_range(-0.2..0.2),
+            // The squared efficiency curve makes the middle a real cost, so
+            // the spread decides whether founders start as generalists or
+            // already span the axis; see `docs/DECISIONS.md`, "Grazing".
+            diet: founder_diet(rng, diet_spread),
         }
     }
 
-    /// Create a dedicated photosynthesizer genome
+    /// Create a dedicated photosynthesizer genome with the default founder
+    /// diet spread.
     pub fn new_photosynthesizer(innovation: &mut InnovationCounter, rng: &mut impl Rng) -> Self {
-        let mut genome = Self::new_minimal(innovation, rng);
+        Self::new_photosynthesizer_with_diet(innovation, rng, DEFAULT_FOUNDER_DIET_SPREAD)
+    }
+
+    /// Create a dedicated photosynthesizer genome; see `new_minimal_with_diet`.
+    pub fn new_photosynthesizer_with_diet(
+        innovation: &mut InnovationCounter,
+        rng: &mut impl Rng,
+        diet_spread: f32,
+    ) -> Self {
+        let mut genome = Self::new_minimal_with_diet(innovation, rng, diet_spread);
 
         // High photosynthesis rate
         genome.photosynthesis_rate = rng.gen_range(0.4..0.8);
@@ -1002,6 +1037,29 @@ mod tests {
         g.diet = 3.0;
         assert!((g.animal_efficiency() - 1.0).abs() < 1e-6);
         assert!(g.plant_efficiency().abs() < 1e-6);
+    }
+
+    #[test]
+    fn founder_diet_spread_is_honoured() {
+        let mut innovation = InnovationCounter(0);
+        let mut rng = StdRng::seed_from_u64(8);
+        for _ in 0..50 {
+            let g = Genome::new_minimal_with_diet(&mut innovation, &mut rng, 0.0);
+            assert_eq!(g.diet, 0.0);
+            let g = Genome::new_minimal_with_diet(&mut innovation, &mut rng, 1.0);
+            assert!(g.diet > -1.0 && g.diet < 1.0);
+            let g = Genome::new_minimal(&mut innovation, &mut rng);
+            assert!(g.diet.abs() < DEFAULT_FOUNDER_DIET_SPREAD);
+        }
+        // Over many draws at full spread, both specialist thirds are reached.
+        let mut lo = false;
+        let mut hi = false;
+        for _ in 0..200 {
+            let g = Genome::new_minimal_with_diet(&mut innovation, &mut rng, 1.0);
+            lo |= g.diet < -1.0 / 3.0;
+            hi |= g.diet > 1.0 / 3.0;
+        }
+        assert!(lo && hi);
     }
 
     #[test]

@@ -24,7 +24,7 @@ FIELDS = {
     "hunters": r"Hunters:\s+(\d+)",
     "omnivores": r"Omnivores:\s+(\d+)",
     "body": r"Body size:\s+([\d.]+)",
-    "diet": r"Diet:\s+([-+\d.]+)",
+    "diet": r"Diet[^:]*:\s+([-+\d.]+)",
     "kills": r"Kills:\s+(\d+)",
 }
 
