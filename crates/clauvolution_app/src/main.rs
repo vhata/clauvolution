@@ -575,6 +575,8 @@ fn dump_history_csv(
         f,
         "tick,sim_second,organisms,food,species,plants,grazers,hunters,omnivores,infected,\
          avg_lifespan,avg_body_size,avg_speed,avg_armor,avg_attack,avg_photo,avg_diet,\
+         avg_photo_area,avg_speed_plants,avg_speed_eaters,avg_light_share,\
+         ready_share_plants,ready_share_eaters,\
          avg_disease_resistance,avg_symbiosis_rate,symbiotic_pairs,\
          deaths_starvation,deaths_predation,deaths_old_age,deaths_disease,deaths_event,\
          energy_total,flow_photosynthesis,flow_food,flow_predation,flow_grazing,flow_symbiosis,\
@@ -586,7 +588,7 @@ fn dump_history_csv(
         let fl = &s.energy_flows;
         writeln!(
             f,
-            "{},{:.1},{},{},{},{},{},{},{},{},{:.2},{:.3},{:.3},{:.3},{:.3},{:.3},{:+.3},{:.3},{:.3},{},{},{},{},{},{},\
+            "{},{:.1},{},{},{},{},{},{},{},{},{:.2},{:.3},{:.3},{:.3},{:.3},{:.3},{:+.3},{:.3},{:.4},{:.4},{:.3},{:.3},{:.3},{:.3},{:.3},{},{},{},{},{},{},\
              {:.2},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.6},{:.6}",
             s.tick,
             s.tick as f64 / 30.0,
@@ -605,6 +607,12 @@ fn dump_history_csv(
             s.avg_attack,
             s.avg_photo,
             s.avg_diet,
+            s.avg_photo_area,
+            s.avg_speed_plants,
+            s.avg_speed_eaters,
+            s.avg_light_share,
+            s.ready_share_plants,
+            s.ready_share_eaters,
             s.avg_disease_resistance,
             s.avg_symbiosis_rate,
             s.symbiotic_pairs,
@@ -862,6 +870,17 @@ fn print_headless_summary(
         eprintln!("  Armor:               {:.2}", latest.avg_armor);
         eprintln!("  Photosynthesis:      {:.0}%", latest.avg_photo * 100.0);
         eprintln!("  Diet (consumers):    {:+.2}", latest.avg_diet);
+        eprintln!("  Leaf area (plants):  {:.2}", latest.avg_photo_area);
+        eprintln!(
+            "  Speed plants/eaters: {:.3} / {:.3} per tick",
+            latest.avg_speed_plants, latest.avg_speed_eaters
+        );
+        eprintln!("  Light share (plants): {:.2}", latest.avg_light_share);
+        eprintln!(
+            "  Ready plants/eaters: {:.0}% / {:.0}%",
+            latest.ready_share_plants * 100.0,
+            latest.ready_share_eaters * 100.0
+        );
         eprintln!(
             "  Disease resistance:  {:.0}%",
             latest.avg_disease_resistance * 100.0

@@ -1305,6 +1305,16 @@ fn graphs_tab(ui: &mut egui::Ui, history: &PopulationHistory) {
             ui.monospace(format!("{:>+5.2}", latest.avg_diet));
             ui.end_row();
 
+            ui.label("Light share");
+            ui.monospace(format!("{:>5.2}", latest.avg_light_share));
+            ui.label("Ready p/e");
+            ui.monospace(format!(
+                "{:>2.0}%/{:>2.0}%",
+                latest.ready_share_plants * 100.0,
+                latest.ready_share_eaters * 100.0
+            ));
+            ui.end_row();
+
             ui.label("Sym pairs");
             ui.monospace(format!("{:>4}", latest.symbiotic_pairs));
             ui.label("Sym rate");
@@ -1635,6 +1645,68 @@ fn graphs_tab(ui: &mut egui::Ui, history: &PopulationHistory) {
                         Line::new(t_diet)
                             .color(egui::Color32::from_rgb(240, 180, 80))
                             .name("Eater diet ×100 (−herb, +carn)"),
+                    );
+                });
+
+            ui.add_space(4.0);
+
+            // Plant physics: do plants move, how much light do they get, and
+            // who is ready to breed when a slot opens.
+            ui.label("Plants vs eaters: speed, light, readiness");
+            let speed_plants: PlotPoints = snaps
+                .iter()
+                .enumerate()
+                .map(|(i, s)| [i as f64, (s.avg_speed_plants * 100.0) as f64])
+                .collect();
+            let speed_eaters: PlotPoints = snaps
+                .iter()
+                .enumerate()
+                .map(|(i, s)| [i as f64, (s.avg_speed_eaters * 100.0) as f64])
+                .collect();
+            let light_share: PlotPoints = snaps
+                .iter()
+                .enumerate()
+                .map(|(i, s)| [i as f64, (s.avg_light_share * 100.0) as f64])
+                .collect();
+            let ready_plants: PlotPoints = snaps
+                .iter()
+                .enumerate()
+                .map(|(i, s)| [i as f64, (s.ready_share_plants * 100.0) as f64])
+                .collect();
+            let ready_eaters: PlotPoints = snaps
+                .iter()
+                .enumerate()
+                .map(|(i, s)| [i as f64, (s.ready_share_eaters * 100.0) as f64])
+                .collect();
+
+            Plot::new("plant_physics")
+                .height(130.0)
+                .legend(Legend::default().position(egui_plot::Corner::LeftTop))
+                .show(ui, |plot_ui| {
+                    plot_ui.line(
+                        Line::new(speed_plants)
+                            .color(strategy_color(SpeciesStrategy::Photosynthesizer))
+                            .name("Plant speed ×100"),
+                    );
+                    plot_ui.line(
+                        Line::new(speed_eaters)
+                            .color(strategy_color(SpeciesStrategy::Grazer))
+                            .name("Eater speed ×100"),
+                    );
+                    plot_ui.line(
+                        Line::new(light_share)
+                            .color(egui::Color32::from_rgb(255, 230, 120))
+                            .name("Plant light share %"),
+                    );
+                    plot_ui.line(
+                        Line::new(ready_plants)
+                            .color(egui::Color32::from_rgb(60, 140, 60))
+                            .name("Plants ready to breed %"),
+                    );
+                    plot_ui.line(
+                        Line::new(ready_eaters)
+                            .color(egui::Color32::from_rgb(200, 120, 40))
+                            .name("Eaters ready to breed %"),
                     );
                 });
 
