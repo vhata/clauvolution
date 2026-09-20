@@ -273,6 +273,77 @@ pub const SCALAR_TRAIT_BOUNDS: [TraitBounds; SCALAR_TRAIT_COUNT] = [
     DIET_BOUNDS,
 ];
 
+// -----------------------------------------------------------------------------
+// NEAT founder and mutation tuning constants
+//
+// Grouped here so the network-side tuning does not require hunting for
+// literals scattered through `Genome::new_minimal_with_diet`, `Genome::mutate`,
+// `mutate_add_connection` and `mutate_add_neuron`. Body-segment mutation
+// lives on `BodySegmentGene::mutate`; trait clamps are the `*_BOUNDS` above.
+// -----------------------------------------------------------------------------
+
+/// Number of input-to-output connections a founder brain starts with, before
+/// duplicates are dropped.
+const FOUNDER_CONNECTION_COUNT: std::ops::RangeInclusive<usize> = 3..=8;
+/// Bias range \[min, max) drawn for each founder output neuron.
+const FOUNDER_OUTPUT_BIAS_RANGE: std::ops::Range<f32> = -1.0..1.0;
+/// Weight range \[min, max) for a brand-new connection: founder connections,
+/// `mutate_add_connection`, and a weight reset in `mutate`.
+const NEW_WEIGHT_RANGE: std::ops::Range<f32> = -2.0..2.0;
+/// Magnitude a connection weight or neuron bias is clamped to after a
+/// perturbation. The reset range above is deliberately narrower.
+const WEIGHT_CLAMP: f32 = 4.0;
+
+/// Given that a connection weight mutates, the chance it is re-rolled from
+/// `NEW_WEIGHT_RANGE` instead of perturbed by the normal step.
+const WEIGHT_RESET_PROBABILITY: f32 = 0.1;
+/// Per-mutation chance of a NEAT add-connection structural mutation.
+const ADD_CONNECTION_PROBABILITY: f32 = 0.05;
+/// Per-mutation chance of a NEAT add-neuron structural mutation (splits an
+/// enabled connection).
+const ADD_NEURON_PROBABILITY: f32 = 0.03;
+/// Per-mutation chance of toggling one connection's enabled flag.
+const TOGGLE_CONNECTION_PROBABILITY: f32 = 0.02;
+/// Weight of the incoming half when `mutate_add_neuron` splits a connection;
+/// the outgoing half keeps the old weight, so the split starts out neutral.
+const SPLIT_INCOMING_WEIGHT: f32 = 1.0;
+
+// Each `*_MUTATION_STEP` scales the normal sample added to that scalar trait
+// when it mutates; the per-trait chance is the caller's `rate`, and the
+// result is clamped to the matching `*_BOUNDS`.
+
+/// Step scale for `body_size` (bounds 0.3..2.0).
+const BODY_SIZE_MUTATION_STEP: f32 = 0.2;
+/// Step scale for `speed_factor` (bounds 0.2..3.0).
+const SPEED_FACTOR_MUTATION_STEP: f32 = 0.2;
+/// Step scale for `sense_range`, in world units (bounds 10..150).
+const SENSE_RANGE_MUTATION_STEP: f32 = 5.0;
+/// Step scale for `aquatic_adaptation` (bounds 0..1).
+const AQUATIC_ADAPTATION_MUTATION_STEP: f32 = 0.1;
+/// Step scale for `photosynthesis_rate` (bounds 0..1).
+const PHOTOSYNTHESIS_RATE_MUTATION_STEP: f32 = 0.05;
+/// Step scale for `armor` (bounds 0..1).
+const ARMOR_MUTATION_STEP: f32 = 0.05;
+/// Step scale for `attack_power` (bounds 0..1).
+const ATTACK_POWER_MUTATION_STEP: f32 = 0.05;
+/// Step scale for `disease_resistance` (bounds 0..1).
+const DISEASE_RESISTANCE_MUTATION_STEP: f32 = 0.05;
+/// Step scale for `symbiosis_rate` (bounds -1..1).
+const SYMBIOSIS_RATE_MUTATION_STEP: f32 = 0.1;
+/// Step scale for `diet` (bounds -1..1).
+const DIET_MUTATION_STEP: f32 = 0.1;
+
+/// Multiplier on `rate` for each existing body segment's own mutation roll.
+const SEGMENT_MUTATION_RATE_FACTOR: f32 = 0.5;
+/// Per-mutation chance of growing a new random body segment.
+const ADD_SEGMENT_PROBABILITY: f32 = 0.03;
+/// Body segments (torso included) beyond which no new segment is grown.
+const MAX_BODY_SEGMENTS: usize = 8;
+/// Per-mutation chance of dropping a non-torso body segment.
+const REMOVE_SEGMENT_PROBABILITY: f32 = 0.02;
+/// Body segments (torso included) at or below which none is removed.
+const MIN_BODY_SEGMENTS: usize = 2;
+
 #[derive(Component, Clone, Debug)]
 pub struct Genome {
     pub neurons: Vec<NeuronGene>,
@@ -326,12 +397,12 @@ impl Genome {
                 id: (NUM_INPUTS + i) as u64,
                 neuron_type: NeuronType::Output,
                 activation: ActivationFn::Tanh,
-                bias: rng.gen_range(-1.0..1.0),
+                bias: rng.gen_range(FOUNDER_OUTPUT_BIAS_RANGE),
             });
         }
 
         let mut connections = Vec::new();
-        let num_initial_connections = rng.gen_range(3..=8);
+        let num_initial_connections = rng.gen_range(FOUNDER_CONNECTION_COUNT);
         for _ in 0..num_initial_connections {
             let from = rng.gen_range(0..NUM_INPUTS) as u64;
             let to = (NUM_INPUTS + rng.gen_range(0..NUM_OUTPUTS)) as u64;
@@ -347,7 +418,7 @@ impl Genome {
                 innovation: innovation.next(),
                 from,
                 to,
-                weight: rng.gen_range(-2.0..2.0),
+                weight: rng.gen_range(NEW_WEIGHT_RANGE),
                 enabled: true,
             });
         }
@@ -596,11 +667,11 @@ impl Genome {
         // Mutate connection weights
         for conn in &mut self.connections {
             if rng.gen::<f32>() < rate {
-                if rng.gen::<f32>() < 0.1 {
-                    conn.weight = rng.gen_range(-2.0..2.0);
+                if rng.gen::<f32>() < WEIGHT_RESET_PROBABILITY {
+                    conn.weight = rng.gen_range(NEW_WEIGHT_RANGE);
                 } else {
                     conn.weight += normal.sample(rng) as f32;
-                    conn.weight = conn.weight.clamp(-4.0, 4.0);
+                    conn.weight = conn.weight.clamp(-WEIGHT_CLAMP, WEIGHT_CLAMP);
                 }
             }
         }
@@ -609,78 +680,83 @@ impl Genome {
         for neuron in &mut self.neurons {
             if neuron.neuron_type != NeuronType::Input && rng.gen::<f32>() < rate {
                 neuron.bias += normal.sample(rng) as f32;
-                neuron.bias = neuron.bias.clamp(-4.0, 4.0);
+                neuron.bias = neuron.bias.clamp(-WEIGHT_CLAMP, WEIGHT_CLAMP);
             }
         }
 
         // Structural mutations
-        if rng.gen::<f32>() < 0.05 {
+        if rng.gen::<f32>() < ADD_CONNECTION_PROBABILITY {
             self.mutate_add_connection(innovation, rng);
         }
-        if rng.gen::<f32>() < 0.03 {
+        if rng.gen::<f32>() < ADD_NEURON_PROBABILITY {
             self.mutate_add_neuron(innovation, rng);
         }
-        if !self.connections.is_empty() && rng.gen::<f32>() < 0.02 {
+        if !self.connections.is_empty() && rng.gen::<f32>() < TOGGLE_CONNECTION_PROBABILITY {
             let idx = rng.gen_range(0..self.connections.len());
             self.connections[idx].enabled = !self.connections[idx].enabled;
         }
 
         // Mutate body traits
         if rng.gen::<f32>() < rate {
-            self.body_size += normal.sample(rng) as f32 * 0.2;
+            self.body_size += normal.sample(rng) as f32 * BODY_SIZE_MUTATION_STEP;
             self.body_size = BODY_SIZE_BOUNDS.clamp(self.body_size);
         }
         if rng.gen::<f32>() < rate {
-            self.speed_factor += normal.sample(rng) as f32 * 0.2;
+            self.speed_factor += normal.sample(rng) as f32 * SPEED_FACTOR_MUTATION_STEP;
             self.speed_factor = SPEED_FACTOR_BOUNDS.clamp(self.speed_factor);
         }
         if rng.gen::<f32>() < rate {
-            self.sense_range += normal.sample(rng) as f32 * 5.0;
+            self.sense_range += normal.sample(rng) as f32 * SENSE_RANGE_MUTATION_STEP;
             self.sense_range = SENSE_RANGE_BOUNDS.clamp(self.sense_range);
         }
         if rng.gen::<f32>() < rate {
-            self.aquatic_adaptation += normal.sample(rng) as f32 * 0.1;
+            self.aquatic_adaptation += normal.sample(rng) as f32 * AQUATIC_ADAPTATION_MUTATION_STEP;
             self.aquatic_adaptation = AQUATIC_ADAPTATION_BOUNDS.clamp(self.aquatic_adaptation);
         }
         if rng.gen::<f32>() < rate {
-            self.photosynthesis_rate += normal.sample(rng) as f32 * 0.05;
+            self.photosynthesis_rate +=
+                normal.sample(rng) as f32 * PHOTOSYNTHESIS_RATE_MUTATION_STEP;
             self.photosynthesis_rate = PHOTOSYNTHESIS_RATE_BOUNDS.clamp(self.photosynthesis_rate);
         }
         if rng.gen::<f32>() < rate {
-            self.armor += normal.sample(rng) as f32 * 0.05;
+            self.armor += normal.sample(rng) as f32 * ARMOR_MUTATION_STEP;
             self.armor = ARMOR_BOUNDS.clamp(self.armor);
         }
         if rng.gen::<f32>() < rate {
-            self.attack_power += normal.sample(rng) as f32 * 0.05;
+            self.attack_power += normal.sample(rng) as f32 * ATTACK_POWER_MUTATION_STEP;
             self.attack_power = ATTACK_POWER_BOUNDS.clamp(self.attack_power);
         }
         if rng.gen::<f32>() < rate {
-            self.disease_resistance += normal.sample(rng) as f32 * 0.05;
+            self.disease_resistance += normal.sample(rng) as f32 * DISEASE_RESISTANCE_MUTATION_STEP;
             self.disease_resistance = DISEASE_RESISTANCE_BOUNDS.clamp(self.disease_resistance);
         }
         if rng.gen::<f32>() < rate {
-            self.symbiosis_rate += normal.sample(rng) as f32 * 0.1;
+            self.symbiosis_rate += normal.sample(rng) as f32 * SYMBIOSIS_RATE_MUTATION_STEP;
             self.symbiosis_rate = SYMBIOSIS_RATE_BOUNDS.clamp(self.symbiosis_rate);
         }
         if rng.gen::<f32>() < rate {
-            self.diet += normal.sample(rng) as f32 * 0.1;
+            self.diet += normal.sample(rng) as f32 * DIET_MUTATION_STEP;
             self.diet = DIET_BOUNDS.clamp(self.diet);
         }
 
         // Mutate existing body segments
         for seg in &mut self.body_segments {
-            if rng.gen::<f32>() < rate * 0.5 {
+            if rng.gen::<f32>() < rate * SEGMENT_MUTATION_RATE_FACTOR {
                 seg.mutate(rng, strength);
             }
         }
 
-        // Add a body segment (probability 0.03)
-        if rng.gen::<f32>() < 0.03 && self.body_segments.len() < 8 {
+        // Add a body segment
+        if rng.gen::<f32>() < ADD_SEGMENT_PROBABILITY
+            && self.body_segments.len() < MAX_BODY_SEGMENTS
+        {
             self.body_segments.push(BodySegmentGene::random(rng));
         }
 
-        // Remove a body segment (probability 0.02, never remove torso)
-        if rng.gen::<f32>() < 0.02 && self.body_segments.len() > 2 {
+        // Remove a body segment (never the torso)
+        if rng.gen::<f32>() < REMOVE_SEGMENT_PROBABILITY
+            && self.body_segments.len() > MIN_BODY_SEGMENTS
+        {
             let idx = rng.gen_range(1..self.body_segments.len());
             self.body_segments.remove(idx);
         }
@@ -717,7 +793,7 @@ impl Genome {
             innovation: innovation.next(),
             from,
             to,
-            weight: rng.gen_range(-2.0..2.0),
+            weight: rng.gen_range(NEW_WEIGHT_RANGE),
             enabled: true,
         });
     }
@@ -755,7 +831,7 @@ impl Genome {
             innovation: innovation.next(),
             from: old_from,
             to: new_id,
-            weight: 1.0,
+            weight: SPLIT_INCOMING_WEIGHT,
             enabled: true,
         });
 

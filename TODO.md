@@ -104,11 +104,7 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 - [SIM] `name-sim-tuning-literals` — **Name the remaining inline simulation literals.** Disease severity clamps are still inline while the rest of the sim tuning constants have been promoted to named consts.
   - Starting point: Follow the existing named-const block at the top of `clauvolution_sim/src/lib.rs`. Low priority because these are not frequently tuned.
   - Source: docs/ROADMAP.md (Known tech debt), 2026-09-16
-  - Related: `name-neat-mutation-literals`, `name-view-literals`
-- [BRAIN] `name-neat-mutation-literals` — **Name the inline NEAT innovation and mutation thresholds in the genome crate.** They read as magic numbers today.
-  - Starting point: Low priority because they are not frequently tuned.
-  - Source: docs/ROADMAP.md (Known tech debt), 2026-09-16
-  - Related: `name-sim-tuning-literals`
+  - Related: `name-view-literals`
 - [RENDER] `name-view-literals` — **Name the inline click radius and frustum margin.** Both are view-side magic numbers left over from the naming pass.
   - Starting point: Low priority because they are not frequently tuned.
   - Source: docs/ROADMAP.md (Known tech debt), 2026-09-16
