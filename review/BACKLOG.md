@@ -10,10 +10,6 @@ See the [`code review guide`](../docs/CODE_REVIEW_GUIDE.md) for how findings ent
 
 ## P2 Normal
 
-- [WORLD] `volcano-full-world-range` — **Let the volcano strike anywhere in the world.** Its centre is rolled in 0..256 on a 512×512 map.
-  - Starting point: Use `config.world_width`/`world_height` in `mass_extinction_input_system`, as nutrient rain already does. Validate in the GUI: press V several times with the minimap open and confirm kill zones appear in all quadrants.
-  - Source: review/2026-09-17-0756-full.md, 2026-09-17
-  - Findings: `volcano-lower-left-quadrant`
 - [TOOLING] `screenshot-tour-egui-path` — **Make `--screenshot` use the egui-aware capture path and wait for its last image.** The legacy tour exits before the sixth capture is written and its images have no header, panel, or minimap, so the baseline check in the code review guide proves only that a window opens.
   - Starting point: Drive `--screenshot` through `clauvolution_render::begin_screenshot` (or load a bundled tour JSON) and gate `AppExit` on `ScreenshotState.pending` being clear. Validate: `cargo run --release -- --screenshot` writes six PNGs and each shows the side panel.
   - Source: review/2026-09-17-0756-full.md, 2026-09-17
