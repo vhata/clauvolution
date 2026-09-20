@@ -422,6 +422,7 @@ pub fn spawn_saved_organisms(commands: &mut Commands, organisms: &[SaveOrganism]
             ))
             .insert((
                 brain,
+                LightShare::default(),
                 genome,
                 TrailHistory::default(),
                 BrainActivations::default(),

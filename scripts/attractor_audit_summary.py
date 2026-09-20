@@ -24,6 +24,8 @@ FIELDS = {
     "hunters": r"Hunters:\s+(\d+)",
     "omnivores": r"Omnivores:\s+(\d+)",
     "body": r"Body size:\s+([\d.]+)",
+    "light": r"Light share \(plants\):\s+([\d.]+)",
+    "ready": r"Ready plants/eaters:\s+(\d+%\s*/\s*\d+%)",
     "diet": r"Diet[^:]*:\s+([-+\d.]+)",
     "kills": r"Kills:\s+(\d+)",
 }
@@ -46,8 +48,8 @@ def label_key(path):
 
 def main(d):
     paths = sorted(Path(d).glob("seed*-run*.txt"), key=label_key)
-    print("| seed | run | plants | grazers | hunters | omnivores | plant % | species | deaths | starv | pred | old | dis | kills | body | diet |")
-    print("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
+    print("| seed | run | plants | grazers | hunters | omnivores | plant % | species | deaths | starv | pred | old | dis | kills | body | diet | light | ready p/e |")
+    print("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
     probes = {}
     for p in paths:
         seed, run = label_key(p)
@@ -57,7 +59,7 @@ def main(d):
             share = f"{100 * int(r['plants']) / total:.0f}%" if total else "-"
         except ValueError:
             share = "-"
-        print(f"| {seed} | {run} | {r['plants']} | {r['grazers']} | {r['hunters']} | {r['omnivores']} | {share} | {r['species']} | {r['deaths']} | {r['starv']} | {r['pred']} | {r['old']} | {r['dis']} | {r['kills']} | {r['body']} | {r['diet']} |")
+        print(f"| {seed} | {run} | {r['plants']} | {r['grazers']} | {r['hunters']} | {r['omnivores']} | {share} | {r['species']} | {r['deaths']} | {r['starv']} | {r['pred']} | {r['old']} | {r['dis']} | {r['kills']} | {r['body']} | {r['diet']} | {r['light']} | {r['ready']} |")
         if run.startswith("probe"):
             probes[run] = p.with_suffix(".csv").read_bytes()
     if len(probes) == 2:

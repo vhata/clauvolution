@@ -672,6 +672,7 @@ fn action_system(
             &mut BrainMemory,
             &mut ActionFlash,
             &mut Signal,
+            &mut Velocity,
             &BrainOutput,
             &Genome,
             &BodySize,
@@ -686,8 +687,17 @@ fn action_system(
 
     let mut eaten_food: Vec<Entity> = Vec::new();
 
-    for (mut pos, mut energy, mut memory, mut flash, mut signal, output, genome, body_size) in
-        &mut organisms
+    for (
+        mut pos,
+        mut energy,
+        mut memory,
+        mut flash,
+        mut signal,
+        mut velocity,
+        output,
+        genome,
+        body_size,
+    ) in &mut organisms
     {
         // Tick down flash timer
         flash.timer = (flash.timer - 0.033).max(0.0);
@@ -703,6 +713,8 @@ fn action_system(
         let armor_drag = 1.0 / (1.0 + genome.armor_value() * 0.3);
         let speed = genome.speed_factor * 2.0 / body_size.0.sqrt() * armor_drag;
         let movement = move_dir * speed;
+        // Recorded so the history can average movement by strategy.
+        velocity.0 = movement;
 
         let tile = tile_map.tile_at_pos(pos.0);
 
@@ -939,7 +951,13 @@ fn predation_system(
 fn photosynthesis_system(
     tile_map: Res<TileMap>,
     mut organisms: Query<
-        (&Position, &mut Energy, &mut EnergyFlows, &Genome),
+        (
+            &Position,
+            &mut Energy,
+            &mut EnergyFlows,
+            &mut LightShare,
+            &Genome,
+        ),
         (With<Organism>, Without<Killed>),
     >,
     config: Res<SimConfig>,
@@ -951,7 +969,7 @@ fn photosynthesis_system(
     // First pass: count plants per tile for density competition.
     // Plants on the same tile shade each other — prevents green-world monoculture.
     let mut plants_per_tile: HashMap<(u32, u32), u32> = HashMap::new();
-    for (pos, _, _, genome) in organisms.iter() {
+    for (pos, _, _, _, genome) in organisms.iter() {
         if genome.is_photosynthesiser() {
             let tx = (pos.0.x as u32).min(tile_map.width - 1);
             let ty = (pos.0.y as u32).min(tile_map.height - 1);
@@ -972,7 +990,7 @@ fn photosynthesis_system(
     // from here. Safe for par_iter_mut.
     organisms
         .par_iter_mut()
-        .for_each(|(pos, mut energy, mut flows, genome)| {
+        .for_each(|(pos, mut energy, mut flows, mut light_share, genome)| {
             if genome.can_photosynthesise() {
                 let tile = tile_map.tile_at_pos(pos.0);
                 let photo_area = genome.total_photo_surface_area();
@@ -982,6 +1000,7 @@ fn photosynthesis_system(
                 let tile_plants = plants_per_tile.get(&(tx, ty)).copied().unwrap_or(1);
                 let others = tile_plants.saturating_sub(1);
                 let density_factor = 1.0 / (1.0 + others as f32 * PLANT_DENSITY_PENALTY);
+                light_share.0 = density_factor;
 
                 let gained = genome.photosynthesis_rate
                     * photo_area
@@ -1605,6 +1624,7 @@ fn reproduction_system(
                 BrainActivations::default(),
                 Symbiosis::default(),
                 EnergyFlows::default(),
+                LightShare::default(),
             ));
 
         stats.total_births += 1;
@@ -1855,11 +1875,24 @@ fn record_population_history(
     mut timer: ResMut<PopHistoryTimer>,
     tick: Res<TickCounter>,
     stats: Res<SimStats>,
-    organisms: Query<(Entity, &Genome, &Symbiosis, Option<&Infection>), With<Organism>>,
+    organisms: Query<
+        (
+            Entity,
+            &Genome,
+            &Symbiosis,
+            Option<&Infection>,
+            &Velocity,
+            &LightShare,
+            &Energy,
+            &BodySize,
+        ),
+        With<Organism>,
+    >,
     food: Query<&Food>,
     mut history: ResMut<PopulationHistory>,
     fitness: Res<FitnessTracker>,
     mut ledger: ResMut<EnergyLedger>,
+    config: Res<SimConfig>,
 ) {
     timer.0.tick(time.delta());
     if !timer.0.just_finished() {
@@ -1882,14 +1915,31 @@ fn record_population_history(
     let mut sum_diet = 0.0f32;
     let mut sum_symbiosis = 0.0f32;
     let mut n = 0u32;
+    // Plant physics instruments, split by plants and eaters.
+    let mut sum_photo_area = 0.0f32;
+    let mut sum_speed_plants = 0.0f32;
+    let mut sum_speed_eaters = 0.0f32;
+    let mut sum_light_share = 0.0f32;
+    let mut ready_plants = 0u32;
+    let mut ready_eaters = 0u32;
 
     // For counting mutual symbiotic pairs we need to look each partner up.
     // Build a small map once, then walk the ones that claim a link.
     let mut sym_by_entity: std::collections::HashMap<Entity, (Option<Entity>, u32)> =
         std::collections::HashMap::with_capacity(organisms.iter().len());
 
-    for (entity, genome, symbiosis, inf) in &organisms {
+    for (entity, genome, symbiosis, inf, velocity, light_share, energy, body_size) in &organisms {
         let strategy = classify_strategy(genome);
+        let ready = energy.0 > reproduction_threshold(&config, body_size.0);
+        if strategy == SpeciesStrategy::Photosynthesizer {
+            sum_photo_area += genome.total_photo_surface_area();
+            sum_speed_plants += velocity.0.length();
+            sum_light_share += light_share.0;
+            ready_plants += ready as u32;
+        } else {
+            sum_speed_eaters += velocity.0.length();
+            ready_eaters += ready as u32;
+        }
         match strategy {
             SpeciesStrategy::Photosynthesizer => plants += 1,
             SpeciesStrategy::Grazer => grazers += 1,
@@ -1938,7 +1988,8 @@ fn record_population_history(
     }
 
     let div = n.max(1) as f32;
-    let org_count = plants + grazers + hunters + omnivores;
+    let eaters = grazers + hunters + omnivores;
+    let org_count = plants + eaters;
     let food_count = food.iter().len() as u32;
 
     history.record(
@@ -1961,6 +2012,12 @@ fn record_population_history(
             avg_attack: sum_attack / div,
             avg_photo: sum_photo / div,
             avg_diet: sum_diet / (grazers + hunters + omnivores).max(1) as f32,
+            avg_photo_area: sum_photo_area / plants.max(1) as f32,
+            avg_speed_plants: sum_speed_plants / plants.max(1) as f32,
+            avg_speed_eaters: sum_speed_eaters / eaters.max(1) as f32,
+            avg_light_share: sum_light_share / plants.max(1) as f32,
+            ready_share_plants: ready_plants as f32 / plants.max(1) as f32,
+            ready_share_eaters: ready_eaters as f32 / eaters.max(1) as f32,
             symbiotic_pairs,
             avg_symbiosis_rate: sum_symbiosis / div,
         },
@@ -2216,6 +2273,7 @@ pub fn spawn_initial_population(
                 BrainActivations::default(),
                 Symbiosis::default(),
                 EnergyFlows::default(),
+                LightShare::default(),
             ));
     }
 

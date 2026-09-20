@@ -463,6 +463,19 @@ pub struct PopSnapshot {
     /// they swamped the mean, so they are left out. 0.0 when no consumer
     /// is alive.
     pub avg_diet: f32,
+    // Plant physics instruments (`plans/2026-09-20-plant-physics.md`): how
+    // plants and eaters differ in motion, light, and readiness to breed.
+    /// Mean photo surface area over plants.
+    pub avg_photo_area: f32,
+    /// Mean movement per tick (world units) over plants and over eaters.
+    pub avg_speed_plants: f32,
+    pub avg_speed_eaters: f32,
+    /// Mean `LightShare` over plants, 0..1.
+    pub avg_light_share: f32,
+    /// Share of plants and of eaters whose energy is above their own
+    /// reproduction threshold: who is ready when a birth slot opens.
+    pub ready_share_plants: f32,
+    pub ready_share_eaters: f32,
     // Symbiosis metrics
     pub symbiotic_pairs: u32,
     pub avg_symbiosis_rate: f32,
@@ -561,6 +574,12 @@ impl PopulationHistory {
             avg_attack: snapshot.avg_attack,
             avg_photo: snapshot.avg_photo,
             avg_diet: snapshot.avg_diet,
+            avg_photo_area: snapshot.avg_photo_area,
+            avg_speed_plants: snapshot.avg_speed_plants,
+            avg_speed_eaters: snapshot.avg_speed_eaters,
+            avg_light_share: snapshot.avg_light_share,
+            ready_share_plants: snapshot.ready_share_plants,
+            ready_share_eaters: snapshot.ready_share_eaters,
             symbiotic_pairs: snapshot.symbiotic_pairs,
             avg_symbiosis_rate: snapshot.avg_symbiosis_rate,
             energy_total: ledger.total as f32,
@@ -594,6 +613,12 @@ pub struct PopSnapshotInput {
     pub avg_attack: f32,
     pub avg_photo: f32,
     pub avg_diet: f32,
+    pub avg_photo_area: f32,
+    pub avg_speed_plants: f32,
+    pub avg_speed_eaters: f32,
+    pub avg_light_share: f32,
+    pub ready_share_plants: f32,
+    pub ready_share_eaters: f32,
     pub symbiotic_pairs: u32,
     pub avg_symbiosis_rate: f32,
 }
@@ -711,6 +736,13 @@ pub struct Position(pub Vec2);
 
 #[derive(Component)]
 pub struct Velocity(pub Vec2);
+
+/// The share of full light a photosynthesiser received on its last tick,
+/// 0..1, written by `photosynthesis_system`. Today it is the per-tile density
+/// factor; `plans/2026-09-20-plant-physics.md` makes it canopy shading. An
+/// instrument first: the Graphs tab and the history average it over plants.
+#[derive(Component, Default, Clone, Copy, Debug)]
+pub struct LightShare(pub f32);
 
 /// Memory slots for recurrent brain connections
 #[derive(Component, Clone)]
