@@ -167,7 +167,11 @@ The world stopped running away. At 0.02 and 0.04 the plant count rose, overshot,
 
 *Food items.* At a fifth of the regeneration ceiling seeds 1 and 3 kept both levels with fewer grazers and more plants, and seed 42 lost its grazers in the opening (683 at tick 300 against 1238 at the default) and ran to a 5997-plant monoculture at the ceiling. The founding food stock is the bridge that carries grazers to the first plant boom; `founding-boom-food-regen` stands, and the ceiling stays at 0.1.
 
-*Threshold and audit:* see below when they land.
+*Species threshold, re-swept with canopy sharing (5000 ticks, species at the end / plants / grazers):* 0.9 gave 43 / 1455 / 1437, 46 / 5905 / 93, 35 / 828 / 1507 on seeds 1, 3, 42; 1.0 (the shipped-defaults runs above) gave 24, 34, 24 species; 1.1 gave 10 / 5989 / 10, 15 / 898 / 1170, 18 / 789 / 1161. The cliff at 1.1 has softened from four to six species to ten to eighteen, because populations are two to three times larger and cycling rather than pinned. 1.0 stays: it is the cell inside the 10 to 30 range the audits have used, if at its upper edge.
+
+*A note on the opening.* Two of these six runs (seed 3 at 0.9, seed 1 at 1.1), one of the three 6000-ceiling runs (seed 3) and one of the three food-item runs (seed 42) ended as a plant monoculture pinned at the ceiling with a handful of grazers. In every such run the grazers were under 700 at tick 300 against 1000 to 1200 in the runs that cycled. The first three hundred ticks, a race between grazers multiplying on the founding food stock and plants multiplying on light, decide whether the world gets a herbivore level. Roughly one run in four or five loses it. This is `founding-boom-food-regen` seen from the other side: the boom is what carries grazers to the first plant crash, and it is also chance.
+
+*Audit:* see the phase 1 audit below when it lands.
 
 **Founder diet spread** (`--founder-diet-spread`; founders draw `diet` from `-s..s`):
 

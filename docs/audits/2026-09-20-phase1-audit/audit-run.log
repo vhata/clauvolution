@@ -1,0 +1,6 @@
+    Finished `release` profile [optimized] target(s) in 2.96s
+commit 59759bc, ticks 15000, seeds 1 2 3 42 314 7 99 1000, 2 runs each, extra args: none
+15:44:02 start seed2-run1
+15:44:02 start seed3-run1
+15:44:02 start seed42-run1
+15:44:02 start seed1-run1
