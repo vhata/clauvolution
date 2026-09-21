@@ -18,6 +18,24 @@ use clauvolution_genome::{Genome, SegmentType};
 use clauvolution_phylogeny::{classify_strategy, SpeciesStrategy};
 use clauvolution_world::TileMap;
 
+// -----------------------------------------------------------------------------
+// View tuning constants
+//
+// Screen-space sizes are in pixels at zoom 1.0; each use multiplies by the
+// camera's `OrthographicProjection::scale` so it stays the same on screen
+// however far the camera is zoomed.
+// -----------------------------------------------------------------------------
+
+/// Minimum hit radius (pixels at zoom 1.0) for click-to-select. Larger
+/// organisms use their body radius instead, so small ones stay clickable.
+const CLICK_RADIUS_PX: f32 = 5.0;
+/// Margin (pixels at zoom 1.0) added around the viewport when culling
+/// organism sprites so they do not pop in and out at the screen edge.
+const SPRITE_CULL_MARGIN_PX: f32 = 20.0;
+/// Margin (pixels at zoom 1.0) added around the viewport when culling
+/// infection indicator rings, which are drawn larger than the body.
+const INDICATOR_CULL_MARGIN_PX: f32 = 40.0;
+
 /// Minimap dot colour per strategy (normal mode, heatmap blend, legend).
 fn strategy_rgb(strategy: SpeciesStrategy) -> [u8; 3] {
     match strategy {
@@ -234,7 +252,7 @@ fn click_select_system(
     // Find nearest organism to click
     let mut nearest = None;
     let mut nearest_dist = f32::MAX;
-    let click_radius = 5.0 * projection.scale;
+    let click_radius = CLICK_RADIUS_PX * projection.scale;
 
     for (entity, pos, body_size) in &organisms {
         let dist = (pos.0 - world_pos).length();
@@ -393,7 +411,7 @@ fn sync_organism_transforms(
         if let Ok((cam_t, proj)) = camera.get_single() {
             let half_w = 960.0 * proj.scale;
             let half_h = 540.0 * proj.scale;
-            let margin = 20.0 * proj.scale; // slight margin so entities don't pop in/out at edges
+            let margin = SPRITE_CULL_MARGIN_PX * proj.scale;
             (
                 proj.scale,
                 cam_t.translation.x - half_w - margin,
@@ -789,7 +807,7 @@ fn draw_infection_indicators_system(
     };
     let half_w = 960.0 * proj.scale;
     let half_h = 540.0 * proj.scale;
-    let margin = 40.0 * proj.scale;
+    let margin = INDICATOR_CULL_MARGIN_PX * proj.scale;
     let cam_left = cam_t.translation.x - half_w - margin;
     let cam_right = cam_t.translation.x + half_w + margin;
     let cam_bottom = cam_t.translation.y - half_h - margin;
