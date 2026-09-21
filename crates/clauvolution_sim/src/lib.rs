@@ -921,6 +921,30 @@ fn action_system(
     }
 }
 
+/// A neighbour that passed every predation gate for one attacker this tick.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct StrikeCandidate {
+    entity: Entity,
+    /// Distance from the attacker.
+    dist: f32,
+    /// A photosynthesiser: the strike is a graze rather than a kill.
+    is_plant: bool,
+    /// The target's energy when it was gated.
+    energy: f32,
+}
+
+/// The candidate an attacker strikes: the nearest one. Plants and non-plants
+/// compete on distance alone; the caller decides what the strike means. Ties
+/// go to the earlier candidate, so list order only matters between equals.
+fn nearest_target(candidates: &[StrikeCandidate]) -> Option<&StrikeCandidate> {
+    candidates
+        .iter()
+        .fold(None, |best: Option<&StrikeCandidate>, c| match best {
+            Some(b) if b.dist <= c.dist => Some(b),
+            _ => Some(c),
+        })
+}
+
 /// Predation: organisms can attack and eat each other
 fn predation_system(
     spatial_hash: Res<SpatialHash>,
@@ -964,9 +988,11 @@ fn predation_system(
     // same claim rule applies, so a plant takes one bite per tick.
     let mut grazes: Vec<(Entity, Entity, f32)> = Vec::new();
     let mut claimed_victims: HashSet<Entity> = HashSet::new();
+    let mut candidates: Vec<StrikeCandidate> = Vec::new();
 
     for (attacker_entity, attacker_pos, attack_str, attack_range, attacker_size) in &attackers {
         let nearby = spatial_hash.query_radius(*attacker_pos, *attack_range);
+        candidates.clear();
 
         for &target_entity in &nearby {
             if target_entity == *attacker_entity || claimed_victims.contains(&target_entity) {
@@ -1012,16 +1038,28 @@ fn predation_system(
                 }
 
                 if damage_ok && size_ok {
-                    if is_plant {
-                        let bite = target_energy.0.max(0.0) * config.bite_fraction;
-                        grazes.push((*attacker_entity, target_entity, bite));
-                    } else {
-                        kills.push((*attacker_entity, target_entity, target_energy.0));
-                    }
-                    claimed_victims.insert(target_entity);
-                    break;
+                    candidates.push(StrikeCandidate {
+                        entity: target_entity,
+                        dist,
+                        is_plant,
+                        energy: target_energy.0,
+                    });
                 }
             }
+        }
+
+        // The neighbour list is in hash bucket order, not distance order, so
+        // the first passing neighbour is an arbitrary one. The attacker
+        // strikes the nearest: a grazer heading for a plant bites the plant,
+        // not a consumer that happens to sort first. See DECISIONS.md.
+        if let Some(target) = nearest_target(&candidates) {
+            if target.is_plant {
+                let bite = target.energy.max(0.0) * config.bite_fraction;
+                grazes.push((*attacker_entity, target.entity, bite));
+            } else {
+                kills.push((*attacker_entity, target.entity, target.energy));
+            }
+            claimed_victims.insert(target.entity);
         }
     }
 
@@ -2887,5 +2925,49 @@ mod reproduction_tests {
         assert!((world.get::<Energy>(a).unwrap().0 - (200.0 - cost)).abs() < 1e-5);
         assert_eq!(world.get::<Energy>(bystander).unwrap().0, 200.0);
         assert!(world.get::<ActionFlash>(bystander).unwrap().action == ActionType::None);
+    }
+}
+
+#[cfg(test)]
+mod predation_target_tests {
+    use super::*;
+
+    fn candidate(index: u32, dist: f32, is_plant: bool) -> StrikeCandidate {
+        StrikeCandidate {
+            entity: Entity::from_raw(index),
+            dist,
+            is_plant,
+            energy: 10.0,
+        }
+    }
+
+    #[test]
+    fn nearest_wins_regardless_of_list_order() {
+        // Hash bucket order puts the far consumer first.
+        let candidates = [
+            candidate(1, 3.0, false),
+            candidate(2, 0.5, true),
+            candidate(3, 1.5, false),
+        ];
+        assert_eq!(nearest_target(&candidates), Some(&candidates[1]));
+    }
+
+    #[test]
+    fn plants_and_non_plants_are_both_eligible() {
+        let plant_near = [candidate(1, 2.0, false), candidate(2, 1.0, true)];
+        assert_eq!(nearest_target(&plant_near), Some(&plant_near[1]));
+        let consumer_near = [candidate(1, 1.0, false), candidate(2, 2.0, true)];
+        assert_eq!(nearest_target(&consumer_near), Some(&consumer_near[0]));
+    }
+
+    #[test]
+    fn ties_keep_the_earlier_candidate() {
+        let candidates = [candidate(1, 1.0, true), candidate(2, 1.0, false)];
+        assert_eq!(nearest_target(&candidates), Some(&candidates[0]));
+    }
+
+    #[test]
+    fn no_candidates_means_no_strike() {
+        assert_eq!(nearest_target(&[]), None);
     }
 }
