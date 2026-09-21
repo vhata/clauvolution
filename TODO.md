@@ -54,7 +54,7 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 - [PERF] `moisture-fix-tick-cost` — **Find out why the moisture fix doubled the per-tick cost.** `cargo run --release -- --headless 300 --seed 42` takes about 9 s at c8fac9d (spatial hash fix only) and about 20 s at 1ab42ab (moisture fix merged); at speed 1 it takes 21 s, so the sim is now CPU-bound below real time during the opening burst. Ticks 30 to 100 cost roughly 200 ms each before settling to about 20 ms.
   - Starting point: A wetter world grows more vegetation and so more food entities, and every food entity is indexed in the spatial hash that every neighbour query walks, so `spatial-hash-organisms-only` is the first thing to try. Measure food counts and organism counts per tick on both commits before changing anything. Also check whether the opening-burst slow phase (present before the moisture fix too, at about 8 s for the first 100 ticks) is the same cause.
   - Source: rebase of review/headless-gui-parity onto main, 2026-09-17
-  - Related: `spatial-hash-organisms-only`, `photosynthesis-density-cache`
+  - Related: `spatial-hash-organisms-only`
 - [SIM] `energy-clamp-waste` — **Decide what happens to income above `max_organism_energy`.** The energy ledger shows the 120-energy clamp destroying roughly as much energy as foragers eat: 7.40M destroyed against 7.62M eaten over 5000 ticks on seed 42, 6.15M against 2.86M on seed 1, where photosynthesis is the main income. A forager near the cap that eats a 25-energy item keeps almost none of it.
   - Starting point: Options are a higher or body-scaled cap, letting excess raise reproduction readiness instead of vanishing, or accepting the loss as satiety and saying so in DECISIONS. Belongs with the phase 1 tuning pass in `docs/design/simulation-rules.md`, where food items shrink to a supplement; the ledger's clamp flow is the measurement.
   - Source: roadmap/energy-ledger branch, 2026-09-18
@@ -126,9 +126,6 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 
 ### Unprioritized
 
-- [PERF] `photosynthesis-density-cache` — **Stop allocating a plant density map every tick.** `photosynthesis_system` builds a new `HashMap<(u32,u32), u32>` 30 times a second and makes two passes over all organisms.
-  - Starting point: Reuse a cached resource for the density count instead of allocating per tick. Fine at 2000 organisms, so this matters most as populations grow.
-  - Source: docs/ROADMAP.md (Known tech debt), 2026-09-16
 - [PERF] `reproduction-genome-clone` — **Avoid repeated genome clones when assembling mate candidates.** `reproduction_system` calls `genome.clone()` several times, and genomes are large because they carry neurons, connections, and body segments.
   - Starting point: Pass references through a lookup table instead of cloning.
   - Source: docs/ROADMAP.md (Known tech debt), 2026-09-16

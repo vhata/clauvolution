@@ -67,13 +67,12 @@ const NUTRIENT_RAIN_DENSITY: f32 = 0.05;
 // Other simulation tuning constants
 // -----------------------------------------------------------------------------
 
-/// Penalty coefficient for plants sharing a tile. Yield = 1 / (1 + others × k).
-/// Higher k = steeper penalty. Raising this combats green-world monocultures.
-/// Tuning history:
-///   0.2 → 0.5 → 2.0 : all ineffective. The world is big (512² tiles, 2000
-///   organisms), so plants naturally spread to ~1 per tile anyway. Density
-///   penalty never really bites. Moving the pressure elsewhere instead.
-const PLANT_DENSITY_PENALTY: f32 = 0.3;
+/// Half-width, in tiles, of the square window over which photosynthesisers
+/// share light: a 9 by 9 window at 4. A plant's own footprint is under a
+/// tile, so this is a statement about how far light competition reaches.
+/// Swept once with `SimConfig::leaf_capacity_per_tile` and then left alone;
+/// see `docs/DECISIONS.md`, "Canopy light sharing".
+const CANOPY_RADIUS: usize = 4;
 
 /// Raw multiplier on photosynthesis yield. Scales how much energy the sun
 /// gives. Lowering this makes photosynthesis less free-lunch and evens the
@@ -132,6 +131,70 @@ const SYMBIOSIS_RANGE: f32 = 6.0;
 ///          other than transfer magnitude is keeping rate near zero.
 ///   0.15 — (current) reverted. No point in the extra magnitude.
 const SYMBIOSIS_TRANSFER_RATE: f32 = 0.15;
+
+/// Tile column and row for a world position, clamped into the map.
+fn tile_index(pos: Vec2, w: usize, h: usize) -> (usize, usize) {
+    let tx = (pos.x.max(0.0) as usize).min(w - 1);
+    let ty = (pos.y.max(0.0) as usize).min(h - 1);
+    (tx, ty)
+}
+
+/// Summed-area table of a `w` by `h` grid: `(w + 1) * (h + 1)` entries where
+/// `sat[(y + 1) * (w + 1) + (x + 1)]` is the sum of every cell with column
+/// `<= x` and row `<= y`. Any rectangle's total is then four lookups.
+pub fn summed_area_table(grid: &[f32], w: usize, h: usize) -> Vec<f32> {
+    let mut sat = Vec::new();
+    summed_area_table_into(grid, w, h, &mut sat);
+    sat
+}
+
+/// `summed_area_table` into a caller-owned buffer, resized as needed, so a
+/// per-tick caller allocates nothing once warm.
+pub fn summed_area_table_into(grid: &[f32], w: usize, h: usize, sat: &mut Vec<f32>) {
+    let stride = w + 1;
+    sat.clear();
+    sat.resize(stride * (h + 1), 0.0);
+    for y in 0..h {
+        let mut row = 0.0f32;
+        for x in 0..w {
+            row += grid[y * w + x];
+            sat[(y + 1) * stride + (x + 1)] = sat[y * stride + (x + 1)] + row;
+        }
+    }
+}
+
+/// Total over the square window of half-width `radius` around `(cx, cy)`,
+/// clipped to the grid, and the number of tiles the clipped window covers.
+pub fn window_sum(
+    sat: &[f32],
+    w: usize,
+    h: usize,
+    cx: usize,
+    cy: usize,
+    radius: usize,
+) -> (f32, usize) {
+    let stride = w + 1;
+    let x0 = cx.saturating_sub(radius);
+    let y0 = cy.saturating_sub(radius);
+    let x1 = (cx + radius + 1).min(w);
+    let y1 = (cy + radius + 1).min(h);
+    let total = sat[y1 * stride + x1] - sat[y0 * stride + x1] - sat[y1 * stride + x0]
+        + sat[y0 * stride + x0];
+    (total.max(0.0), (x1 - x0) * (y1 - y0))
+}
+
+/// Share of full light for a photosynthesiser whose window holds
+/// `leaf_in_window` leaf area over `tiles` tiles that can each fully light
+/// `capacity_per_tile` of leaf: `min(1, tiles * capacity / leaf)`. Full light
+/// until the leaves exceed what the ground can light, then proportional.
+pub fn canopy_light_share(leaf_in_window: f32, tiles: usize, capacity_per_tile: f32) -> f32 {
+    let capacity = tiles as f32 * capacity_per_tile.max(0.0);
+    if leaf_in_window <= capacity || leaf_in_window <= 0.0 {
+        1.0
+    } else {
+        capacity / leaf_in_window
+    }
+}
 
 /// Speed multiplier from photosynthetic surface area: `1 / (1 + area × drag)`,
 /// the same shape as armour drag. `SimConfig::photo_drag` is the coefficient.
@@ -212,7 +275,8 @@ impl Plugin for SimPlugin {
         .insert_resource(PopHistoryTimer(Timer::from_seconds(
             POP_HISTORY_SAMPLE_SECS,
             TimerMode::Repeating,
-        )));
+        )))
+        .init_resource::<CanopyGrid>();
     }
 }
 
@@ -221,6 +285,23 @@ struct SpeciesClassificationTimer(Timer);
 
 #[derive(Resource)]
 struct PopHistoryTimer(Timer);
+
+/// Scratch buffers for canopy light sharing, kept between ticks so
+/// `photosynthesis_system` allocates nothing per tick: leaf area per tile and
+/// its summed-area table (`(w + 1) * (h + 1)` entries).
+#[derive(Resource, Default)]
+struct CanopyGrid {
+    leaf: Vec<f32>,
+    sat: Vec<f32>,
+}
+
+impl CanopyGrid {
+    /// Zero the leaf grid for a `w` by `h` map, resizing on first use.
+    fn reset(&mut self, w: usize, h: usize) {
+        self.leaf.clear();
+        self.leaf.resize(w * h, 0.0);
+    }
+}
 
 #[derive(Resource)]
 struct ExtinctionCooldown(Timer);
@@ -973,31 +1054,32 @@ fn photosynthesis_system(
     config: Res<SimConfig>,
     season: Res<Season>,
     bloom: Res<BloomEffects>,
+    mut canopy: ResMut<CanopyGrid>,
 ) {
     let light_mult = season.light_multiplier() * bloom.light_multiplier();
 
-    // First pass: count plants per tile for density competition.
-    // Plants on the same tile shade each other — prevents green-world monoculture.
-    let mut plants_per_tile: HashMap<(u32, u32), u32> = HashMap::new();
+    // Light is shared over a canopy. First pass: leaf area per tile, then a
+    // summed-area table so any window's total is four lookups. Every
+    // organism that earns any sun also shades (`can_photosynthesise`).
+    let w = tile_map.width as usize;
+    let h = tile_map.height as usize;
+    canopy.reset(w, h);
+    let CanopyGrid { leaf, sat } = &mut *canopy;
     for (pos, _, _, _, genome) in organisms.iter() {
-        if genome.is_photosynthesiser() {
-            let tx = (pos.0.x as u32).min(tile_map.width - 1);
-            let ty = (pos.0.y as u32).min(tile_map.height - 1);
-            *plants_per_tile.entry((tx, ty)).or_insert(0) += 1;
+        if genome.can_photosynthesise() {
+            let (tx, ty) = tile_index(pos.0, w, h);
+            leaf[ty * w + tx] += genome.total_photo_surface_area();
         }
     }
+    summed_area_table_into(leaf, w, h, sat);
+    let sat: &[f32] = sat;
 
-    // Second pass: apply photosynthesis with density-dependent competition.
-    // density_factor = 1 / (1 + other_plants * 0.2)
-    //   1 plant alone: 1.0 (full yield)
-    //   5 plants:      0.56
-    //   10 plants:     0.36
-    //   20 plants:     0.21
-    //
-    // Parallelised: the HashMap is read-only in this pass (first pass is
-    // done). Each organism only writes its own Energy and its own
-    // EnergyFlows record; the shared EnergyLedger resource is never touched
-    // from here. Safe for par_iter_mut.
+    // Second pass: each photosynthesiser's light share is what its window's
+    // tiles can light divided by the leaf area in the window, capped at 1,
+    // so where leaves exceed the ground everyone there is shaded in
+    // proportion. Parallelised: the table is read-only here and each
+    // organism writes only its own components; the shared EnergyLedger is
+    // never touched from here. Safe for par_iter_mut.
     organisms
         .par_iter_mut()
         .for_each(|(pos, mut energy, mut flows, mut light_share, genome)| {
@@ -1005,18 +1087,17 @@ fn photosynthesis_system(
                 let tile = tile_map.tile_at_pos(pos.0);
                 let photo_area = genome.total_photo_surface_area();
 
-                let tx = (pos.0.x as u32).min(tile_map.width - 1);
-                let ty = (pos.0.y as u32).min(tile_map.height - 1);
-                let tile_plants = plants_per_tile.get(&(tx, ty)).copied().unwrap_or(1);
-                let others = tile_plants.saturating_sub(1);
-                let density_factor = 1.0 / (1.0 + others as f32 * PLANT_DENSITY_PENALTY);
-                light_share.0 = density_factor;
+                let (tx, ty) = tile_index(pos.0, w, h);
+                let (leaf_in_window, tiles) = window_sum(sat, w, h, tx, ty, CANOPY_RADIUS);
+                let share =
+                    canopy_light_share(leaf_in_window, tiles, config.leaf_capacity_per_tile);
+                light_share.0 = share;
 
                 let gained = genome.photosynthesis_rate
                     * photo_area
                     * tile.light_level
                     * light_mult
-                    * density_factor
+                    * share
                     * PHOTO_OUTPUT_MULTIPLIER;
                 flows.clamp +=
                     credit_clamped(&mut energy, gained, config.max_organism_energy) as f64;
@@ -2480,6 +2561,31 @@ mod digestion_tests {
     use super::*;
 
     #[test]
+    fn summed_area_table_gives_rectangle_totals() {
+        // 3 x 2 grid, row-major.
+        let grid = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let sat = summed_area_table(&grid, 3, 2);
+        assert_eq!(window_sum(&sat, 3, 2, 0, 0, 0), (1.0, 1));
+        assert_eq!(window_sum(&sat, 3, 2, 2, 1, 0), (6.0, 1));
+        // Whole grid from the centre with a radius that overshoots.
+        assert_eq!(window_sum(&sat, 3, 2, 1, 0, 5), (21.0, 6));
+        // 2 x 2 window at the top-left corner, clipped.
+        assert_eq!(window_sum(&sat, 3, 2, 0, 0, 1), (1.0 + 2.0 + 4.0 + 5.0, 4));
+    }
+
+    #[test]
+    fn canopy_light_share_is_full_until_leaves_exceed_the_ground() {
+        // 81 tiles at 0.02 light 1.62 units of leaf.
+        assert_eq!(canopy_light_share(1.0, 81, 0.02), 1.0);
+        assert_eq!(canopy_light_share(1.62, 81, 0.02), 1.0);
+        assert!((canopy_light_share(3.24, 81, 0.02) - 0.5).abs() < 1e-6);
+        assert!((canopy_light_share(16.2, 81, 0.02) - 0.1).abs() < 1e-6);
+        // No leaves, no shading; a zero capacity shades everything fully.
+        assert_eq!(canopy_light_share(0.0, 81, 0.02), 1.0);
+        assert_eq!(canopy_light_share(1.0, 81, 0.0), 0.0);
+    }
+
+    #[test]
     fn photo_drag_leaves_the_leafless_alone_and_slows_the_leafy() {
         assert_eq!(photo_drag_factor(0.0, 1.0), 1.0);
         assert_eq!(photo_drag_factor(2.0, 0.0), 1.0);
@@ -2510,8 +2616,10 @@ mod digestion_tests {
         // A bite is `bite_fraction` of what the plant holds, a kill offers
         // `kill_transfer_fraction`; both are then digested.
         let plant_energy = 80.0;
-        let (kept, wasted) = digest(plant_energy * SimConfig::default().bite_fraction, 1.0);
-        assert!((kept - 8.0).abs() < 1e-5 && wasted.abs() < 1e-5);
+        let bite = plant_energy * SimConfig::default().bite_fraction;
+        let (kept, wasted) = digest(bite, 1.0);
+        assert!((kept - bite).abs() < 1e-5 && wasted.abs() < 1e-5);
+        assert!(bite > 0.0 && bite < plant_energy);
         let (kept, wasted) = digest(
             plant_energy * SimConfig::default().kill_transfer_fraction,
             0.25,

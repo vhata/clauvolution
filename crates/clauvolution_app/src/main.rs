@@ -669,6 +669,7 @@ struct ConfigOverrides {
     bite_fraction: Option<f32>,
     kill_transfer: Option<f32>,
     photo_drag: Option<f32>,
+    leaf_capacity: Option<f32>,
     founder_diet_spread: Option<f32>,
     animal_efficiency: Option<f32>,
     max_energy: Option<f32>,
@@ -689,6 +690,7 @@ impl ConfigOverrides {
             bite_fraction: flag(args, "--bite-fraction"),
             kill_transfer: flag(args, "--kill-transfer"),
             photo_drag: flag(args, "--photo-drag"),
+            leaf_capacity: flag(args, "--leaf-capacity"),
             founder_diet_spread: flag(args, "--founder-diet-spread"),
             animal_efficiency: flag(args, "--animal-efficiency"),
             max_energy: flag(args, "--max-energy"),
@@ -721,6 +723,11 @@ fn apply_config_overrides(overrides: Res<ConfigOverrides>, mut config: ResMut<Si
         "kill_transfer_fraction",
     );
     set(&mut config.photo_drag, overrides.photo_drag, "photo_drag");
+    set(
+        &mut config.leaf_capacity_per_tile,
+        overrides.leaf_capacity,
+        "leaf_capacity_per_tile",
+    );
     set(
         &mut config.founder_diet_spread,
         overrides.founder_diet_spread,
