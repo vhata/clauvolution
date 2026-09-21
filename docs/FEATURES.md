@@ -77,7 +77,7 @@ One-liner list of what Clauvolution does, grouped by area. For the design ration
 
 ## User interface (bevy_egui)
 
-- **Compact header bar** — always-visible summary: sim time, season, population, species, generation, speed, infection count (when > 0), active bloom effects with seconds remaining
+- **Compact header bar** — always-visible summary: sim time, season, population, species (with the effective compatibility threshold, so a `--species-threshold` override is visible), generation, speed, infection count (when > 0), active bloom effects with seconds remaining
 - **Tabbed right panel** (Inspect / Phylo / Graphs / Chronicle / Events / Help):
   - **Inspect** — selected organism stats: species/strategy/parent, energy/health bars, diet and digestion efficiencies, body/brain collapsibles, infection state
   - **Phylo** — collapsible lineage tree with strategy badges, declining indicators, recently-extinct section; click a species name to select a living member

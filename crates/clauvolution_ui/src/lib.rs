@@ -193,6 +193,7 @@ fn header_bar_system(
     bloom: Res<BloomEffects>,
     infected: Query<(), (With<Organism>, With<Infection>)>,
     tick: Res<TickCounter>,
+    config: Res<SimConfig>,
 ) {
     let ctx = contexts.ctx_mut();
 
@@ -233,6 +234,13 @@ fn header_bar_system(
                 ui.label(format!("Pop: {population}"));
                 ui.separator();
                 ui.label(format!("Species: {}", stats.species_count));
+                // The effective compatibility threshold, so a `--species-threshold`
+                // override is visible in the GUI and not only in the startup log.
+                ui.weak(format!("@ {:.2}", config.species_compat_threshold))
+                    .on_hover_text(
+                        "Species compatibility threshold: genomes closer than this join the \
+                         same species. Set with --species-threshold.",
+                    );
                 ui.separator();
                 ui.label(format!("Gen: {}", stats.max_generation));
                 ui.separator();
