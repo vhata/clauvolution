@@ -1592,17 +1592,12 @@ fn reproduction_system(
 ) {
     let mut rng = &mut sim_rng.0;
 
-    // Collect potential mate data upfront to avoid query conflicts
-    let mate_candidates: Vec<(Entity, Vec2, f32, Genome, u64)> = organisms
-        .iter()
-        .filter(|(_, _, _, _, _, output, _, _, _)| output.reproduce > 0.5)
-        .map(|(e, pos, energy, _, genome, _, _, species, _)| {
-            (e, pos.0, energy.0, genome.clone(), species.0)
-        })
-        .collect();
-
     // (position, genome, parent species, generation, starting energy)
     let mut new_organisms: Vec<(Vec2, Genome, u64, u32, f32)> = Vec::new();
+    // (parent, reproduction cost): the energy deduction and action flash
+    // each parent receives once the read-only pass below has released the
+    // query.
+    let mut parents: Vec<(Entity, f32)> = Vec::new();
     let current_pop = organisms.iter().len();
     // `population_ceiling` is the only birth limiter. The population is
     // meant to settle where the energy flows put it, and under the current
@@ -1632,9 +1627,12 @@ fn reproduction_system(
         1.0
     };
 
-    for (entity, pos, mut energy, mut flash, genome, output, body_size, species, generation) in
-        &mut organisms
-    {
+    // The mate search borrows the mate's genome straight from the query, so
+    // this pass is read-only: it decides every birth, draws from the RNG in
+    // parent order, and books the ledger, while the parents' own energy and
+    // flash writes wait for the pass after it. Cloning a genome per
+    // candidate up front was the alternative, and genomes are large.
+    for (entity, pos, energy, _, genome, output, body_size, species, generation) in &organisms {
         if already_mated.contains(&entity) {
             continue;
         }
@@ -1654,36 +1652,38 @@ fn reproduction_system(
             continue;
         }
         if wants_child {
-            energy.0 -= repro_cost;
             ledger.tick.reproduction_spent += repro_cost as f64;
-            flash.action = ActionType::Reproducing;
-            flash.timer = 0.3;
+            parents.push((entity, repro_cost));
 
-            // Try to find a mate from pre-collected candidates
+            // Try to find a mate: a nearby organism of the same species that
+            // also wants a child and has the energy for one. Its energy is
+            // read as it stood at the start of the tick, before any parent
+            // in this pass is charged.
             let mate_range = body_size.0 * 8.0;
             let nearby = spatial_hash.query_radius(pos.0, mate_range);
-            let mut mate_genome: Option<Genome> = None;
+            let mut mate_genome: Option<&Genome> = None;
 
             for &nearby_entity in &nearby {
                 if nearby_entity == entity || already_mated.contains(&nearby_entity) {
                     continue;
                 }
-                if let Some((_, _, mate_energy, mate_g, mate_species)) = mate_candidates
-                    .iter()
-                    .find(|(e, _, _, _, _)| *e == nearby_entity)
+                let Ok((_, _, mate_energy, _, mate_g, mate_output, _, mate_species, _)) =
+                    organisms.get(nearby_entity)
+                else {
+                    continue;
+                };
+                if mate_output.reproduce > 0.5
+                    && mate_species.0 == species.0
+                    && mate_energy.0 > config.reproduction_energy_threshold
                 {
-                    if *mate_species == species.0
-                        && *mate_energy > config.reproduction_energy_threshold
-                    {
-                        mate_genome = Some(mate_g.clone());
-                        already_mated.push(nearby_entity);
-                        break;
-                    }
+                    mate_genome = Some(mate_g);
+                    already_mated.push(nearby_entity);
+                    break;
                 }
             }
 
             let mut child_genome = if let Some(mate_g) = mate_genome {
-                genome.crossover(&mate_g, &mut rng)
+                genome.crossover(mate_g, &mut rng)
             } else {
                 genome.clone()
             };
@@ -1713,6 +1713,14 @@ fn reproduction_system(
                 child_energy,
             ));
             already_mated.push(entity);
+        }
+    }
+
+    for (entity, repro_cost) in parents {
+        if let Ok((_, _, mut energy, mut flash, ..)) = organisms.get_mut(entity) {
+            energy.0 -= repro_cost;
+            flash.action = ActionType::Reproducing;
+            flash.timer = 0.3;
         }
     }
 
@@ -2767,5 +2775,117 @@ mod digestion_tests {
             0.25,
         );
         assert!((kept - 2.0).abs() < 1e-5 && (wasted - 6.0).abs() < 1e-5);
+    }
+}
+
+#[cfg(test)]
+mod reproduction_tests {
+    use super::*;
+    use bevy::ecs::system::RunSystemOnce;
+    use rand::{rngs::StdRng, SeedableRng};
+
+    /// A world holding only what `reproduction_system` reads and writes.
+    fn reproduction_world() -> World {
+        let mut world = World::new();
+        world.insert_resource(SimConfig::default());
+        world.insert_resource(InnovationCounter(0));
+        world.insert_resource(SpatialHash::new(32.0));
+        world.insert_resource(SimStats::default());
+        world.insert_resource(BloomEffects::default());
+        world.insert_resource(SimRng::from_seed(7));
+        world.insert_resource(EnergyLedger::default());
+        world.insert_resource(TickCounter(0));
+        world.insert_resource(WorldChronicle::default());
+        world
+    }
+
+    fn spawn_adult(world: &mut World, pos: Vec2, energy: f32, reproduce: f32) -> Entity {
+        let mut innovation = InnovationCounter(0);
+        let mut rng = StdRng::seed_from_u64(1);
+        let genome = Genome::new_minimal(&mut innovation, &mut rng);
+        let entity = world
+            .spawn((
+                Organism,
+                Position(pos),
+                Energy(energy),
+                ActionFlash::default(),
+                genome,
+                BrainOutput {
+                    reproduce,
+                    ..Default::default()
+                },
+                BodySize(1.0),
+                SpeciesId(1),
+                Generation(3),
+            ))
+            .id();
+        world.resource_mut::<SpatialHash>().insert(entity, pos);
+        entity
+    }
+
+    fn organism_count(world: &mut World) -> usize {
+        world
+            .query_filtered::<(), With<Organism>>()
+            .iter(world)
+            .len()
+    }
+
+    /// Two willing neighbours of one species produce one child: whichever is
+    /// visited first pays the reproduction cost and flashes, the other is its
+    /// mate, keeps its energy, and is not visited as a parent in its turn.
+    #[test]
+    fn a_pair_produces_one_child_and_only_the_parent_pays() {
+        let mut world = reproduction_world();
+        let a = spawn_adult(&mut world, Vec2::new(10.0, 10.0), 200.0, 1.0);
+        let b = spawn_adult(&mut world, Vec2::new(12.0, 10.0), 200.0, 1.0);
+        let cost = SimConfig::default().reproduction_energy_cost;
+
+        world.run_system_once(reproduction_system).unwrap();
+
+        assert_eq!(organism_count(&mut world), 3);
+        assert_eq!(world.resource::<SimStats>().total_births, 1);
+        let energies = [a, b].map(|e| world.get::<Energy>(e).unwrap().0);
+        let flashes = [a, b].map(|e| world.get::<ActionFlash>(e).unwrap().action.clone());
+        let (parent, mate) = if energies[0] < energies[1] {
+            (0, 1)
+        } else {
+            (1, 0)
+        };
+        assert!(
+            (energies[parent] - (200.0 - cost)).abs() < 1e-5,
+            "{energies:?}"
+        );
+        assert_eq!(energies[mate], 200.0, "{energies:?}");
+        assert!(flashes[parent] == ActionType::Reproducing);
+        assert!(flashes[mate] == ActionType::None);
+
+        let ledger = world.resource::<EnergyLedger>();
+        assert!((ledger.tick.reproduction_spent - cost as f64).abs() < 1e-6);
+        assert!(
+            (ledger.tick.reproduction_received - (cost * CHILD_ENERGY_FRACTION) as f64).abs()
+                < 1e-6
+        );
+        let mut children = world.query_filtered::<(&Generation, &SpeciesId, &Energy), With<Age>>();
+        let (generation, species, energy) = children.single(&world);
+        assert_eq!(generation.0, 4);
+        assert_eq!(species.0, 1);
+        assert!((energy.0 - cost * CHILD_ENERGY_FRACTION).abs() < 1e-5);
+    }
+
+    /// A willing organism with no eligible neighbour reproduces alone; a
+    /// neighbour that does not want a child is not taken as a mate.
+    #[test]
+    fn a_lone_parent_reproduces_asexually() {
+        let mut world = reproduction_world();
+        let a = spawn_adult(&mut world, Vec2::new(10.0, 10.0), 200.0, 1.0);
+        let bystander = spawn_adult(&mut world, Vec2::new(12.0, 10.0), 200.0, 0.0);
+        let cost = SimConfig::default().reproduction_energy_cost;
+
+        world.run_system_once(reproduction_system).unwrap();
+
+        assert_eq!(organism_count(&mut world), 3);
+        assert!((world.get::<Energy>(a).unwrap().0 - (200.0 - cost)).abs() < 1e-5);
+        assert_eq!(world.get::<Energy>(bystander).unwrap().0, 200.0);
+        assert!(world.get::<ActionFlash>(bystander).unwrap().action == ActionType::None);
     }
 }
