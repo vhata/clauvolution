@@ -30,9 +30,6 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
   - Starting point: Establish which form is deliberate, then apply it consistently and record the choice.
   - Source: docs/ROADMAP.md (Known tech debt), 2026-09-16
   - Related: `document-world-mutation-event-convention`
-- [BRAIN] `species-name-collisions` — **Reduce species naming collisions.** Similar traits combined with a similar species ID modulo produce the same name for different species, which makes them hard to tell apart while watching.
-  - Starting point: A limitation of the word-list approach rather than a bug, so first decide whether a larger word list, a different hash, or a suffix is worth it.
-  - Source: CLAUDE.md (Known rough edges), 2026-09-16
 - [BRAIN] `convergent-detection-noise` — **Assess convergent evolution detection cost and noise.** Detection scans every species on each classification tick, and early in a run the results may be noisy enough to be misleading.
   - Starting point: Measure how often it fires in the first few thousand ticks before deciding between a cheaper scan, a warm-up delay, or leaving it alone.
   - Source: CLAUDE.md (Known rough edges), 2026-09-16
