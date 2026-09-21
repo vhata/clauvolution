@@ -127,10 +127,6 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 
 ### Unprioritized
 
-- [PERF] `reproduction-genome-clone` — **Avoid repeated genome clones when assembling mate candidates.** `reproduction_system` calls `genome.clone()` several times, and genomes are large because they carry neurons, connections, and body segments.
-  - Starting point: Pass references through a lookup table instead of cloning.
-  - Source: docs/ROADMAP.md (Known tech debt), 2026-09-16
-  - Related: `split-reproduction-system`
 - [SIM] `sim-config-resource` — **Promote the tuning constants to a `SimConfig` resource.** Constants held in a resource can be changed at runtime, which serves the tuning loop far more directly than recompiling.
   - Starting point: Start from the existing named consts at the top of `clauvolution_sim/src/lib.rs`.
   - Source: docs/ROADMAP.md (Known tech debt), 2026-09-16
@@ -146,7 +142,6 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 - [SIM] `split-reproduction-system` — **Split reproduction into its three concerns.** `reproduction_system` runs about 114 lines mixing mate finding, genome crossover and mutation, and child spawning.
   - Starting point: The three concerns are a natural split boundary.
   - Source: docs/ROADMAP.md (Known tech debt), 2026-09-16
-  - Related: `reproduction-genome-clone`
 - [DOCS] `document-world-mutation-event-convention` — **Document when a world mutation goes through an event.** `mass_extinction_input_system` raises a `WorldEventRequest` while `action_system` spawns food entities directly, and nothing records which is intended.
   - Starting point: The current rule is that only user-triggered mutations become events, which is a reasonable convention. It just needs writing down in `docs/ARCHITECTURE.md`.
   - Source: docs/ROADMAP.md (Known tech debt), 2026-09-16
@@ -167,7 +162,7 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 - [PERSIST] `persist-terrain-state` — **Save terrain state instead of regenerating it from the seed.** Niche construction changes to vegetation density, moisture, and nutrients are silently lost on save and load, so a loaded world is not the world that was saved.
   - Starting point: Decide whether to persist the full tilemap or only the fields organisms modify.
   - Source: CLAUDE.md (Known rough edges), 2026-09-16
-- [PERF] `reproduction-linear-scans` — **Replace the linear scans in `reproduction_system`.** `already_mated.contains` and `mate_candidates.iter().find` scan vectors per organism, so mate search is quadratic in population; at 6000 organisms the carrying-capacity experiment measured 2.5x to 3.4x the tick cost of 2000.
-  - Starting point: A `HashSet` for `already_mated` and an index for candidates. This is the first performance cost the population-ceiling raise in phase 1 of `docs/design/simulation-rules.md` will hit.
+- [PERF] `reproduction-linear-scans` — **Replace the linear scan in `reproduction_system`.** `already_mated.contains` scans a vector once per organism and once per nearby candidate, so mate search is quadratic in population; at 6000 organisms the carrying-capacity experiment measured 2.5x to 3.4x the tick cost of 2000 (that measurement predates the removal of the `mate_candidates` scan).
+  - Starting point: A `HashSet` for `already_mated`. This is the first performance cost the population-ceiling raise in phase 1 of `docs/design/simulation-rules.md` will hit.
   - Source: roadmap/emergent-carrying-capacity branch, 2026-09-18
-  - Related: `split-reproduction-system`, `reproduction-genome-clone`, `rayon-remaining-systems`
+  - Related: `split-reproduction-system`, `rayon-remaining-systems`
