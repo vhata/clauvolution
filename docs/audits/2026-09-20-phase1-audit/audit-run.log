@@ -35,3 +35,6 @@ commit 59759bc, ticks 15000, seeds 1 2 3 42 314 7 99 1000, 2 runs each, extra ar
 17:25:06 determinism probe: two simultaneous runs of seed 42
 17:25:06 start seed42-runprobe-a
 17:25:06 start seed42-runprobe-b
+17:51:23 done  seed42-runprobe-b
+17:51:24 done  seed42-runprobe-a
+17:51:24 audit complete

@@ -1,6 +1,6 @@
 # Simulation rules: direction and design
 
-**Status:** approved in discussion 2026-09-18; phase 0 shipped 2026-09-18 (see "Phase 0 outcome"); phase 1 in progress under `plans/2026-09-19-diet-axis.md` (steps 1 and 2 have shipped: the trait, its instruments, and grazing with digestion; the tuning pass and audit are next)
+**Status:** approved in discussion 2026-09-18; phase 0 shipped 2026-09-18 (see "Phase 0 outcome"); phase 1 shipped 2026-09-20 (see "Phase 1 outcome"); phase 2 not started
 **Source:** step 3 of `plans/2026-09-17-simulation-rules-rethink.md`
 **Baseline:** `docs/audits/2026-09-18-attractor-audit/` on commit 984aedd
 
@@ -110,6 +110,21 @@ Three knobs: bite fraction, the efficiency exponent, and food-item regeneration.
 ### Done when
 
 On the audit seeds at 15k ticks, plants, grazers, and hunters all persist on most seeds. And the interdependence test: a headless run with animal digestion forced to zero shows grazers overrunning plants and crashing. That is the "you need wolves to keep the deer in check" claim made checkable, and its numbers go in `docs/DECISIONS.md`.
+
+## Phase 1 outcome
+
+Shipped 2026-09-19 to 2026-09-20 as #18 (trait and instruments), #19 (grazing and digestion), #20 (tuning knobs and the finding that no knob bounds plant growth), and then, because that finding was structural, `plans/2026-09-20-plant-physics.md`: #21 (instruments), #22 (drag from photosynthetic surface), #23 (light shared over a canopy, the ceiling raised to 6000, and the diet-pass defaults of founder spread 1.0 and bite 0.3). The audit is `docs/audits/2026-09-20-phase1-audit/`.
+
+| Done-when | Result |
+| --- | --- |
+| Plants, grazers and hunters persist on most seeds at 15k ticks | Plants and grazers on sixteen of sixteen runs, cycling against each other; hunters on none. |
+| Interdependence test: hunting off shows grazers overrunning plants | Cannot run: the baseline has no hunters. Grazers are held from below by their plants, visibly (plants fell below 100 in seven runs and recovered in five). |
+| Threshold re-swept | 1.0 kept; the cliff at 1.1 softened to 10 to 18 species with larger, cycling populations. |
+| Ceiling measured (diet plan step 4) | Raised to 6000 in #23; eight of sixteen audit runs touched it, seven briefly. |
+
+Two things the phase did not anticipate. First, the diet axis on its own could not work: consumers collapsed under any knob because plant growth was unbounded and plants could move, so the phase grew two physical couplings (a leaf is a sail; light is shared over a canopy) before its own tuning could mean anything. Those belong to the "what makes biomes hold different life" and "carrying capacity" rows of the decisions table as much as to this phase. Second, the top of the pyramid is not a tuning problem: a founding hunter digests almost nothing but meat, has no bridge while its brain is random, and starves in a few hundred ticks at any kill share; and the one attack output that a grazer must use to bite a plant also kills its neighbours (43% of all deaths with no hunters alive). Both are filed as design questions (`hunter-emergence`, `graze-attack-output-split`) and are the open thread phase 2 inherits.
+
+Same-seed divergence, which every comparison in this phase carried as a caveat, was found and fixed after the audit ran (#31): headless virtual time followed the wall clock. Audits from here on are reproducible per seed.
 
 ## Phase 2: biomes as pressure and barrier
 

@@ -171,7 +171,7 @@ The world stopped running away. At 0.02 and 0.04 the plant count rose, overshot,
 
 *A note on the opening.* Two of these six runs (seed 3 at 0.9, seed 1 at 1.1), one of the three 6000-ceiling runs (seed 3) and one of the three food-item runs (seed 42) ended as a plant monoculture pinned at the ceiling with a handful of grazers. In every such run the grazers were under 700 at tick 300 against 1000 to 1200 in the runs that cycled. The first three hundred ticks, a race between grazers multiplying on the founding food stock and plants multiplying on light, decide whether the world gets a herbivore level. Roughly one run in four or five loses it. This is `founding-boom-food-regen` seen from the other side: the boom is what carries grazers to the first plant crash, and it is also chance.
 
-*Audit:* see the phase 1 audit below when it lands.
+*Audit (2026-09-20, eight seeds, two runs each, 15k ticks, `docs/audits/2026-09-20-phase1-audit/`):* plants and grazers on every run, plant share 2% to 76%, grazers 754 to 1431, hunters zero, species 7 to 32, body size 0.74 to 1.93, eater diet -0.83 to -0.98; the two levels cycle, and seven runs dipped below 100 plants (five recovered). The roadmap's attractor-states section carries the table.
 
 **Founder diet spread** (`--founder-diet-spread`; founders draw `diet` from `-s..s`):
 
