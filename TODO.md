@@ -42,7 +42,6 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 - [PERF] `headless-death-marker-leak` — **Despawn `DeathMarker` entities in headless mode.** `death_system` spawns a `DeathMarker` with a `Position` for every death, and only the render crate's system ticks and despawns them, so a headless run keeps every marker for the rest of the run and `update_spatial_hash` indexes all of them; every neighbour query then walks dead markers that the readers have to filter out.
   - Starting point: Either tick the marker timers in a sim-side system that runs in both modes, or skip spawning markers when the render plugin is absent. Measure the spatial hash cell sizes at 5000 ticks before and after.
   - Source: todo/determinism-claim-recheck branch, 2026-09-20
-  - Related: `spatial-hash-organisms-only`
 - [WORLD] `biome-threshold-retune` — **Revisit the biome thresholds now that moisture spans 0..1.** With `Tile::from_elevation_moisture` still at 0.25 and 0.6, Rock is rare to absent on low-lying seeds and Grassland roughly quadrupled on seed 42. Land fraction also varies about twofold between seeds (172k land tiles on seed 42, 90k on seed 3), which confounds plant-share comparisons.
   - Starting point: Part of the tuning pass after the 8-seed 15k-tick audit is re-run on the merged fixes. The world crate's unit test prints per-biome counts.
   - Source: review/moisture-range-normalisation branch, 2026-09-17
@@ -50,9 +49,8 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
   - Starting point: A small label in the header or the Phylo tab reading `SimConfig`.
   - Source: review/headless-gui-parity branch, 2026-09-17
 - [PERF] `moisture-fix-tick-cost` — **Find out why the moisture fix doubled the per-tick cost.** `cargo run --release -- --headless 300 --seed 42` takes about 9 s at c8fac9d (spatial hash fix only) and about 20 s at 1ab42ab (moisture fix merged); at speed 1 it takes 21 s, so the sim is now CPU-bound below real time during the opening burst. Ticks 30 to 100 cost roughly 200 ms each before settling to about 20 ms.
-  - Starting point: A wetter world grows more vegetation and so more food entities, and every food entity is indexed in the spatial hash that every neighbour query walks, so `spatial-hash-organisms-only` is the first thing to try. Measure food counts and organism counts per tick on both commits before changing anything. Also check whether the opening-burst slow phase (present before the moisture fix too, at about 8 s for the first 100 ticks) is the same cause.
+  - Starting point: A wetter world grows more vegetation and so more food entities. Every food entity used to be indexed in the spatial hash that every neighbour query walks; that is fixed (the hash indexes organisms only), so remeasure on the merged commit before looking further. Measure food counts and organism counts per tick on both commits before changing anything. Also check whether the opening-burst slow phase (present before the moisture fix too, at about 8 s for the first 100 ticks) is the same cause.
   - Source: rebase of review/headless-gui-parity onto main, 2026-09-17
-  - Related: `spatial-hash-organisms-only`
 - [SIM] `energy-clamp-waste` — **Decide what happens to income above `max_organism_energy`.** The energy ledger shows the 120-energy clamp destroying roughly as much energy as foragers eat: 7.40M destroyed against 7.62M eaten over 5000 ticks on seed 42, 6.15M against 2.86M on seed 1, where photosynthesis is the main income. A forager near the cap that eats a 25-energy item keeps almost none of it.
   - Starting point: Options are a higher or body-scaled cap, letting excess raise reproduction readiness instead of vanishing, or accepting the loss as satiety and saying so in DECISIONS. Belongs with the phase 1 tuning pass in `docs/design/simulation-rules.md`, where food items shrink to a supplement; the ledger's clamp flow is the measurement.
   - Source: roadmap/energy-ledger branch, 2026-09-18
@@ -173,9 +171,6 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 - [PERSIST] `persist-terrain-state` — **Save terrain state instead of regenerating it from the seed.** Niche construction changes to vegetation density, moisture, and nutrients are silently lost on save and load, so a loaded world is not the world that was saved.
   - Starting point: Decide whether to persist the full tilemap or only the fields organisms modify.
   - Source: CLAUDE.md (Known rough edges), 2026-09-16
-- [PERF] `spatial-hash-organisms-only` — **Index only organisms in the spatial hash.** `update_spatial_hash` inserts every `Position`, food included, so every neighbour query wades through food entities and discards them through failed `get()` lookups.
-  - Starting point: Add a `With<Organism>` filter to the rebuild query after confirming none of the five readers (sensing, predation, disease, symbiosis, reproduction) relies on food being present; none do today.
-  - Source: review/spatial-hash-fixed-tick branch, 2026-09-17
 - [PERF] `reproduction-linear-scans` — **Replace the linear scans in `reproduction_system`.** `already_mated.contains` and `mate_candidates.iter().find` scan vectors per organism, so mate search is quadratic in population; at 6000 organisms the carrying-capacity experiment measured 2.5x to 3.4x the tick cost of 2000.
   - Starting point: A `HashSet` for `already_mated` and an index for candidates. This is the first performance cost the population-ceiling raise in phase 1 of `docs/design/simulation-rules.md` will hit.
   - Source: roadmap/emergent-carrying-capacity branch, 2026-09-18
