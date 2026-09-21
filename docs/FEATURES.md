@@ -33,7 +33,7 @@ One-liner list of what Clauvolution does, grouped by area. For the design ration
 - **Species naming** — three-word trait-based names (habitat + descriptor + strategy noun); children inherit two-of-three from parent
 - **Parent species tracking** — inspect panel shows organism's lineage
 - **World chronicle** — automatic event log (speciation, extinction, convergence, seasons, bloom/extinction events)
-- **Convergent evolution detection** — summarised, deduplicated per strategy
+- **Convergent evolution detection** — one chronicle line per strategy each time its independent-lineage count reaches a new high
 - **Fitness tracking** — average lifespan plotted over time
 
 ## World & environment

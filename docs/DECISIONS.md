@@ -260,6 +260,12 @@ Before this change, main at 5000 ticks gave roughly 15 to 30 species on these se
 **Why:** evolutionary trees are more readable when related species have related names. Three-word structure mimics real taxonomy enough to be legible.
 **Accepted tradeoff:** word-list approach means occasional collisions — two unrelated lineages might happen to share a name by virtue of similar traits and modular arithmetic on species ID.
 
+### Convergent evolution is chronicled by a per-strategy high-water mark
+**Chosen:** `ConvergenceHighWater` in `clauvolution_sim` holds the highest independent-lineage count already logged for each `SpeciesStrategy`. `species_classification_system` writes a "Convergent evolution!" line only when `detect_convergence` returns a count above that mark. The map is a plain resource and is not saved.
+**Alternatives:** scan existing chronicle text for a matching line (previous behaviour); persist the map in the save file; log on every change in count, downward as well as upward.
+**Why:** the text scan compared against a substring the logged text never contained, so the same line was written on every five-second pass and made up almost half of a 3000-tick chronicle. A map keyed on the strategy makes the decision explicit and constant-time, and a pure `record` method pins it with a unit test. Logging only new highs keeps the chronicle to milestones rather than a running count.
+**Accepted tradeoff:** the map starts empty when a save is loaded, so the first classification pass after a load restates each strategy's current convergence once. Persisting it would add a save-format field for a single repeated line per load; not worth it.
+
 ## World & environment
 
 ### Seasons: 60-second year, sinusoidal light & food regen

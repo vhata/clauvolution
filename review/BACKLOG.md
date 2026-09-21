@@ -10,10 +10,6 @@ See the [`code review guide`](../docs/CODE_REVIEW_GUIDE.md) for how findings ent
 
 ## P2 Normal
 
-- [BRAIN] `convergence-chronicle-dedupe` — **Stop re-logging the same convergent-evolution entry every classification pass.** The dedupe substring omits the word "independent" that the logged text contains, so it never matches.
-  - Starting point: Track the highest lineage count logged per strategy in a small map instead of scanning chronicle text. Validate by grepping `chronicle.log` after a headless run with `--save-as`: no repeated convergence lines.
-  - Source: review/2026-09-17-0756-full.md, 2026-09-17
-  - Findings: `convergence-chronicle-spam`
 - [WORLD] `volcano-full-world-range` — **Let the volcano strike anywhere in the world.** Its centre is rolled in 0..256 on a 512×512 map.
   - Starting point: Use `config.world_width`/`world_height` in `mass_extinction_input_system`, as nutrient rain already does. Validate in the GUI: press V several times with the minimap open and confirm kill zones appear in all quadrants.
   - Source: review/2026-09-17-0756-full.md, 2026-09-17

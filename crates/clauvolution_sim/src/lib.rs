@@ -299,7 +299,8 @@ impl Plugin for SimPlugin {
             POP_HISTORY_SAMPLE_SECS,
             TimerMode::Repeating,
         )))
-        .init_resource::<CanopyGrid>();
+        .init_resource::<CanopyGrid>()
+        .init_resource::<ConvergenceHighWater>();
     }
 }
 
@@ -328,6 +329,31 @@ impl CanopyGrid {
 
 #[derive(Resource)]
 struct ExtinctionCooldown(Timer);
+
+/// Highest independent-lineage count already chronicled per strategy.
+///
+/// `species_classification_system` re-detects convergent evolution every
+/// pass, so without this the same "N independent lineages evolved X" line
+/// would be logged every five seconds. The map starts empty on every run,
+/// including a run restored from a save, so the first pass after a load
+/// restates the current convergence state once and then goes quiet.
+#[derive(Resource, Default)]
+struct ConvergenceHighWater(HashMap<SpeciesStrategy, usize>);
+
+impl ConvergenceHighWater {
+    /// Records `lineage_count` for `strategy` and returns whether it is a new
+    /// high worth chronicling. Equal or lower counts return false and leave
+    /// the recorded high untouched.
+    fn record(&mut self, strategy: SpeciesStrategy, lineage_count: usize) -> bool {
+        let high = self.0.entry(strategy).or_insert(0);
+        if lineage_count > *high {
+            *high = lineage_count;
+            true
+        } else {
+            false
+        }
+    }
+}
 
 #[derive(Component)]
 pub struct BrainOutput {
@@ -1802,6 +1828,7 @@ fn species_classification_system(
     mut species_colors: ResMut<SpeciesColors>,
     mut phylo: ResMut<PhyloTree>,
     mut chronicle: ResMut<WorldChronicle>,
+    mut convergence_high: ResMut<ConvergenceHighWater>,
 ) {
     timer.0.tick(time.delta());
     if !timer.0.just_finished() {
@@ -1957,27 +1984,16 @@ fn species_classification_system(
     // rebuilt from living organisms every pass, so nothing needs pruning.
     stats.species_count = species_counts.len() as u32;
 
-    // Detect convergent evolution — only log when lineage count increases
-    let convergences = phylo.detect_convergence();
-    for (strategy, lineage_count) in convergences {
-        let strategy_name = strategy.activity();
-        // Only log if this is a new high for this strategy
-        let already_logged = chronicle
-            .entries
-            .iter()
-            .filter(|e| {
-                e.text.contains(&format!(
-                    "{} lineages evolved {}",
-                    lineage_count, strategy_name
-                ))
-            })
-            .count();
-        if already_logged == 0 {
+    // Detect convergent evolution. Each strategy is chronicled only when its
+    // independent-lineage count exceeds the highest count already logged.
+    for (strategy, lineage_count) in phylo.detect_convergence() {
+        if convergence_high.record(strategy, lineage_count) {
             chronicle.log(
                 tick.0,
                 format!(
                     "Convergent evolution! {} independent lineages evolved {}",
-                    lineage_count, strategy_name
+                    lineage_count,
+                    strategy.activity()
                 ),
             );
         }
@@ -2480,6 +2496,37 @@ mod tests {
     use super::*;
     use bevy::ecs::world::CommandQueue;
     use rand::{rngs::StdRng, SeedableRng};
+
+    #[test]
+    fn convergence_high_water_logs_only_new_highs() {
+        let mut high = ConvergenceHighWater::default();
+        // First sighting of a strategy is always a new high.
+        assert!(high.record(SpeciesStrategy::Grazer, 2));
+        // Repeating the same count every pass is what the old text scan
+        // failed to suppress.
+        assert!(!high.record(SpeciesStrategy::Grazer, 2));
+        assert!(!high.record(SpeciesStrategy::Grazer, 2));
+        // A higher count is logged once, a lower one never.
+        assert!(high.record(SpeciesStrategy::Grazer, 3));
+        assert!(!high.record(SpeciesStrategy::Grazer, 3));
+        assert!(!high.record(SpeciesStrategy::Grazer, 2));
+        // Dropping back and returning to the old high stays quiet.
+        assert!(!high.record(SpeciesStrategy::Grazer, 3));
+    }
+
+    #[test]
+    fn convergence_high_water_tracks_strategies_independently() {
+        let mut high = ConvergenceHighWater::default();
+        assert!(high.record(SpeciesStrategy::Hunter, 4));
+        for strategy in SpeciesStrategy::ALL {
+            if strategy != SpeciesStrategy::Hunter {
+                assert!(high.record(strategy, 2), "{strategy:?} first sighting");
+                assert!(!high.record(strategy, 2), "{strategy:?} repeat");
+            }
+        }
+        assert!(!high.record(SpeciesStrategy::Hunter, 3));
+        assert!(high.record(SpeciesStrategy::Hunter, 5));
+    }
 
     #[test]
     fn founder_allocation_is_proportional_and_sums_to_total() {
