@@ -457,6 +457,15 @@ fn keyboard_to_events_system(
     }
 }
 
+/// Roll the centre of a volcanic eruption uniformly over the whole world,
+/// `[0, world_width) x [0, world_height)` in tile units.
+pub fn volcano_center(rng: &mut impl Rng, config: &SimConfig) -> Vec2 {
+    Vec2::new(
+        rng.gen_range(0.0..config.world_width as f32),
+        rng.gen_range(0.0..config.world_height as f32),
+    )
+}
+
 /// Process WorldEventRequest events — fired by keyboard, UI buttons, etc.
 fn mass_extinction_input_system(
     mut requests: EventReader<WorldEventRequest>,
@@ -541,8 +550,8 @@ fn mass_extinction_input_system(
     // Volcanic eruption (random kill zone + nutrient boost)
     if matches!(req, WorldEventRequest::Volcano) {
         info!("MASS EXTINCTION: Volcanic eruption!");
-        let center_x = rng.gen_range(0.0..256.0f32);
-        let center_y = rng.gen_range(0.0..256.0f32);
+        let center = volcano_center(rng, &config);
+        let (center_x, center_y) = (center.x, center.y);
         let radius = 40.0;
 
         let mut killed = 0u32;
@@ -2580,6 +2589,43 @@ mod tests {
     #[test]
     fn founder_allocation_handles_no_land() {
         assert_eq!(founder_allocation(&[0, 0, 0, 0], 400), vec![0, 0, 0, 0]);
+    }
+
+    /// The eruption centre used to be rolled in 0..256 on a 512x512 world,
+    /// so it could never land in three quarters of the map. Sample many
+    /// centres and check they stay in bounds and reach the far half of both
+    /// axes.
+    #[test]
+    fn volcano_center_covers_the_whole_world() {
+        let config = SimConfig::default();
+        assert_eq!((config.world_width, config.world_height), (512, 512));
+        let mut rng = StdRng::seed_from_u64(7);
+        let (mut far_x, mut far_y) = (0u32, 0u32);
+        for _ in 0..1000 {
+            let c = volcano_center(&mut rng, &config);
+            assert!(c.x >= 0.0 && c.x < config.world_width as f32, "{c:?}");
+            assert!(c.y >= 0.0 && c.y < config.world_height as f32, "{c:?}");
+            far_x += (c.x >= 256.0) as u32;
+            far_y += (c.y >= 256.0) as u32;
+        }
+        // Roughly half of a uniform sample lands beyond the old ceiling.
+        assert!((400..=600).contains(&far_x), "far_x = {far_x}");
+        assert!((400..=600).contains(&far_y), "far_y = {far_y}");
+
+        // A non-square world is honoured on each axis independently.
+        let wide = SimConfig {
+            world_width: 1024,
+            world_height: 64,
+            ..SimConfig::default()
+        };
+        let mut rng = StdRng::seed_from_u64(7);
+        let mut past_default_width = 0u32;
+        for _ in 0..1000 {
+            let c = volcano_center(&mut rng, &wide);
+            assert!(c.x < 1024.0 && c.y < 64.0, "{c:?}");
+            past_default_width += (c.x >= 512.0) as u32;
+        }
+        assert!(past_default_width > 0);
     }
 
     /// Runs the real spawner against a generated map without a Bevy `App`:
