@@ -7,13 +7,14 @@ pub struct WorldPlugin;
 
 impl Plugin for WorldPlugin {
     fn build(&self, app: &mut App) {
-        // `update_spatial_hash` is deliberately not registered here. It is
-        // scheduled by `SimPlugin` inside the FixedUpdate chain so that every
-        // tick's neighbour queries see that tick's positions.
-        app.insert_resource(SpatialHash::default()).add_systems(
-            FixedUpdate,
-            (food_regeneration_system, tile_dynamics_system),
-        );
+        // No systems are registered here. `update_spatial_hash`,
+        // `tile_dynamics_system` and `food_regeneration_system` are scheduled
+        // by `SimPlugin` inside the FixedUpdate chain so that every tick's
+        // neighbour queries see that tick's positions and so that food
+        // regeneration consumes `SimRng` at a fixed point in the tick. Left
+        // unordered, Bevy's executor placed them wherever their data access
+        // allowed, and that placement is not the same from run to run.
+        app.insert_resource(SpatialHash::default());
     }
 }
 
@@ -238,7 +239,7 @@ fn generate_noise_map(width: u32, height: u32, octaves: u32, rng: &mut impl Rng)
 
 // --- Tile dynamics: vegetation growth, nutrient cycling ---
 
-fn tile_dynamics_system(mut tile_map: ResMut<TileMap>) {
+pub fn tile_dynamics_system(mut tile_map: ResMut<TileMap>) {
     for tile in &mut tile_map.tiles {
         if !tile.terrain.is_water() {
             // Vegetation grows toward nutrient-determined carrying capacity

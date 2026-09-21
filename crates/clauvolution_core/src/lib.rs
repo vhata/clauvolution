@@ -889,13 +889,12 @@ impl TrailHistory {
 /// Interactive randomness (keyboard triggers, R-key random select) uses
 /// thread_rng — not part of the reproducible sim stream.
 ///
-/// **Reproducibility limits:** runs with the same seed produce identical
-/// state for the first ~50 ticks, then gradually diverge. Root cause is
-/// Bevy's parallel task pool and archetype-based Query iteration, which
-/// aren't themselves deterministic. Forcing a single-threaded task pool
-/// would recover full determinism at a perf cost — see ROADMAP.
-/// For most "same seed, similar outcome" use cases, what we have is
-/// sufficient.
+/// **Reproducibility:** same-seed headless runs are bit-identical at any
+/// compute pool size, because headless frames advance the clock by a fixed
+/// step and every consumer of this RNG runs in the serial FixedUpdate chain.
+/// The parallel systems (`par_iter_mut`) never touch it. GUI runs are paced
+/// by the wall clock and are not reproducible; see "Headless runs are
+/// deterministic" in docs/DECISIONS.md.
 #[derive(Resource)]
 pub struct SimRng(pub StdRng);
 

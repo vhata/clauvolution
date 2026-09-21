@@ -97,8 +97,8 @@ One-liner list of what Clauvolution does, grouped by area. For the design ration
 
 ## Tooling
 
-- **Headless mode** — `--headless N` runs N ticks without rendering/UI, prints end-of-run summary (plant / grazer / hunter / omnivore counts, death cause breakdown, trait averages including diet, predation funnel, energy ledger). `--speed N` multiplies virtual time (default 10×, ceiling is CPU-bound at ~85 ticks/sec). `--save-as <name>` writes a save file at end; `--load sessions/<name>` resumes from one. Combine for: evolve headless → save → reload in GUI → script a tour.
-- **Seeded runs** — `--seed N` seeds all sim randomness. Deterministic for ~50 ticks (Bevy task pool parallelism causes later divergence — not yet fully reproducible).
+- **Headless mode** — `--headless N` runs N ticks without rendering/UI, prints end-of-run summary (plant / grazer / hunter / omnivore counts, death cause breakdown, trait averages including diet, predation funnel, energy ledger). `--speed N` sets the number of ticks per headless frame (default 10); the run goes as fast as the CPU allows at every speed. `--save-as <name>` writes a save file at end; `--load sessions/<name>` resumes from one. Combine for: evolve headless → save → reload in GUI → script a tour.
+- **Seeded runs** — `--seed N` seeds all sim randomness. Same-seed headless runs are bit-identical (summary and history CSV) at any compute pool size; GUI runs are wall-clock paced and are not.
 - **Save/load** — F5 saves full world state to session directory; `--load sessions/<name>` restores
 - **Named sessions** — each run gets a unique cosmic three-word name; logs + screenshots + saves live in `sessions/<name>/`
 - **Seed-based terrain generation** — same seed produces same terrain; saved in save files

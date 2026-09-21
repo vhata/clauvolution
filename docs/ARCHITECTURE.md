@@ -38,6 +38,8 @@ Systems run in Bevy's standard schedules:
 
 ```
 tick_counter_system           ← advance tick counter, advance season
+tile_dynamics_system          ← vegetation grows toward each tile's carrying capacity (defined in world, scheduled here)
+food_regeneration_system      ← spawn food toward the seasonal density ceiling (defined in world, scheduled here; consumes SimRng)
 update_spatial_hash           ← rebuild the spatial hash from every Position (defined in world, scheduled here)
 update_food_snapshot          ← collect (entity, position, energy) of all food into FoodSnapshot
 sensing_and_brain_system      ← for each organism: gather inputs, evaluate brain, write outputs (par_iter_mut)
@@ -58,7 +60,7 @@ record_population_history     ← 1Hz snapshot into PopulationHistory ring buffe
 record_trail_history          ← organism position samples (when trails enabled)
 ```
 
-Plus in FixedUpdate, registered by `WorldPlugin` with no ordering constraint relative to the chain above: `food_regeneration_system` and `tile_dynamics_system` (vegetation growth).
+The chain is the `SimTick` system set (exported by `clauvolution_sim`). Everything else in `FixedUpdate` orders itself `.after(SimTick)`: `update_body_plans` (body crate, registered by the app; inserting `BodyPlan` moves an organism to a new archetype, so it must happen at a fixed point in the tick, not once per frame) and, headless only, `headless_tick_counter`. Nothing that touches simulation state runs per frame, which is what lets a headless run be a function of the seed alone; see "Headless runs are deterministic" in `DECISIONS.md`.
 
 **PostUpdate** (once per frame, after logic — rendering only)
 

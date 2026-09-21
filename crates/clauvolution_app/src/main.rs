@@ -4,13 +4,13 @@ use bevy::core::{TaskPoolOptions, TaskPoolPlugin, TaskPoolThreadAssignmentPolicy
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{save_to_disk, Screenshot};
 use bevy::window::PrimaryWindow;
-use clauvolution_body::BodyPlugin;
+use clauvolution_body::{update_body_plans, BodyPlugin};
 use clauvolution_core::*;
 use clauvolution_genome::InnovationCounter;
 use clauvolution_phylogeny::{PhyloTree, PhylogenyPlugin, WorldChronicle};
 use clauvolution_render::{MainCamera, RenderPlugin};
 use clauvolution_sim::save;
-use clauvolution_sim::SimPlugin;
+use clauvolution_sim::{SimPlugin, SimTick};
 use clauvolution_ui::UiPlugin;
 use clauvolution_world::{self, TileMap, WorldPlugin};
 use rand::SeedableRng;
@@ -21,11 +21,22 @@ use script::{load_script, script_runner_system, ScriptState};
 /// bog everything else down. Override with the `CLAU_WORKERS` env var.
 const DEFAULT_WORKER_CAP: usize = 6;
 
-/// Default virtual-time multiplier in headless mode. 10× real-time is
-/// a sensible default — most laptops keep up, and it cuts validation
-/// cycles from minutes to seconds. Override with `--speed N` on the CLI.
-/// 1.0 reproduces the old behaviour (paced to wall clock).
+/// Default virtual-time multiplier in headless mode. Headless frames advance
+/// the clock by exactly one fixed timestep (see `HEADLESS_FRAME_DELTA`), so
+/// `--speed N` means N simulation ticks per frame; the run itself goes as
+/// fast as the CPU allows at every speed. Override with `--speed N`.
 const DEFAULT_HEADLESS_SPEED: f32 = 10.0;
+
+/// Real-time delta applied per headless frame: one 30 Hz fixed timestep.
+///
+/// Headless runs use `TimeUpdateStrategy::ManualDuration` instead of the wall
+/// clock. With the wall clock, the number of fixed ticks a frame ran depended
+/// on how long the previous frame took, so anything scheduled per frame
+/// interleaved with the tick chain differently on every run (at the time,
+/// `update_body_plans` in `PostUpdate`; see `BodyPlugin`). Fixing the
+/// per-frame delta removes wall-clock time from the run entirely, whatever
+/// the per-frame schedules hold.
+const HEADLESS_FRAME_DELTA: std::time::Duration = std::time::Duration::from_nanos(33_333_333);
 
 fn compute_worker_cap() -> usize {
     std::env::var("CLAU_WORKERS")
@@ -177,7 +188,9 @@ fn main() {
             set_window_title,
         )
             .chain(),
-    );
+    )
+    // Body plans are part of the tick, not the frame; see `BodyPlugin`.
+    .add_systems(FixedUpdate, update_body_plans.after(SimTick));
 
     if screenshot_mode {
         app.insert_resource(ScreenshotSchedule::new())
@@ -503,6 +516,11 @@ fn run_headless(
             .set(ScheduleRunnerPlugin::run_loop(std::time::Duration::ZERO))
             .set(task_pool_plugin(worker_cap)),
     );
+    // Decouple the clock from wall time so the tick/frame interleaving, and
+    // with it the whole run, is a function of the seed alone.
+    app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+        HEADLESS_FRAME_DELTA,
+    ));
     // InputPlugin registers ButtonInput<KeyCode> etc. The sim's
     // keyboard_to_events_system reads it; it'll just be empty in headless
     // (no keys ever pressed) but the resource has to exist.
@@ -535,11 +553,19 @@ fn run_headless(
     // Counter system that exits after N FixedUpdate ticks from whatever
     // tick we're at when the loop starts (so `--load X --headless 300`
     // runs 300 more ticks on top of the loaded state, not 300 absolute).
+    // Ordered after the sim chain so the summary and history dump describe
+    // the completed target tick rather than whatever point in the tick the
+    // executor happened to reach.
     app.insert_resource(HeadlessTickTarget {
         ticks_to_run: ticks,
         absolute_target: None,
     })
-    .add_systems(FixedUpdate, headless_tick_counter);
+    .add_systems(
+        FixedUpdate,
+        (update_body_plans, headless_tick_counter)
+            .chain()
+            .after(SimTick),
+    );
 
     // Headless runs virtual time at `--speed` ×, so FixedUpdate can fire
     // faster than 30Hz wall-clock up to whatever the CPU can sustain. The
