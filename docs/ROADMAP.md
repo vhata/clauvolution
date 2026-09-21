@@ -55,7 +55,7 @@ When a species dies out, capture a snapshot of its last 30 seconds — populatio
 
 More kinds of evolution to watch unfold. Each adds a qualitatively new pressure.
 
-**Top pick:** the diet axis, phase 1 of [`docs/design/simulation-rules.md`](design/simulation-rules.md), planned in `plans/2026-09-19-diet-axis.md`. Steps 1 and 2 have shipped: the `diet` trait exists, strategies are plant / grazer / hunter / omnivore everywhere, attacks on plants are bites that leave the plant alive, and kills, bites and food are all digested at the eater's efficiency. Step 3, the tuning pass and audit, is next. Long-term climate shift is a phase 3 follow-on there, sequenced after the biome tolerance traits it would push against.
+**Top pick:** phase 2 of [`docs/design/simulation-rules.md`](design/simulation-rules.md), biomes as pressure and barrier, once its open question (`oceans-as-habitat`) is decided. Phase 1 (the diet axis, `plans/2026-09-19-diet-axis.md`) and the plant physics that made it work (`plans/2026-09-20-plant-physics.md`) shipped on 2026-09-20: plants and grazers persist and cycle on every audit seed; hunters do not yet exist (`hunter-emergence`). Long-term climate shift is a phase 3 follow-on there, sequenced after the biome tolerance traits it would push against.
 
 ### Symbiosis
 ✅ **Shipped (v1).** Genome gets a `symbiosis_rate` trait in [-1.0, +1.0]. Proximity tracker looks for a mutual-nearest neighbour held for 30+ consecutive ticks within 6 world units; once locked, each party transfers `rate * 0.05` energy to its partner per tick (negative rate drains). Graphs tab shows mutual-pair count + avg evolved rate. Inspect tab labels each organism parasite/neutral/donor.
@@ -236,6 +236,30 @@ Headless mode (Theme 4) is the fast version of this loop: `cargo run --release -
 - **Same-seed runs are reproducible on some seeds and not others.** Seeds 7, 99, 314, 1000 produced bit-identical summaries on their two runs; seeds 1, 2, 3, 42 diverged, seed 42 from 68% to 91% plants. The determinism probe, two simultaneous runs of seed 42, came out bit-identical to each other at 88% plants and 6 predators, a third distinct outcome for the seed after 68% and 91%. Across the whole audit, runs that started at the same moment matched and runs that started at different moments did not: the four seeds that diverged are the four whose first run was in the first batch after launch. Tracked as `determinism-claim-recheck` in `TODO.md`.
 
 **Direction:** the response to this audit is [`docs/design/simulation-rules.md`](design/simulation-rules.md). Each of its phases ends with the audit re-run and a new dated block here.
+
+**Re-run 2026-09-20**, phase 1 audit on commit 59759bc (canopy light sharing, surface drag, grazing and digestion, founder diet spread 1.0, bite 0.3, ceiling 6000), same eight seeds, two runs each, 15k ticks. Full summaries, whole-run CSVs and the reading are in [`docs/audits/2026-09-20-phase1-audit/`](audits/2026-09-20-phase1-audit/README.md). Not comparable line by line with 2026-09-18: plants now have a consumer and light is shared.
+
+| seed | run 1 plants / grazers / hunters | run 2 | plant share | species | body size | eater diet |
+|---|---|---|---|---|---|---|
+| 1 | 1245 / 1058 / 0 | 1315 / 1423 / 0 | 54% / 48% | 32 / 25 | 1.08 / 1.12 | -0.97 / -0.96 |
+| 2 | 223 / 886 / 0 | 331 / 827 / 0 | 20% / 29% | 12 / 13 | 1.67 / 1.55 | -0.96 / -0.97 |
+| 3 | 335 / 1431 / 0 | 85 / 1212 / 0 | 19% / 7% | 22 / 21 | 1.54 / 1.79 | -0.83 / -0.97 |
+| 7 | 18 / 978 / 0 | 14 / 837 / 0 | 2% / 2% | 8 / 14 | 1.89 / 1.93 | -0.95 / -0.96 |
+| 42 | 758 / 1277 / 0 | 3601 / 1164 / 0 | 37% / 76% | 14 / 28 | 1.37 / 0.74 | -0.96 / -0.96 |
+| 99 | 571 / 754 / 0 | 313 / 854 / 0 | 43% / 27% | 7 / 15 | 1.30 / 1.43 | -0.95 / -0.96 |
+| 314 | 1124 / 1400 / 0 | 1193 / 1027 / 0 | 45% / 54% | 22 / 18 | 1.24 / 1.08 | -0.98 / -0.96 |
+| 1000 | 371 / 1092 / 0 | 376 / 983 / 0 | 25% / 28% | 24 / 16 | 1.55 / 1.50 | -0.96 / -0.96 |
+
+- **Green world no longer fires.** Plant share ended between 2% and 76%; every run holds both a plant and a grazer level, and the two cycle against each other with periods of a few thousand ticks (plants between 8 and 5936 over one run).
+- **Overgrazing is the new attractor to watch.** Plants dipped below 100 in seven of sixteen runs and recovered in five; seed 7 ended near plant extinction on both runs with grazers living on terrain food items.
+- **Predator extinction is total, and it is not an artefact.** Zero hunters on every run; the level never establishes. Tracked as `hunter-emergence` in `TODO.md`.
+- **Body size doubled** (0.74 to 1.93 against 0.47 to 0.60): the minimal-viable drift is gone.
+- **Species** 7 to 32, mean about 18.
+- **Death causes** across all runs: starvation 41%, predation 43% (grazers killing grazers through the shared attack output; `graze-attack-output-split`), disease 15%, old age 1%.
+- **The 6000 ceiling engaged on eight runs**, seven briefly; seed 3 run 1 sat pinned as a monoculture for 6000 ticks and then recovered its grazers.
+- **Same-seed divergence** persisted at this commit and the simultaneous probe pair matched, as before; #31 found and fixed the cause after this audit ran.
+
+**Direction:** phase 1 leaves a two-level pyramid. The hunter level and the graze-versus-attack output question are filed as design questions; phase 2 of the design doc proceeds on this world.
 
 **Observational trigger:** when a running sim trends toward any of these, it's time to tune. The Graphs tab has current-state readouts for plant/forager/predator ratios and death cause breakdown to make this visible.
 

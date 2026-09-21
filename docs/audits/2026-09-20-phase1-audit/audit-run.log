@@ -1,0 +1,40 @@
+    Finished `release` profile [optimized] target(s) in 2.96s
+commit 59759bc, ticks 15000, seeds 1 2 3 42 314 7 99 1000, 2 runs each, extra args: none
+15:44:02 start seed2-run1
+15:44:02 start seed3-run1
+15:44:02 start seed42-run1
+15:44:02 start seed1-run1
+15:56:10 done  seed2-run1
+16:02:29 done  seed1-run1
+16:07:30 done  seed3-run1
+16:13:24 done  seed42-run1
+16:13:24 start seed7-run1
+16:13:24 start seed314-run1
+16:13:24 start seed99-run1
+16:13:24 start seed1000-run1
+16:22:35 done  seed99-run1
+16:23:34 done  seed7-run1
+16:29:21 done  seed1000-run1
+16:31:05 done  seed314-run1
+16:31:05 start seed1-run2
+16:31:05 start seed2-run2
+16:31:05 start seed3-run2
+16:31:05 start seed42-run2
+16:41:15 done  seed2-run2
+16:45:41 done  seed3-run2
+16:48:17 done  seed1-run2
+17:06:23 done  seed42-run2
+17:06:23 start seed314-run2
+17:06:23 start seed7-run2
+17:06:23 start seed99-run2
+17:06:23 start seed1000-run2
+17:22:03 done  seed99-run2
+17:22:59 done  seed1000-run2
+17:24:54 done  seed314-run2
+17:25:06 done  seed7-run2
+17:25:06 determinism probe: two simultaneous runs of seed 42
+17:25:06 start seed42-runprobe-a
+17:25:06 start seed42-runprobe-b
+17:51:23 done  seed42-runprobe-b
+17:51:24 done  seed42-runprobe-a
+17:51:24 audit complete

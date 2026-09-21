@@ -151,6 +151,28 @@ The world stopped running away. At 0.02 and 0.04 the plant count rose, overshot,
 
 **Defaults shipped 2026-09-20** with canopy light sharing, per the findings below: founder diet spread 1.0 and bite fraction 0.3, which every measurement from the founder-spread sweep onward used through overrides.
 
+**Resumed pass (2026-09-20, step 4 of `plans/2026-09-20-plant-physics.md`, shipped defaults with canopy sharing, 5000 ticks, seeds 1 / 3 / 42; plants / grazers / hunters at the end):**
+
+| change | seed 1 | seed 3 | seed 42 |
+| --- | --- | --- | --- |
+| none (defaults) | 1327 / 1156 / 0 | 1129 / 1853 / 0 | 820 / 1380 / 0 |
+| kill share 0.5 | 1166 / 1292 / 0 | 491 / 1478 / 0 | 668 / 1520 / 0 |
+| kill share 1.0 | 1154 / 1117 / 0 | 1196 / 1291 / 0 | 779 / 1686 / 0 |
+| food items 0.02 | 1819 / 725 / 0 | 1625 / 1003 / 0 | 5997 / 1 / 0 |
+| hunting off (`--animal-efficiency 0`) | 1195 / 1308 / 0 | 847 / 1136 / 0 | 563 / 1378 / 0 |
+
+*Kill share.* Hunters were gone by tick 600 to 1000 on every seed at every share, including a share of 1.0 where a kill hands over the whole prey. Payoff is not what binds. Kills do happen (37k to 39k per run, mostly grazers and omnivores striking each other), but a founding hunter has plant efficiency of 11% or less, so unlike a grazer it cannot bridge on food items while its random brain learns nothing, and it starves in a few hundred ticks. Carnivory would have to emerge later from omnivores that kill while their diet drifts up, and the squared curve pushes omnivores toward whichever side feeds them, which is the plant side. Kept at 0.1 pending a mechanism; see `hunter-emergence` in `TODO.md`.
+
+*Interdependence test.* With hunting switched off the world is indistinguishable from the default, because the default has no hunters either. The design doc's "you need wolves to keep the deer in check" cannot be checked until wolves exist; the grazers are held by their plants (bottom-up), which the oscillation shows, and by nothing from above.
+
+*Food items.* At a fifth of the regeneration ceiling seeds 1 and 3 kept both levels with fewer grazers and more plants, and seed 42 lost its grazers in the opening (683 at tick 300 against 1238 at the default) and ran to a 5997-plant monoculture at the ceiling. The founding food stock is the bridge that carries grazers to the first plant boom; `founding-boom-food-regen` stands, and the ceiling stays at 0.1.
+
+*Species threshold, re-swept with canopy sharing (5000 ticks, species at the end / plants / grazers):* 0.9 gave 43 / 1455 / 1437, 46 / 5905 / 93, 35 / 828 / 1507 on seeds 1, 3, 42; 1.0 (the shipped-defaults runs above) gave 24, 34, 24 species; 1.1 gave 10 / 5989 / 10, 15 / 898 / 1170, 18 / 789 / 1161. The cliff at 1.1 has softened from four to six species to ten to eighteen, because populations are two to three times larger and cycling rather than pinned. 1.0 stays: it is the cell inside the 10 to 30 range the audits have used, if at its upper edge.
+
+*A note on the opening.* Two of these six runs (seed 3 at 0.9, seed 1 at 1.1), one of the three 6000-ceiling runs (seed 3) and one of the three food-item runs (seed 42) ended as a plant monoculture pinned at the ceiling with a handful of grazers. In every such run the grazers were under 700 at tick 300 against 1000 to 1200 in the runs that cycled. The first three hundred ticks, a race between grazers multiplying on the founding food stock and plants multiplying on light, decide whether the world gets a herbivore level. Roughly one run in four or five loses it. This is `founding-boom-food-regen` seen from the other side: the boom is what carries grazers to the first plant crash, and it is also chance.
+
+*Audit (2026-09-20, eight seeds, two runs each, 15k ticks, `docs/audits/2026-09-20-phase1-audit/`):* plants and grazers on every run, plant share 2% to 76%, grazers 754 to 1431, hunters zero, species 7 to 32, body size 0.74 to 1.93, eater diet -0.83 to -0.98; the two levels cycle, and seven runs dipped below 100 plants (five recovered). The roadmap's attractor-states section carries the table.
+
 **Founder diet spread** (`--founder-diet-spread`; founders draw `diet` from `-s..s`):
 
 | spread | seed 1 | seed 3 | seed 42 | grazer peak (tick) | eater diet at end |
