@@ -99,7 +99,7 @@ One-liner list of what Clauvolution does, grouped by area. For the design ration
 
 - **Headless mode** — `--headless N` runs N ticks without rendering/UI, prints end-of-run summary (plant / grazer / hunter / omnivore counts, death cause breakdown, trait averages including diet, predation funnel, energy ledger). `--speed N` sets the number of ticks per headless frame (default 10); the run goes as fast as the CPU allows at every speed. `--save-as <name>` writes a save file at end; `--load sessions/<name>` resumes from one. Combine for: evolve headless → save → reload in GUI → script a tour.
 - **Seeded runs** — `--seed N` seeds all sim randomness. Same-seed headless runs are bit-identical (summary and history CSV) at any compute pool size; GUI runs are wall-clock paced and are not.
-- **Save/load** — F5 saves full world state to session directory; `--load sessions/<name>` restores
+- **Save/load** — F5 saves full world state to session directory; `--load sessions/<name>` restores. The save is written to a temporary file and renamed into place, so a failed write (full disk, permissions) never clobbers the previous save. Success and failure both land in the chronicle ("World saved to ..." / "Save failed: ..."); the sim keeps running either way. In headless mode the outcome is printed to stderr and a failed `--save-as` exits non-zero.
 - **Named sessions** — each run gets a unique cosmic three-word name; logs + screenshots + saves live in `sessions/<name>/`
 - **Seed-based terrain generation** — same seed produces same terrain; saved in save files
 - **Manual screenshots (Shift+S)** — saved to session directory with timestamp. Captures camera + egui overlays via a secondary-camera + `EguiRenderToImage` + gpu readback pipeline (see DECISIONS.md).

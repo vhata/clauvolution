@@ -582,10 +582,15 @@ fn run_headless(
         app.insert_resource(HeadlessDumpHistoryPath(path.clone()));
     }
 
-    app.run();
+    let exit = app.run();
 
     let elapsed = start.elapsed();
     eprintln!("Headless run complete in {:.2}s", elapsed.as_secs_f64());
+
+    // A failed end-of-run save exits non-zero so scripts notice.
+    if let AppExit::Error(code) = exit {
+        std::process::exit(i32::from(code.get()));
+    }
 }
 
 #[derive(Resource)]
@@ -806,6 +811,7 @@ fn headless_tick_counter(
     save_at_end: Res<HeadlessSaveAtEnd>,
     dump_path: Option<Res<HeadlessDumpHistoryPath>>,
     founders: Option<Res<clauvolution_sim::FounderReport>>,
+    save_report: Res<clauvolution_sim::SaveReport>,
     mut events: EventWriter<clauvolution_core::WorldEventRequest>,
     mut exit: EventWriter<AppExit>,
     // 0 = running, 1 = summary printed + save requested, 2 = waited a frame
@@ -848,7 +854,24 @@ fn headless_tick_counter(
             *phase = 2;
         }
         2 => {
-            exit.send(AppExit::Success);
+            // FixedUpdate can run several times per frame, so save_system
+            // (an Update system) may not have run yet. Wait for its report
+            // before deciding how the run ends.
+            if save_at_end.0 && save_report.last.is_none() {
+                return;
+            }
+            let outcome = match &save_report.last {
+                Some(Ok(path)) => {
+                    eprintln!("Saved world to {}", path.display());
+                    AppExit::Success
+                }
+                Some(Err(e)) => {
+                    eprintln!("Save failed: {}", e);
+                    AppExit::error()
+                }
+                None => AppExit::Success,
+            };
+            exit.send(outcome);
             *phase = 3;
         }
         _ => {}

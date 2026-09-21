@@ -30,7 +30,7 @@ Systems run in Bevy's standard schedules:
 - `sim_speed_system` — apply `SimSpeed` to `Time<Virtual>`: pause/unpause, and set the relative speed to the multiplier (both the GUI speed keys and headless `--speed` write `SimSpeed`)
 - `keyboard_to_events_system` — translate hotkeys into `WorldEventRequest` events
 - `mass_extinction_input_system` — consume `WorldEventRequest` to trigger asteroid/ice/volcano/blooms
-- `save_system` — consume `WorldEventRequest::Save` to serialise the world
+- `save_system` — consume `WorldEventRequest::Save` to serialise the world; logs and chronicles the outcome and records it in `SaveReport` for the headless runner
 - Rendering-adjacent Update systems: click-select, speed control, toggle minimap/trails, screenshot, LOD change, minimap click
 - UI systems (`header_bar_system`, `right_panel_system`) — draw the egui overlays
 
