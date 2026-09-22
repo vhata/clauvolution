@@ -99,9 +99,6 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 
 ### P3 Low
 
-- [SIM] `name-sim-tuning-literals` — **Name the remaining inline simulation literals.** Disease severity clamps are still inline while the rest of the sim tuning constants have been promoted to named consts.
-  - Starting point: Follow the existing named-const block at the top of `clauvolution_sim/src/lib.rs`. Low priority because these are not frequently tuned.
-  - Source: docs/ROADMAP.md (Known tech debt), 2026-09-16
 - [PERF] `rayon-remaining-systems` — **Parallelise the remaining O(n) simulation systems.** `sensing_and_brain_system`, `metabolism_system`, and the photosynthesis second pass already use `par_iter_mut`, but predation, disease effects, and niche construction still run serially.
   - Starting point: `disease_effects_system` takes `SimRng` and `Commands`, and `niche_construction_system` mutates the shared `TileMap` (several organisms can hit one tile), so each needs restructuring before `par_iter_mut` is safe. Benchmark with `--headless N --speed 10`, which runs FixedUpdate as fast as the CPU allows (about 85 ticks/sec on an M4 Max at 2000 organisms), so wall time does track per-tick cost. The compute pool is capped at 6 workers by default and overridable via `CLAU_WORKERS`.
   - Source: docs/ROADMAP.md (Backlog), 2026-09-16
@@ -118,7 +115,7 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 - [SIM] `sim-config-resource` — **Promote the tuning constants to a `SimConfig` resource.** Constants held in a resource can be changed at runtime, which serves the tuning loop far more directly than recompiling.
   - Starting point: Start from the existing named consts at the top of `clauvolution_sim/src/lib.rs`.
   - Source: docs/ROADMAP.md (Known tech debt), 2026-09-16
-  - Related: `sim-config-live-editor`, `name-sim-tuning-literals`
+  - Related: `sim-config-live-editor`
 - [UI] `sim-config-live-editor` — **Edit simulation tuning parameters live from the UI.** Removes the recompile step from every tuning iteration.
   - Starting point: Needs `sim-config-resource` first. A panel in the right-hand tabs that writes to the resource is enough.
   - Source: docs/ROADMAP.md (Known tech debt), 2026-09-16
