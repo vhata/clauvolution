@@ -23,6 +23,10 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 
 ### Unprioritized
 
+- [PERSIST] `save-struct-default-consistency` — **Extend the save-format default rule to the other `Save*` structs.** `SaveGenome` now loads with any field missing, but `SaveOrganism` (`signal`, `memory`) and `SaveState` (`season_tick`, `phylo_nodes`, `chronicle_entries`) still fail the whole file when a field added after the save was written is absent.
+  - Starting point: The same container-level `#[serde(default)]` plus a `Default` impl per struct; decide whether `SaveState` fields such as `terrain_seed` have a sensible default or whether their absence should still reject the file. See "Save format: every genome field has a default" in `docs/DECISIONS.md`.
+  - Source: todo/genome-serde-default-consistency branch, 2026-09-21
+  - Related: `persist-terrain-state`
 - [RENDER] `render-handle-clone-clarity` — **Clarify frequent mesh and material handle cloning in the render systems.** The clones are cheap because handles are Arc-like, but the pattern reads as expensive and obscures that.
   - Starting point: Decide whether a comment, a helper, or no change at all is the right answer before touching code.
   - Source: docs/ROADMAP.md (Known tech debt), 2026-09-16
@@ -126,9 +130,6 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
   - Related: `rayon-remaining-systems`
 - [SIM] `split-reproduction-system` — **Split reproduction into its three concerns.** `reproduction_system` runs about 114 lines mixing mate finding, genome crossover and mutation, and child spawning.
   - Starting point: The three concerns are a natural split boundary.
-  - Source: docs/ROADMAP.md (Known tech debt), 2026-09-16
-- [PERSIST] `genome-serde-default-consistency` — **Default every genome field for save compatibility.** Only `disease_resistance` carries `#[serde(default)]`, so an older save missing a newer field fails to load.
-  - Starting point: Apply `#[serde(default)]` across the genome fields and record the rule so new fields get it too.
   - Source: docs/ROADMAP.md (Known tech debt), 2026-09-16
 - [UI] `clickable-chronicle-entries` — **Make chronicle entries clickable.** Turns each chronicle line into a way to reach what it describes instead of a dead label.
   - Starting point: A species entry switches to the Phylo tab and highlights that species; a location entry focuses the camera there. The extinction post-mortem item in roadmap Theme 1 wants the same click target, so check that shape before building.
