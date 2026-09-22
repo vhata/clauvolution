@@ -663,6 +663,7 @@ fn camera_control_system(
     ui_input: Res<UiInputState>,
     selected: Res<SelectedOrganism>,
     organism_positions: Query<&Position, With<Organism>>,
+    mut focus_requests: EventReader<CameraFocusRequest>,
 ) {
     let Ok((mut transform, mut projection)) = camera.get_single_mut() else {
         warn_once!("camera_control: MainCamera missing — pan/zoom disabled");
@@ -677,6 +678,13 @@ fn camera_control_system(
                 transform.translation.y = pos.0.y;
             }
         }
+    }
+
+    // UI-driven focus (a clicked chronicle location, for instance). The last
+    // request in a frame wins.
+    for CameraFocusRequest(target) in focus_requests.read() {
+        transform.translation.x = target.x;
+        transform.translation.y = target.y;
     }
 
     let dt = time.delta_secs();

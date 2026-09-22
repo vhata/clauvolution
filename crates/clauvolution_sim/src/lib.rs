@@ -621,12 +621,13 @@ fn mass_extinction_input_system(
                 }
             }
         }
-        chronicle.log(
+        chronicle.log_location(
             tick.0,
             format!(
                 "VOLCANIC ERUPTION! {} organisms killed near ({:.0}, {:.0})",
                 killed, center_x, center_y
             ),
+            center,
         );
         triggered = true;
     }
@@ -2021,9 +2022,10 @@ fn species_classification_system(
             } else {
                 String::new()
             };
-            chronicle.log(
+            chronicle.log_species(
                 tick.0,
                 format!("New species: {}{}", species_name, parent_str),
+                new_id,
             );
 
             new_id
@@ -2055,12 +2057,13 @@ fn species_classification_system(
         if let Some(node) = phylo.nodes.get(species_id) {
             if node.current_population == 0 && node.peak_population >= 10 {
                 let age_secs = tick.0.saturating_sub(node.born_tick) / 30;
-                chronicle.log(
+                chronicle.log_species(
                     tick.0,
                     format!(
                         "{} went extinct (peak: {}, lived {}s)",
                         node.name, node.peak_population, age_secs
                     ),
+                    *species_id,
                 );
             }
         }
