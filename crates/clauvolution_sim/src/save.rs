@@ -86,7 +86,7 @@ pub struct SaveOrganism {
 /// `Default` impl below (the compiler insists), which is where its neutral
 /// value is chosen and documented. See "Save format: every genome field has
 /// a default" in `docs/DECISIONS.md`.
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(default)]
 pub struct SaveGenome {
     pub neurons: Vec<SaveNeuron>,
@@ -138,7 +138,7 @@ impl Default for SaveGenome {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SaveNeuron {
     pub id: u64,
     pub neuron_type: u8, // 0=Input, 1=Hidden, 2=Output
@@ -146,7 +146,7 @@ pub struct SaveNeuron {
     pub bias: f32,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SaveConnection {
     pub innovation: u64,
     pub from: u64,
@@ -155,7 +155,7 @@ pub struct SaveConnection {
     pub enabled: bool,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SaveBodySegment {
     pub segment_type: u8,
     pub size: f32,
@@ -477,25 +477,9 @@ pub fn load_world(path: &Path) -> Option<SaveState> {
 /// are removed. Non-fatal — the sim starts with the survivors.
 fn validate_save_state(state: &mut SaveState) {
     let before = state.organisms.len();
-    state.organisms.retain(|org| {
-        // Genome must have at least a torso body segment
-        if org.genome.body_segments.is_empty() {
-            return false;
-        }
-        // Genome must have some neurons (otherwise the brain can't be built)
-        if org.genome.neurons.is_empty() {
-            return false;
-        }
-        // Every enabled connection must reference real neuron IDs
-        let neuron_ids: std::collections::HashSet<u64> =
-            org.genome.neurons.iter().map(|n| n.id).collect();
-        for conn in &org.genome.connections {
-            if !neuron_ids.contains(&conn.from) || !neuron_ids.contains(&conn.to) {
-                return false;
-            }
-        }
-        true
-    });
+    state
+        .organisms
+        .retain(|org| genome_problem(&org.genome).is_none());
     let removed = before - state.organisms.len();
     if removed > 0 {
         warn!(
@@ -599,6 +583,200 @@ pub fn restore_chronicle(chronicle: &mut WorldChronicle, entries: &[SaveChronicl
                 target: e.target.map(SaveChronicleTarget::into_target),
             });
     }
+}
+
+/// Why a serialised genome cannot be spawned, or `None` when it can.
+/// Shared by save loading (which drops the organism) and creature import
+/// (which refuses the file).
+fn genome_problem(genome: &SaveGenome) -> Option<&'static str> {
+    // Genome must have at least a torso body segment
+    if genome.body_segments.is_empty() {
+        return Some("genome has no body segments");
+    }
+    // Genome must have some neurons (otherwise the brain can't be built)
+    if genome.neurons.is_empty() {
+        return Some("genome has no neurons");
+    }
+    // Every connection must reference real neuron IDs
+    let neuron_ids: std::collections::HashSet<u64> = genome.neurons.iter().map(|n| n.id).collect();
+    if genome
+        .connections
+        .iter()
+        .any(|c| !neuron_ids.contains(&c.from) || !neuron_ids.contains(&c.to))
+    {
+        return Some("a connection references a neuron the genome does not have");
+    }
+    None
+}
+
+/// Current creature file format version. Bumped when a field changes
+/// meaning; new optional fields do not need a bump.
+pub const CREATURE_FORMAT_VERSION: u32 = 1;
+
+/// One organism's genome plus enough about where it came from to be useful
+/// when it turns up in another world. Written by the Inspect panel's
+/// export button, read by `--seed-with`. Only `genome` is required; every
+/// metadata field defaults when absent, so a hand-written file needs no
+/// more than a genome.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct CreatureFile {
+    #[serde(default = "creature_format_version")]
+    pub format_version: u32,
+    /// Species name in the origin world, if the organism had one.
+    #[serde(default)]
+    pub species_name: Option<String>,
+    /// Strategy label at export time (plant, grazer, hunter, omnivore).
+    #[serde(default)]
+    pub strategy: Option<String>,
+    #[serde(default)]
+    pub generation: u32,
+    /// Tick of the origin world when the export happened.
+    #[serde(default)]
+    pub exported_tick: u64,
+    /// Terrain seed of the origin world.
+    #[serde(default)]
+    pub origin_seed: Option<u64>,
+    /// Session name of the origin world.
+    #[serde(default)]
+    pub origin_session: Option<String>,
+    pub genome: SaveGenome,
+}
+
+fn creature_format_version() -> u32 {
+    CREATURE_FORMAT_VERSION
+}
+
+impl CreatureFile {
+    /// Describe `genome` and its provenance. `strategy` is the classified
+    /// label so a reader (or a directory listing) can tell what the file
+    /// holds without spawning it.
+    pub fn new(
+        genome: &Genome,
+        species_name: Option<&str>,
+        strategy: &str,
+        generation: u32,
+        exported_tick: u64,
+        origin_seed: u64,
+        origin_session: &str,
+    ) -> Self {
+        Self {
+            format_version: CREATURE_FORMAT_VERSION,
+            species_name: species_name.map(str::to_string),
+            strategy: Some(strategy.to_string()),
+            generation,
+            exported_tick,
+            origin_seed: Some(origin_seed),
+            origin_session: Some(origin_session.to_string()),
+            genome: genome_to_save(genome),
+        }
+    }
+
+    /// The genome as the sim uses it.
+    pub fn genome(&self) -> Genome {
+        save_to_genome(&self.genome)
+    }
+}
+
+/// File name for an exported creature: the species name slugified, or
+/// `organism-<index>` when it has none, followed by the export tick so two
+/// exports of the same species at different times do not overwrite each
+/// other.
+pub fn creature_file_name(species_name: Option<&str>, entity: Entity, tick: u64) -> String {
+    let slug: String = species_name
+        .map(|name| {
+            let mut slug = String::with_capacity(name.len());
+            let mut last_dash = true;
+            for ch in name.chars() {
+                if ch.is_ascii_alphanumeric() {
+                    slug.push(ch.to_ascii_lowercase());
+                    last_dash = false;
+                } else if !last_dash {
+                    slug.push('-');
+                    last_dash = true;
+                }
+            }
+            slug.trim_end_matches('-').to_string()
+        })
+        .filter(|slug| !slug.is_empty())
+        .unwrap_or_else(|| format!("organism-{}", entity.index()));
+    format!("{slug}-t{tick}.json")
+}
+
+/// Write `creature` to `path` as indented JSON, atomically, the same way
+/// saves are written. Returns the error instead of panicking; the caller
+/// decides how to surface it.
+pub fn export_creature(path: &Path, creature: &CreatureFile) -> Result<(), SaveError> {
+    let json = serde_json::to_string_pretty(creature).map_err(SaveError::Serialize)?;
+    write_atomically(path, json.as_bytes()).map_err(|source| SaveError::Write {
+        path: path.to_path_buf(),
+        source,
+    })
+}
+
+/// Why a creature file could not be imported. Import happens at startup
+/// from a command-line flag, so the caller reports it and exits.
+#[derive(Debug)]
+pub enum CreatureLoadError {
+    Read {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+    Parse {
+        path: PathBuf,
+        source: serde_json::Error,
+    },
+    Invalid {
+        path: PathBuf,
+        reason: &'static str,
+    },
+}
+
+impl fmt::Display for CreatureLoadError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            CreatureLoadError::Read { path, source } => {
+                write!(f, "could not read {}: {}", path.display(), source)
+            }
+            CreatureLoadError::Parse { path, source } => {
+                write!(f, "could not parse {}: {}", path.display(), source)
+            }
+            CreatureLoadError::Invalid { path, reason } => {
+                write!(f, "{} is not a usable creature: {}", path.display(), reason)
+            }
+        }
+    }
+}
+
+impl std::error::Error for CreatureLoadError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            CreatureLoadError::Read { source, .. } => Some(source),
+            CreatureLoadError::Parse { source, .. } => Some(source),
+            CreatureLoadError::Invalid { .. } => None,
+        }
+    }
+}
+
+/// Read a creature file and check its genome can be spawned. Unlike
+/// `load_world`, an unusable genome is an error rather than a silent skip:
+/// the user named this file on the command line and should hear about it.
+pub fn load_creature(path: &Path) -> Result<CreatureFile, CreatureLoadError> {
+    let json = std::fs::read_to_string(path).map_err(|source| CreatureLoadError::Read {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let creature: CreatureFile =
+        serde_json::from_str(&json).map_err(|source| CreatureLoadError::Parse {
+            path: path.to_path_buf(),
+            source,
+        })?;
+    if let Some(reason) = genome_problem(&creature.genome) {
+        return Err(CreatureLoadError::Invalid {
+            path: path.to_path_buf(),
+            reason,
+        });
+    }
+    Ok(creature)
 }
 
 #[cfg(test)]
@@ -784,5 +962,144 @@ mod tests {
         assert_eq!(restored.entries.len(), 1);
         assert_eq!(restored.entries[0].tick, 5);
         assert_eq!(restored.entries[0].target, None);
+    }
+
+    /// A founder genome with one hidden neuron, so the round trip covers
+    /// every gene kind the file can hold.
+    fn sample_genome() -> Genome {
+        use rand::SeedableRng;
+        let mut rng = rand::rngs::StdRng::seed_from_u64(3);
+        let mut innovation = InnovationCounter(100);
+        let mut genome = Genome::new_minimal_with_diet(&mut innovation, &mut rng, 1.0);
+        for _ in 0..20 {
+            genome.mutate(&mut innovation, &mut rng, 1.0, 1.0);
+        }
+        genome
+    }
+
+    #[test]
+    fn creature_export_round_trips_through_import() {
+        let scratch = ScratchDir::new("creature-round-trip");
+        let genome = sample_genome();
+        let creature = CreatureFile::new(
+            &genome,
+            Some("Vorax Lumen"),
+            "hunter",
+            12,
+            4567,
+            42,
+            "pale-fading-shard",
+        );
+        let path = scratch.0.join(creature_file_name(
+            creature.species_name.as_deref(),
+            Entity::from_raw(9),
+            4567,
+        ));
+        assert_eq!(path.file_name().unwrap(), "vorax-lumen-t4567.json");
+
+        export_creature(&path, &creature).expect("export into a writable directory");
+        assert!(!scratch.0.join("vorax-lumen-t4567.json.tmp").exists());
+
+        let loaded = load_creature(&path).expect("the written file loads");
+        assert_eq!(loaded.format_version, CREATURE_FORMAT_VERSION);
+        assert_eq!(loaded.species_name.as_deref(), Some("Vorax Lumen"));
+        assert_eq!(loaded.strategy.as_deref(), Some("hunter"));
+        assert_eq!(loaded.generation, 12);
+        assert_eq!(loaded.exported_tick, 4567);
+        assert_eq!(loaded.origin_seed, Some(42));
+        assert_eq!(loaded.origin_session.as_deref(), Some("pale-fading-shard"));
+
+        let back = loaded.genome();
+        assert_eq!(back.neurons.len(), genome.neurons.len());
+        assert_eq!(back.connections.len(), genome.connections.len());
+        assert_eq!(back.body_segments.len(), genome.body_segments.len());
+        for (a, b) in back.connections.iter().zip(&genome.connections) {
+            assert_eq!(
+                (a.innovation, a.from, a.to, a.enabled),
+                (b.innovation, b.from, b.to, b.enabled)
+            );
+            assert_eq!(a.weight, b.weight);
+        }
+        for (a, b) in back.neurons.iter().zip(&genome.neurons) {
+            assert_eq!(a.id, b.id);
+            assert_eq!(a.bias, b.bias);
+        }
+        assert_eq!(back.body_size, genome.body_size);
+        assert_eq!(back.diet, genome.diet);
+        assert_eq!(back.photosynthesis_rate, genome.photosynthesis_rate);
+        // The genome must build a brain, which is what spawning needs.
+        let _ = Brain::from_genome(&back);
+    }
+
+    #[test]
+    fn creature_file_name_falls_back_to_the_entity() {
+        let e = Entity::from_raw(17);
+        assert_eq!(creature_file_name(None, e, 5), "organism-17-t5.json");
+        assert_eq!(creature_file_name(Some("  "), e, 5), "organism-17-t5.json");
+        assert_eq!(
+            creature_file_name(Some("Zy'ra  Kel!"), e, 5),
+            "zy-ra-kel-t5.json"
+        );
+    }
+
+    #[test]
+    fn creature_file_needs_only_a_genome() {
+        // A hand-written file with no metadata still imports.
+        let scratch = ScratchDir::new("creature-minimal");
+        let path = scratch.0.join("minimal.json");
+        let genome_json = serde_json::to_string(&genome_to_save(&sample_genome())).unwrap();
+        std::fs::write(&path, format!("{{\"genome\": {genome_json}}}")).unwrap();
+        let loaded = load_creature(&path).expect("a genome-only file loads");
+        assert_eq!(loaded.format_version, CREATURE_FORMAT_VERSION);
+        assert!(loaded.species_name.is_none());
+        assert_eq!(loaded.generation, 0);
+    }
+
+    #[test]
+    fn creature_import_rejects_unusable_files() {
+        let scratch = ScratchDir::new("creature-invalid");
+
+        let missing = scratch.0.join("missing.json");
+        assert!(matches!(
+            load_creature(&missing),
+            Err(CreatureLoadError::Read { .. })
+        ));
+
+        let garbage = scratch.0.join("garbage.json");
+        std::fs::write(&garbage, "not json").unwrap();
+        assert!(matches!(
+            load_creature(&garbage),
+            Err(CreatureLoadError::Parse { .. })
+        ));
+
+        // A connection to a neuron the genome does not have cannot be
+        // compiled into a brain.
+        let mut broken = genome_to_save(&sample_genome());
+        broken.connections.push(SaveConnection {
+            innovation: 9999,
+            from: 0,
+            to: 100_000,
+            weight: 1.0,
+            enabled: true,
+        });
+        let bad = scratch.0.join("broken.json");
+        std::fs::write(
+            &bad,
+            serde_json::to_string(&CreatureFile {
+                format_version: CREATURE_FORMAT_VERSION,
+                species_name: None,
+                strategy: None,
+                generation: 0,
+                exported_tick: 0,
+                origin_seed: None,
+                origin_session: None,
+                genome: broken,
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        let err = load_creature(&bad).expect_err("a dangling connection is rejected");
+        assert!(matches!(err, CreatureLoadError::Invalid { .. }), "{err}");
+        assert!(err.to_string().contains("broken.json"));
     }
 }

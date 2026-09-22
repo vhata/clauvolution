@@ -278,6 +278,7 @@ impl Plugin for SimPlugin {
                 keyboard_to_events_system,
                 mass_extinction_input_system,
                 save_system,
+                export_organism_system,
             )
                 .chain(),
         )
@@ -319,6 +320,7 @@ impl Plugin for SimPlugin {
         )
         .insert_resource(Time::<Fixed>::from_hz(30.0))
         .insert_resource(SaveReport::default())
+        .insert_resource(OrganismExportReport::default())
         .insert_resource(Time::<Virtual>::from_max_delta(
             std::time::Duration::from_millis(100),
         ))
@@ -2370,6 +2372,9 @@ pub struct FounderReport {
     pub grazers: u32,
     pub hunters: u32,
     pub omnivores: u32,
+    /// Founders whose genomes came from creature files (`--seed-with`),
+    /// counted in the biome and strategy totals as well.
+    pub imported: u32,
     pub min_energy: f32,
     pub max_energy: f32,
     /// Total energy spawned; the `EnergyLedger` baseline.
@@ -2385,12 +2390,13 @@ impl std::fmt::Display for FounderReport {
             .collect();
         write!(
             f,
-            "Founders by biome: {}; strategies: {} plants, {} grazers, {} hunters, {} omnivores; starting energy {:.1}..{:.1}",
+            "Founders by biome: {}; strategies: {} plants, {} grazers, {} hunters, {} omnivores; imported {}; starting energy {:.1}..{:.1}",
             by_biome.join(", "),
             self.plants,
             self.grazers,
             self.hunters,
             self.omnivores,
+            self.imported,
             self.min_energy,
             self.max_energy
         )
@@ -2406,17 +2412,36 @@ impl std::fmt::Display for FounderReport {
 /// split (roughly 30% photosynthesisers, the rest minimal foragers) is
 /// unchanged. Returns the per-biome and per-strategy founder counts and the
 /// total energy spawned, which sets the `EnergyLedger` baseline.
+///
+/// `imported` genomes (from `--seed-with` creature files) become extra
+/// founders on top of `config.initial_population`. They take the same path
+/// as every other founder: a biome slot from the same allocation, a tile
+/// and offset drawn from the same `rng`, the same starting energy rule and
+/// the same component set. Their NEAT innovation numbers come from another
+/// world, so the counter is first raised past the largest of them; the
+/// generated founders then cannot reuse a number an import already holds.
+/// With no imports the RNG sequence and the counter are exactly as before.
 pub fn spawn_initial_population(
     commands: &mut Commands,
     config: &SimConfig,
     tile_map: &TileMap,
     innovation: &mut InnovationCounter,
+    imported: &[Genome],
     rng: &mut impl Rng,
 ) -> FounderReport {
     use rand::seq::SliceRandom;
 
     let photo_count = config.initial_population / 3; // 30% photosynthesizers
+    let total_founders = config.initial_population + imported.len() as u32;
     let mut total_energy = 0.0f64;
+
+    if let Some(max_innovation) = imported
+        .iter()
+        .flat_map(|g| g.connections.iter().map(|c| c.innovation))
+        .max()
+    {
+        innovation.0 = innovation.0.max(max_innovation + 1);
+    }
 
     // Tile indices per founding biome.
     let mut biome_tiles: Vec<Vec<u32>> = vec![Vec::new(); FOUNDING_BIOMES.len()];
@@ -2426,16 +2451,17 @@ pub fn spawn_initial_population(
         }
     }
     let areas: Vec<usize> = biome_tiles.iter().map(Vec::len).collect();
-    let counts = founder_allocation(&areas, config.initial_population);
+    let counts = founder_allocation(&areas, total_founders);
 
     // One biome slot per founder, shuffled so the photosynthesiser share
-    // lands in every biome rather than in whichever biome is listed first.
-    let mut slots: Vec<Option<usize>> = Vec::with_capacity(config.initial_population as usize);
+    // (and any imports) lands in every biome rather than in whichever
+    // biome is listed first.
+    let mut slots: Vec<Option<usize>> = Vec::with_capacity(total_founders as usize);
     for (b, &n) in counts.iter().enumerate() {
         slots.extend(std::iter::repeat_n(Some(b), n as usize));
     }
     // No land at all: fall back to uniform placement.
-    slots.resize(config.initial_population as usize, None);
+    slots.resize(total_founders as usize, None);
     slots.shuffle(rng);
 
     let mut strategy_counts = [0u32; 4];
@@ -2457,10 +2483,14 @@ pub fn spawn_initial_population(
             ),
         };
 
+        // Generated founders first, imports in the trailing slots; the
+        // shuffle above already decided which biome each slot is in.
         let genome = if (i as u32) < photo_count {
             Genome::new_photosynthesizer_with_diet(innovation, rng, config.founder_diet_spread)
-        } else {
+        } else if (i as u32) < config.initial_population {
             Genome::new_minimal_with_diet(innovation, rng, config.founder_diet_spread)
+        } else {
+            imported[i - config.initial_population as usize].clone()
         };
 
         match classify_strategy(&genome) {
@@ -2516,6 +2546,7 @@ pub fn spawn_initial_population(
         grazers: strategy_counts[1],
         hunters: strategy_counts[2],
         omnivores: strategy_counts[3],
+        imported: imported.len() as u32,
         min_energy,
         max_energy,
         total_energy,
@@ -2613,6 +2644,66 @@ fn save_system(
 pub struct SaveReport {
     /// The path written on success, or the error text on failure.
     pub last: Option<Result<std::path::PathBuf, String>>,
+}
+
+/// The Inspect panel's export button: write the selected organism's genome
+/// and provenance to `<session>/<species>-t<tick>.json` (see
+/// `save::creature_file_name`). Like `save_system`, the outcome goes to the
+/// log, the chronicle and a report resource the panel reads; a failed
+/// write costs one export, not the running world.
+fn export_organism_system(
+    mut events: EventReader<WorldEventRequest>,
+    session: Res<Session>,
+    tick: Res<TickCounter>,
+    config: Res<SimConfig>,
+    organisms: Query<(&Genome, &Generation, &SpeciesId), With<Organism>>,
+    phylo: Res<PhyloTree>,
+    mut chronicle: ResMut<WorldChronicle>,
+    mut report: ResMut<OrganismExportReport>,
+) {
+    for entity in events.read().filter_map(|r| match r {
+        WorldEventRequest::ExportOrganism(e) => Some(*e),
+        _ => None,
+    }) {
+        let Ok((genome, generation, species)) = organisms.get(entity) else {
+            let msg = "the selected organism is no longer alive".to_string();
+            warn!("Export failed: {msg}");
+            report.last = Some(Err(msg));
+            continue;
+        };
+        let species_name = phylo.nodes.get(&species.0).map(|n| n.name.as_str());
+        let creature = save::CreatureFile::new(
+            genome,
+            species_name,
+            classify_strategy(genome).label(),
+            generation.0,
+            tick.0,
+            config.terrain_seed,
+            &session.name,
+        );
+        let path = session
+            .dir
+            .join(save::creature_file_name(species_name, entity, tick.0));
+        let result = save::export_creature(&path, &creature);
+        match &result {
+            Ok(()) => {
+                info!("Creature exported to {}", path.display());
+                chronicle.log(
+                    tick.0,
+                    format!(
+                        "Exported {} to {}",
+                        species_name.unwrap_or("an unnamed organism"),
+                        path.display()
+                    ),
+                );
+            }
+            Err(e) => {
+                error!("Export failed: {e}");
+                chronicle.log(tick.0, format!("Export failed: {e}"));
+            }
+        }
+        report.last = Some(result.map(|()| path).map_err(|e| e.to_string()));
+    }
 }
 
 #[cfg(test)]
@@ -2736,7 +2827,14 @@ mod tests {
         let mut queue = CommandQueue::default();
         let report = {
             let mut commands = Commands::new(&mut queue, &world);
-            spawn_initial_population(&mut commands, &config, &tile_map, &mut innovation, &mut rng)
+            spawn_initial_population(
+                &mut commands,
+                &config,
+                &tile_map,
+                &mut innovation,
+                &[],
+                &mut rng,
+            )
         };
         queue.apply(&mut world);
         println!("{report}");
@@ -2744,6 +2842,7 @@ mod tests {
             report.plants + report.grazers + report.hunters + report.omnivores,
             config.initial_population
         );
+        assert_eq!(report.imported, 0);
         assert_eq!(report.plants, config.initial_population / 3);
         assert!(report.by_biome.iter().all(|(_, n, a)| *a > 0 || *n == 0));
 
@@ -2784,6 +2883,121 @@ mod tests {
         assert_eq!(total, config.initial_population);
         assert_eq!(per_biome, expected, "founders per biome (areas {areas:?})");
         assert_eq!(plants, config.initial_population / 3);
+    }
+
+    /// Imported genomes are extra founders: the population grows by their
+    /// number, each one is present with its genome intact and the same
+    /// components as any founder, and the innovation counter has moved
+    /// past every number an import carries. A run with no imports draws
+    /// the same RNG sequence as before this parameter existed.
+    #[test]
+    fn imported_genomes_join_the_founders_through_the_same_path() {
+        let config = SimConfig {
+            terrain_seed: 42,
+            ..SimConfig::default()
+        };
+        let mut terrain_rng = StdRng::seed_from_u64(config.terrain_seed);
+        let tile_map = TileMap::generate(config.world_width, config.world_height, &mut terrain_rng);
+
+        // Genomes "from another world": innovation numbers well past what
+        // this world's founders would draw, and a distinctive diet.
+        let mut foreign_innovation = InnovationCounter(50_000);
+        let mut foreign_rng = StdRng::seed_from_u64(9);
+        let imported: Vec<Genome> = (0..3)
+            .map(|_| {
+                let mut g =
+                    Genome::new_minimal_with_diet(&mut foreign_innovation, &mut foreign_rng, 1.0);
+                g.diet = 0.987;
+                g
+            })
+            .collect();
+        let max_import_innovation = imported
+            .iter()
+            .flat_map(|g| g.connections.iter().map(|c| c.innovation))
+            .max()
+            .unwrap();
+
+        let mut innovation = InnovationCounter(100);
+        let mut rng = StdRng::seed_from_u64(config.terrain_seed);
+        let mut world = World::new();
+        let mut queue = CommandQueue::default();
+        let report = {
+            let mut commands = Commands::new(&mut queue, &world);
+            spawn_initial_population(
+                &mut commands,
+                &config,
+                &tile_map,
+                &mut innovation,
+                &imported,
+                &mut rng,
+            )
+        };
+        queue.apply(&mut world);
+
+        let expected_total = config.initial_population + 3;
+        assert_eq!(report.imported, 3);
+        assert_eq!(
+            report.plants + report.grazers + report.hunters + report.omnivores,
+            expected_total
+        );
+        assert_eq!(
+            report.by_biome.iter().map(|(_, n, _)| *n).sum::<u32>(),
+            expected_total
+        );
+        assert!(innovation.0 > max_import_innovation);
+
+        let mut query = world.query_filtered::<(
+            &Position,
+            &Energy,
+            &BodySize,
+            &Genome,
+            &Generation,
+            &SpeciesId,
+        ), (
+            With<Organism>,
+            With<Brain>,
+            With<EnergyFlows>,
+            With<LightShare>,
+        )>();
+        let mut total = 0u32;
+        let mut found_imports = 0u32;
+        for (pos, energy, body, genome, generation, species) in query.iter(&world) {
+            total += 1;
+            assert!(!tile_map.tile_at_pos(pos.0).terrain.is_water());
+            assert!(energy.0 < reproduction_threshold(&config, body.0));
+            assert_eq!((generation.0, species.0), (0, 0));
+            if genome.diet == 0.987 {
+                found_imports += 1;
+                assert!(genome.connections.iter().all(|c| c.innovation >= 50_000));
+            }
+        }
+        assert_eq!(total, expected_total);
+        assert_eq!(found_imports, 3);
+
+        // No imports: the same seed gives the same founders as before the
+        // parameter existed, so headless determinism is untouched.
+        let positions = |imported: &[Genome]| -> Vec<(f32, f32)> {
+            let mut innovation = InnovationCounter(100);
+            let mut rng = StdRng::seed_from_u64(config.terrain_seed);
+            let mut world = World::new();
+            let mut queue = CommandQueue::default();
+            {
+                let mut commands = Commands::new(&mut queue, &world);
+                spawn_initial_population(
+                    &mut commands,
+                    &config,
+                    &tile_map,
+                    &mut innovation,
+                    imported,
+                    &mut rng,
+                );
+            }
+            queue.apply(&mut world);
+            let mut q = world.query_filtered::<&Position, With<Organism>>();
+            q.iter(&world).map(|p| (p.0.x, p.0.y)).collect()
+        };
+        assert_eq!(positions(&[]), positions(&[]));
+        assert_ne!(positions(&[]), positions(&imported));
     }
 }
 

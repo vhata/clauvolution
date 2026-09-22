@@ -332,6 +332,7 @@ fn right_panel_system(
     phylo: Res<PhyloTree>,
     history: Res<PopulationHistory>,
     tick: Res<TickCounter>,
+    export_report: Res<OrganismExportReport>,
 ) {
     let ctx = contexts.ctx_mut();
 
@@ -361,6 +362,8 @@ fn right_panel_system(
                         tile_map.as_deref(),
                         &config,
                         &phylo,
+                        &mut event_writer,
+                        &export_report,
                     );
                 }
                 RightTab::Phylo => {
@@ -669,6 +672,8 @@ fn inspect_tab(
     tile_map: Option<&TileMap>,
     config: &SimConfig,
     phylo: &PhyloTree,
+    events: &mut EventWriter<WorldEventRequest>,
+    export_report: &OrganismExportReport,
 ) {
     let Some(entity) = selected.entity else {
         ui.heading("Inspect");
@@ -793,6 +798,32 @@ fn inspect_tab(
             ui.label("Group nearby");
             ui.label(group_size.0.to_string());
             ui.end_row();
+        });
+
+        // Export this creature for `--seed-with` in another world. The
+        // write happens in the sim's export system; its report is shown
+        // here so a failure is visible without opening the Chronicle.
+        ui.add_space(6.0);
+        ui.horizontal_wrapped(|ui| {
+            if ui
+                .button("Export creature")
+                .on_hover_text(
+                    "Write this organism's genome to sessions/<name>/<species>-t<tick>.json.\n\
+                     Start another world with --seed-with <file> to add it to the founders.",
+                )
+                .clicked()
+            {
+                events.send(WorldEventRequest::ExportOrganism(entity));
+            }
+            match &export_report.last {
+                Some(Ok(path)) => {
+                    ui.weak(format!("Exported to {}", path.display()));
+                }
+                Some(Err(e)) => {
+                    ui.colored_label(egui::Color32::LIGHT_RED, format!("Export failed: {e}"));
+                }
+                None => {}
+            }
         });
 
         ui.add_space(8.0);

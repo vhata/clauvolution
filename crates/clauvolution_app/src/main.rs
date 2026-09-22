@@ -133,6 +133,7 @@ fn main() {
         .position(|a| a == "--dump-history")
         .and_then(|i| args.get(i + 1).cloned());
     let overrides = ConfigOverrides::parse(&args);
+    let seed_with = load_seed_creatures(&seed_with_paths(&args));
 
     let worker_cap = compute_worker_cap();
     eprintln!(
@@ -150,6 +151,7 @@ fn main() {
             save_as,
             dump_history,
             overrides,
+            seed_with,
         );
         return;
     }
@@ -179,6 +181,7 @@ fn main() {
     .insert_resource(LoadPath(load_path))
     .insert_resource(SeedOverride(seed))
     .insert_resource(overrides)
+    .insert_resource(seed_with)
     .add_systems(
         Startup,
         (
@@ -237,6 +240,60 @@ fn apply_seed_override(seed_override: Res<SeedOverride>, mut config: ResMut<SimC
 #[derive(Resource)]
 struct LoadPath(Option<String>);
 
+/// Creature files named by `--seed-with`, already read and checked, each
+/// with the path it came from. Their genomes join the founding population
+/// of a fresh world; a loaded save ignores them.
+#[derive(Resource, Default)]
+struct SeedWith(Vec<(std::path::PathBuf, save::CreatureFile)>);
+
+/// Every path given to `--seed-with`. The flag may be repeated and each
+/// occurrence may name several files, so `--seed-with a.json b.json
+/// --seed-with c.json` gives all three.
+fn seed_with_paths(args: &[String]) -> Vec<std::path::PathBuf> {
+    let mut paths = Vec::new();
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == "--seed-with" {
+            i += 1;
+            while i < args.len() && !args[i].starts_with("--") {
+                paths.push(std::path::PathBuf::from(&args[i]));
+                i += 1;
+            }
+        } else {
+            i += 1;
+        }
+    }
+    paths
+}
+
+/// Read every creature file up front, before the app exists, so a typo or
+/// a broken file is reported immediately and the run does not start.
+fn load_seed_creatures(paths: &[std::path::PathBuf]) -> SeedWith {
+    let mut creatures = Vec::with_capacity(paths.len());
+    for path in paths {
+        match save::load_creature(path) {
+            Ok(creature) => {
+                eprintln!(
+                    "Seeding with {} ({}, generation {}) from {}",
+                    creature
+                        .species_name
+                        .as_deref()
+                        .unwrap_or("an unnamed creature"),
+                    creature.strategy.as_deref().unwrap_or("strategy unknown"),
+                    creature.generation,
+                    path.display()
+                );
+                creatures.push((path.clone(), creature));
+            }
+            Err(e) => {
+                eprintln!("Failed to load creature file: {}", e);
+                std::process::exit(1);
+            }
+        }
+    }
+    SeedWith(creatures)
+}
+
 fn startup_system(
     commands: Commands,
     config: ResMut<SimConfig>,
@@ -248,10 +305,17 @@ fn startup_system(
     chronicle: ResMut<WorldChronicle>,
     ledger: ResMut<EnergyLedger>,
     load_path: Res<LoadPath>,
+    seed_with: Res<SeedWith>,
 ) {
     if let Some(ref path) = load_path.0 {
         let save_path = std::path::Path::new(path).join("save.json");
         if save_path.exists() {
+            if !seed_with.0.is_empty() {
+                warn!(
+                    "--seed-with only applies to a fresh world; ignoring {} creature file(s) while loading a save",
+                    seed_with.0.len()
+                );
+            }
             load_saved_world(
                 commands, config, innovation, stats, tick, season, phylo, chronicle, ledger,
                 &save_path,
@@ -264,7 +328,7 @@ fn startup_system(
             );
         }
     }
-    fresh_world(commands, config, innovation, ledger);
+    fresh_world(commands, config, innovation, ledger, chronicle, &seed_with);
 }
 
 fn load_saved_world(
@@ -328,8 +392,10 @@ fn fresh_world(
     config: ResMut<SimConfig>,
     innovation: ResMut<InnovationCounter>,
     ledger: ResMut<EnergyLedger>,
+    chronicle: ResMut<WorldChronicle>,
+    seed_with: &SeedWith,
 ) {
-    setup_world(commands, config, innovation, ledger);
+    setup_world(commands, config, innovation, ledger, chronicle, seed_with);
 }
 
 fn setup_world(
@@ -337,6 +403,8 @@ fn setup_world(
     config: ResMut<SimConfig>,
     mut innovation: ResMut<InnovationCounter>,
     mut ledger: ResMut<EnergyLedger>,
+    mut chronicle: ResMut<WorldChronicle>,
+    seed_with: &SeedWith,
 ) {
     // Seed deterministic terrain generation
     let mut terrain_rng = rand::rngs::StdRng::seed_from_u64(config.terrain_seed);
@@ -346,22 +414,51 @@ fn setup_world(
     // Same seed → same simulation trajectory.
     let mut sim_rng = SimRng::from_seed(config.terrain_seed);
     clauvolution_world::spawn_initial_food(&mut commands, &config, &tile_map, &mut sim_rng.0);
+    // Imported creatures are extra founders; they draw their placement from
+    // the same SimRng as everyone else so a seeded run stays reproducible.
+    let imported: Vec<clauvolution_genome::Genome> =
+        seed_with.0.iter().map(|(_, c)| c.genome()).collect();
     let founders = clauvolution_sim::spawn_initial_population(
         &mut commands,
         &config,
         &tile_map,
         &mut innovation,
+        &imported,
         &mut sim_rng.0,
     );
     ledger.reset_baseline(founders.total_energy);
     info!("{founders}");
+    for (path, creature) in &seed_with.0 {
+        let origin = match (creature.origin_session.as_deref(), creature.origin_seed) {
+            (Some(session), Some(seed)) => format!(" from {session} (seed {seed})"),
+            (Some(session), None) => format!(" from {session}"),
+            (None, Some(seed)) => format!(" from seed {seed}"),
+            (None, None) => String::new(),
+        };
+        chronicle.log(
+            0,
+            format!(
+                "Seeded with {}{} via {}",
+                creature
+                    .species_name
+                    .as_deref()
+                    .unwrap_or("an unnamed creature"),
+                origin,
+                path.display()
+            ),
+        );
+    }
     commands.insert_resource(founders);
     commands.insert_resource(tile_map);
     commands.insert_resource(sim_rng);
 
     info!(
-        "Clauvolution initialized: {} organisms, world {}x{} with biomes (seed {})",
-        config.initial_population, config.world_width, config.world_height, config.terrain_seed
+        "Clauvolution initialized: {} organisms ({} imported), world {}x{} with biomes (seed {})",
+        config.initial_population + imported.len() as u32,
+        imported.len(),
+        config.world_width,
+        config.world_height,
+        config.terrain_seed
     );
 }
 
@@ -480,6 +577,7 @@ fn run_headless(
     save_as: Option<String>,
     dump_history: Option<String>,
     overrides: ConfigOverrides,
+    seed_with: SeedWith,
 ) {
     use bevy::app::ScheduleRunnerPlugin;
 
@@ -538,6 +636,7 @@ fn run_headless(
         .insert_resource(HeadlessSpeed(speed))
         .insert_resource(HeadlessSaveAtEnd(save_as.is_some()))
         .insert_resource(overrides)
+        .insert_resource(seed_with)
         .add_systems(
             Startup,
             (
@@ -980,4 +1079,37 @@ fn print_headless_summary(
     eprintln!("  Cumulative residual: {:+.6}", ledger.cumulative_residual);
     eprintln!("  Ticks over tolerance: {}", ledger.breaches);
     eprintln!();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn seed_with_accepts_repeats_and_several_paths_per_flag() {
+        let args: Vec<String> = [
+            "clauvolution",
+            "--seed-with",
+            "a.json",
+            "b.json",
+            "--seed",
+            "1",
+            "--seed-with",
+            "c.json",
+            "--headless",
+            "10",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        let paths = seed_with_paths(&args);
+        let names: Vec<String> = paths.iter().map(|p| p.display().to_string()).collect();
+        assert_eq!(names, ["a.json", "b.json", "c.json"]);
+
+        let none: Vec<String> = ["clauvolution", "--headless", "10"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert!(seed_with_paths(&none).is_empty());
+    }
 }
