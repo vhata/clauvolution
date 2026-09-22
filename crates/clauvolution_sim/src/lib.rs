@@ -46,12 +46,46 @@ const DISEASE_TRANSMISSION_CHANCE_CAP: f32 = 0.1;
 const DISEASE_TRANSMISSION_SEVERITY_DECAY: f32 = 0.9;
 /// Minimum duration (in ticks) for a transmitted infection.
 const DISEASE_TRANSMISSION_MIN_DURATION_TICKS: u32 = 200;
+/// Summed proximity pressure at or below which a healthy organism skips the
+/// transmission roll entirely. Below this the chance would round to nothing,
+/// and skipping saves the RNG draw.
+const DISEASE_TRANSMISSION_PRESSURE_FLOOR: f32 = 0.001;
+/// Lowest severity a transmitted infection can carry, so a strain decaying
+/// through many hosts never fades to a harmless trace.
+const DISEASE_TRANSMISSION_SEVERITY_MIN: f32 = 0.1;
+/// Highest severity a transmitted infection can carry (the unit ceiling).
+const DISEASE_TRANSMISSION_SEVERITY_MAX: f32 = 1.0;
+/// Percentage of the source's remaining duration a transmitted infection
+/// inherits, before `DISEASE_TRANSMISSION_MIN_DURATION_TICKS` applies.
+/// Integer so the tick count truncates the way it always has.
+const DISEASE_TRANSMISSION_DURATION_RETAINED_PERCENT: u32 = 80;
 
 /// Energy-drain multiplier applied per tick to infected organisms (scales on severity and resistance).
 const DISEASE_DRAIN_MULTIPLIER: f32 = 1.6;
+/// Weight on resistance in the drain cushion `(1 - res × weight)²`. At 0.5,
+/// full resistance cuts the drain to a quarter rather than to zero, so an
+/// infection always costs something. Mortality uses the unweighted
+/// `(1 - res)²`; see docs/DECISIONS.md "Disease: direct mortality + energy drain".
+const DISEASE_DRAIN_RESISTANCE_WEIGHT: f32 = 0.5;
 /// Base per-tick chance of direct disease-caused death (scales on severity and (1 - resistance)).
 /// At severity 0.5 and zero resistance this gives ~22% cumulative chance over 20s.
 const DISEASE_MORTALITY_RATE: f32 = 0.0015;
+
+// -----------------------------------------------------------------------------
+// Niche construction tuning constants
+//
+// Per-tick deposits an organism makes on the tile it stands on, each clamped
+// to the tile's 0..1 range at the point of use. `tile_dynamics_system` in the
+// world crate pulls vegetation toward its carrying capacity, so these are
+// nudges on top of that, not the main driver.
+// -----------------------------------------------------------------------------
+
+/// Vegetation density a photosynthesiser adds to its tile each tick.
+const NICHE_VEGETATION_DEPOSIT: f32 = 0.001;
+/// Moisture a photosynthesiser adds to its tile each tick.
+const NICHE_MOISTURE_DEPOSIT: f32 = 0.0005;
+/// Nutrients any organism adds to its tile each tick (waste products).
+const NICHE_NUTRIENT_DEPOSIT: f32 = 0.0001;
 
 // -----------------------------------------------------------------------------
 // Bloom event tuning constants
@@ -1177,12 +1211,12 @@ fn niche_construction_system(
 
         // Photosynthesizers increase vegetation and moisture
         if genome.is_photosynthesiser() {
-            tile.vegetation_density = (tile.vegetation_density + 0.001).min(1.0);
-            tile.moisture = (tile.moisture + 0.0005).min(1.0);
+            tile.vegetation_density = (tile.vegetation_density + NICHE_VEGETATION_DEPOSIT).min(1.0);
+            tile.moisture = (tile.moisture + NICHE_MOISTURE_DEPOSIT).min(1.0);
         }
 
         // All organisms slightly increase nutrients (waste products)
-        tile.nutrients = (tile.nutrients + 0.0001).min(1.0);
+        tile.nutrients = (tile.nutrients + NICHE_NUTRIENT_DEPOSIT).min(1.0);
     }
 }
 
@@ -1237,7 +1271,7 @@ fn disease_transmission_system(
             }
         }
 
-        if infection_pressure <= 0.001 {
+        if infection_pressure <= DISEASE_TRANSMISSION_PRESSURE_FLOOR {
             continue;
         }
 
@@ -1248,8 +1282,12 @@ fn disease_transmission_system(
         if rng.gen::<f32>() < chance {
             // Inherit roughly the strain's severity & duration, slightly weakened.
             commands.entity(entity).insert(Infection {
-                severity: (best_severity * DISEASE_TRANSMISSION_SEVERITY_DECAY).clamp(0.1, 1.0),
-                ticks_remaining: (best_remaining * 8 / 10)
+                severity: (best_severity * DISEASE_TRANSMISSION_SEVERITY_DECAY).clamp(
+                    DISEASE_TRANSMISSION_SEVERITY_MIN,
+                    DISEASE_TRANSMISSION_SEVERITY_MAX,
+                ),
+                ticks_remaining: (best_remaining * DISEASE_TRANSMISSION_DURATION_RETAINED_PERCENT
+                    / 100)
                     .max(DISEASE_TRANSMISSION_MIN_DURATION_TICKS),
             });
         }
@@ -1274,7 +1312,7 @@ fn disease_effects_system(
         // drifted with no signal. See DECISIONS.md "Disease: direct mortality
         // + energy drain" and its tuning follow-up.
         let res = genome.disease_resistance.clamp(0.0, 1.0);
-        let drain_factor = (1.0 - res * 0.5).powi(2);
+        let drain_factor = (1.0 - res * DISEASE_DRAIN_RESISTANCE_WEIGHT).powi(2);
         let mortality_factor = (1.0 - res).powi(2);
 
         // Resistance cushions the drain; multiplier cranked above 1.0 so
