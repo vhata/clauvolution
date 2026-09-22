@@ -75,7 +75,17 @@ pub struct SaveOrganism {
     pub genome: SaveGenome,
 }
 
+/// The genome as it is written to a save file.
+///
+/// Every field is optional on load: the container-level `serde(default)`
+/// fills a missing field from `Default for SaveGenome`, so a save written
+/// before a trait existed still loads, with that trait at a neutral value
+/// rather than failing the whole file. A new field must be added to the
+/// `Default` impl below (the compiler insists), which is where its neutral
+/// value is chosen and documented. See "Save format: every genome field has
+/// a default" in `docs/DECISIONS.md`.
 #[derive(Serialize, Deserialize)]
+#[serde(default)]
 pub struct SaveGenome {
     pub neurons: Vec<SaveNeuron>,
     pub connections: Vec<SaveConnection>,
@@ -87,13 +97,43 @@ pub struct SaveGenome {
     pub photosynthesis_rate: f32,
     pub armor: f32,
     pub attack_power: f32,
-    #[serde(default)]
     pub disease_resistance: f32,
-    #[serde(default)]
     pub symbiosis_rate: f32,
-    /// Absent in saves from before the diet axis; 0.0 is the generalist.
-    #[serde(default)]
     pub diet: f32,
+}
+
+impl Default for SaveGenome {
+    /// The value a field takes when a save file does not carry it.
+    ///
+    /// Traits whose zero is a valid "trait absent" reading (no armour, no
+    /// claws, a land-dweller, a neutral symbiont, a generalist diet) default
+    /// to zero. The three whose zero lies outside `*_BOUNDS` or describes a
+    /// degenerate body take the midpoint of the founder range in
+    /// `Genome::new_minimal_with_diet`, so a loaded organism is an ordinary
+    /// founder rather than a point with no size, speed or senses. An empty
+    /// brain or body is not a usable genome; `validate_save_state` drops
+    /// such an organism with a warning instead of aborting the load.
+    fn default() -> Self {
+        Self {
+            neurons: Vec::new(),
+            connections: Vec::new(),
+            body_segments: Vec::new(),
+            // Founders draw 0.5..1.5.
+            body_size: 1.0,
+            // Founders draw 0.5..1.5.
+            speed_factor: 1.0,
+            // Founders draw 30.0..80.0, in world units.
+            sense_range: 55.0,
+            aquatic_adaptation: 0.0,
+            photosynthesis_rate: 0.0,
+            armor: 0.0,
+            attack_power: 0.0,
+            disease_resistance: 0.0,
+            symbiosis_rate: 0.0,
+            // Absent in saves from before the diet axis; 0.0 is the generalist.
+            diet: 0.0,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -607,5 +647,77 @@ mod tests {
         std::fs::create_dir(scratch.0.join("save.json.tmp")).unwrap();
         save_empty_world(&path).expect_err("writing over a directory must fail");
         assert_eq!(std::fs::read(&path).unwrap(), b"previous");
+    }
+
+    /// A genome with no fields at all parses: every field has a default, so a
+    /// save written before any given trait existed cannot fail on that trait.
+    #[test]
+    fn genome_with_no_fields_loads_with_the_documented_defaults() {
+        let g: SaveGenome = serde_json::from_str("{}").expect("an empty genome object parses");
+        let d = SaveGenome::default();
+        assert!(g.neurons.is_empty());
+        assert!(g.connections.is_empty());
+        assert!(g.body_segments.is_empty());
+        assert_eq!(g.body_size, d.body_size);
+        assert_eq!(g.speed_factor, d.speed_factor);
+        assert_eq!(g.sense_range, d.sense_range);
+        assert_eq!(g.aquatic_adaptation, d.aquatic_adaptation);
+        assert_eq!(g.photosynthesis_rate, d.photosynthesis_rate);
+        assert_eq!(g.armor, d.armor);
+        assert_eq!(g.attack_power, d.attack_power);
+        assert_eq!(g.disease_resistance, d.disease_resistance);
+        assert_eq!(g.symbiosis_rate, d.symbiosis_rate);
+        assert_eq!(g.diet, d.diet);
+    }
+
+    /// The defaults for the three traits whose zero is out of bounds must be
+    /// values a founder could have, or a loaded organism starts degenerate.
+    #[test]
+    fn genome_defaults_lie_within_trait_bounds() {
+        let d = SaveGenome::default();
+        assert_eq!(BODY_SIZE_BOUNDS.clamp(d.body_size), d.body_size);
+        assert_eq!(SPEED_FACTOR_BOUNDS.clamp(d.speed_factor), d.speed_factor);
+        assert_eq!(SENSE_RANGE_BOUNDS.clamp(d.sense_range), d.sense_range);
+        assert_ne!(d.body_size, 0.0);
+        assert_ne!(d.speed_factor, 0.0);
+        assert_ne!(d.sense_range, 0.0);
+    }
+
+    /// A save whose genomes predate several traits loads through the real
+    /// `load_world` path, keeps the organism, and fills the missing traits.
+    #[test]
+    fn save_with_older_genome_loads_and_keeps_the_organism() {
+        let scratch = ScratchDir::new("older-genome");
+        let path = scratch.0.join("save.json");
+        // One organism with a brain and a torso, but a genome written before
+        // `sense_range`, `armor`, `disease_resistance` and `diet` existed.
+        let json = r#"{
+            "tick": 3, "season_tick": 0, "terrain_seed": 42,
+            "stats": {"total_births": 0, "total_deaths": 0, "max_generation": 0},
+            "organisms": [{
+                "x": 1.0, "y": 2.0, "energy": 50.0, "health": 100.0, "age": 0,
+                "generation": 0, "species_id": 1, "signal": 0.0, "memory": [0.0, 0.0, 0.0],
+                "genome": {
+                    "neurons": [{"id": 0, "neuron_type": 0, "activation": 0, "bias": 0.0}],
+                    "connections": [],
+                    "body_segments": [{"segment_type": 0, "size": 1.0,
+                        "attachment_angle": 0.0, "attachment_slot": 0, "symmetry": 1}],
+                    "body_size": 0.7,
+                    "speed_factor": 1.3
+                }
+            }],
+            "food": [], "innovation_counter": 1, "phylo_nodes": [], "chronicle_entries": []
+        }"#;
+        std::fs::write(&path, json).unwrap();
+        let state = load_world(&path).expect("a save missing newer genome fields loads");
+        assert_eq!(state.organisms.len(), 1, "the organism must not be dropped");
+        let g = &state.organisms[0].genome;
+        assert_eq!(g.body_size, 0.7);
+        assert_eq!(g.speed_factor, 1.3);
+        let d = SaveGenome::default();
+        assert_eq!(g.sense_range, d.sense_range);
+        assert_eq!(g.armor, d.armor);
+        assert_eq!(g.disease_resistance, d.disease_resistance);
+        assert_eq!(g.diet, d.diet);
     }
 }
