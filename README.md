@@ -13,8 +13,9 @@ cargo run --release
 Each run gets a unique cosmic name (e.g. "pale-fading-shard"). Session data — chronicle log, screenshots, save files — lives in `sessions/<name>/`.
 
 ```bash
-# Save: press F5 during gameplay
+# Save: press F5 during gameplay. Export one creature: Inspect tab, "Export creature" writes sessions/<name>/<species>-t<tick>.json
 cargo run --release -- --load sessions/pale-fading-shard   # load a saved session
+cargo run --release -- --seed-with vorax-t4567.json        # add exported creatures to the founders (repeatable, several paths per flag; ignored with --load)
 cargo run --release -- --seed 42                           # seeded sim (reproducible headless; the GUI is wall-clock paced, see docs)
 cargo run --release -- --species-threshold 1.0             # override the NEAT compatibility threshold (GUI or headless)
 cargo run --release -- --script tours/demo.json            # scripted tour with egui-aware screenshots

@@ -659,6 +659,18 @@ pub enum WorldEventRequest {
     NutrientRain,
     CambrianSpark,
     Save,
+    /// Write one organism's genome and metadata to a creature file in the
+    /// session directory, for `--seed-with` in another world.
+    ExportOrganism(Entity),
+}
+
+/// Outcome of the most recent organism export, for the Inspect panel and
+/// any other reader outside the sim crate. `None` until an export has
+/// been attempted this run.
+#[derive(Resource, Default)]
+pub struct OrganismExportReport {
+    /// The path written on success, or the error text on failure.
+    pub last: Option<Result<PathBuf, String>>,
 }
 
 /// Ask the camera to centre on a world position. Fired by UI elements that

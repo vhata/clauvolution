@@ -31,6 +31,7 @@ Systems run in Bevy's standard schedules:
 - `keyboard_to_events_system` — translate hotkeys into `WorldEventRequest` events
 - `mass_extinction_input_system` — consume `WorldEventRequest` to trigger asteroid/ice/volcano/blooms
 - `save_system` — consume `WorldEventRequest::Save` to serialise the world; logs and chronicles the outcome and records it in `SaveReport` for the headless runner
+- `export_organism_system` — consume `WorldEventRequest::ExportOrganism(entity)` to write one creature file; outcome goes to the log, the chronicle and `OrganismExportReport` for the Inspect panel
 - Rendering-adjacent Update systems: click-select, speed control, toggle minimap/trails, screenshot, LOD change, minimap click
 - UI systems (`header_bar_system`, `right_panel_system`) — draw the egui overlays
 
@@ -101,6 +102,7 @@ update_minimap                ← repaint the minimap image every 0.5s
 | UI panels | `clauvolution_ui::<tab>_tab` functions |
 | Camera, minimap, gizmos | `clauvolution_render` |
 | Save/load | `clauvolution_sim::save` module |
+| Creature export / `--seed-with` import | `CreatureFile` in `clauvolution_sim::save`; founders spawned by `spawn_initial_population` |
 | Energy accounting | `EnergyLedger` and `EnergyFlows` in `clauvolution_core`; `clauvolution_sim::ledger_system` |
 
 ## Bevy schedule essentials

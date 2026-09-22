@@ -110,9 +110,6 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 - [PERF] `batch-spatial-hash-queries` — **Cache or batch the per-tick spatial hash queries.** Roughly 2000 radius queries run every tick, each one independent of the others.
   - Starting point: Look for queries that can share a single pass or reuse the previous tick's result.
   - Source: docs/ROADMAP.md (Backlog), 2026-09-16
-- [PERSIST] `organism-export-import` — **Export and import a single organism.** Lets an interesting creature be saved and dropped into another sim as a seed population.
-  - Starting point: JSON export of one organism's genome plus a `--seed-with creature.json` CLI flag.
-  - Source: docs/ROADMAP.md (Backlog), 2026-09-16
 
 ### Unprioritized
 
