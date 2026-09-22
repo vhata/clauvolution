@@ -62,6 +62,9 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
   - Starting point: A phase 2 design question in `docs/design/simulation-rules.md`. If water becomes habitat: vegetation or a plankton analogue on water tiles, shallow water among the founding biomes, and the aquatic axis doing real work in metabolism and movement. Decide before the phase 2 terrain work, since it changes what the generator should produce.
   - Source: per-biome seeding review, 2026-09-18
   - Related: `move-cost-table-by-tile`
+- [TOOLING] `skip-test-hook-for-docs-only-pushes` — **Skip the pre-push test gate when a push touches no code.** Pushing a plan or a docs change runs the whole workspace test suite, which took 54 seconds for a single markdown file on 2026-09-22.
+  - Starting point: `scripts/test.sh` is the pre-push job in `lefthook.yml`. Decide first whether skipping is compatible with the gate policy in `docs/QUALITY.md`; if so, have the script diff the pushed range against the remote and exit early when only `*.md` under `docs/`, `plans/` and `review/` (plus `TODO.md` and `README.md`) changed. CI still runs the full suite either way.
+  - Source: pyramid-top plan push, 2026-09-22
 
 ## Needs proof of concept
 
@@ -138,3 +141,10 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 - [PERSIST] `persist-terrain-state` — **Save terrain state instead of regenerating it from the seed.** Niche construction changes to vegetation density, moisture, and nutrients are silently lost on save and load, so a loaded world is not the world that was saved.
   - Starting point: Decide whether to persist the full tilemap or only the fields organisms modify.
   - Source: CLAUDE.md (Known rough edges), 2026-09-16
+- [TOOLING] `unknown-flag-launches-gui` — **Refuse unknown CLI flags and answer `--help` instead of opening a window.** The argument parser in `clauvolution_app` looks up the flags it knows and ignores everything else, so a typo or `--help` launches the GUI as if no flags were given.
+  - Starting point: Collect the known flag names in one place, print usage and exit non-zero for anything unrecognised, and treat `--help` as usage. The README's flag list is the source for the usage text; keep them from drifting (a test that every README flag is known would do). Found when a headless agent ran `--help` to check usage and got a window.
+  - Source: todo/reproduction-linear-scans branch, 2026-09-22
+- [SIM] `name-action-predation-reproduction-literals` — **Name the inline literals in `action_system`, `predation_system` and `reproduction_system`.** #39 named the disease and niche literals and deliberately left these three systems alone because grazing and attack were about to be redesigned; they still carry armour drag 0.3, speed 2.0, fin 0.3, limb 0.15, aquatic 0.5, mouth bonus 0.3, eat range 3.0, attack gate 0.5, attack range 4.0, defence 0.5, size gate 0.6, damage gate 0.1, reproduce gate 0.5, mate range 8.0, spawn offset 5.0 and the flash timers.
+  - Starting point: Do it as part of step 2 of `plans/2026-09-21-pyramid-top.md`, which touches the mouth bonus, eat range and the predation gates anyway, or immediately after it lands so the names match the new rules. Values unchanged; prove it with identical same-seed CSVs as #39 did.
+  - Source: #39 report, 2026-09-22
+  - Related: `sim-config-resource`
