@@ -1606,7 +1606,9 @@ fn reproduction_system(
     // say how often the ceiling was the thing deciding the population.
     let ceiling = config.population_ceiling as usize;
     let mut blocked_births = 0u64;
-    let mut already_mated: Vec<Entity> = Vec::new();
+    // Membership only, never iterated, so the set has no bearing on the
+    // deterministic order in which parents are visited and the RNG is drawn.
+    let mut already_mated: HashSet<Entity> = HashSet::new();
 
     // When more parents want a child than the ceiling has room for, admit
     // each with probability slots / wanting rather than in query iteration
@@ -1677,7 +1679,7 @@ fn reproduction_system(
                     && mate_energy.0 > config.reproduction_energy_threshold
                 {
                     mate_genome = Some(mate_g);
-                    already_mated.push(nearby_entity);
+                    already_mated.insert(nearby_entity);
                     break;
                 }
             }
@@ -1712,7 +1714,7 @@ fn reproduction_system(
                 generation.0 + 1,
                 child_energy,
             ));
-            already_mated.push(entity);
+            already_mated.insert(entity);
         }
     }
 
