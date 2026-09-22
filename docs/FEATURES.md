@@ -80,9 +80,9 @@ One-liner list of what Clauvolution does, grouped by area. For the design ration
 - **Compact header bar** — always-visible summary: sim time, season, population, species (with the effective compatibility threshold, so a `--species-threshold` override is visible), generation, speed, infection count (when > 0), active bloom effects with seconds remaining
 - **Tabbed right panel** (Inspect / Phylo / Graphs / Chronicle / Events / Help):
   - **Inspect** — selected organism stats: species/strategy/parent, energy/health bars, diet and digestion efficiencies, body/brain collapsibles, infection state
-  - **Phylo** — collapsible lineage tree with strategy badges, declining indicators, recently-extinct section; click a species name to select a living member
+  - **Phylo** — collapsible lineage tree with strategy badges, declining indicators, recently-extinct section; click a species name to select a living member; the last species reached by click (here or from the Chronicle tab) stays highlighted
   - **Graphs** — `egui_plot` line charts for population by strategy, death cause breakdown, infection rate & evolved resistance, trait evolution, pop vs species, symbiosis, energy income and costs per second, ledger residual, food & lifespan. Current-stats readout and average-traits grid.
-  - **Chronicle** — scrollable event log with "hide seasons" filter
+  - **Chronicle** — scrollable event log with "hide seasons" filter; speciation and extinction entries are links that switch to the Phylo tab with that species highlighted (and a living member selected, if any), and the volcano entry is a link that centres the camera on the eruption. Entries carry their target through save and load
   - **Events** — buttons for all extinction/bloom events with cooldown feedback; save-world button; active effects readout
   - **Help** — collapsible sections explaining everything
 

@@ -131,9 +131,6 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 - [SIM] `split-reproduction-system` — **Split reproduction into its three concerns.** `reproduction_system` runs about 114 lines mixing mate finding, genome crossover and mutation, and child spawning.
   - Starting point: The three concerns are a natural split boundary.
   - Source: docs/ROADMAP.md (Known tech debt), 2026-09-16
-- [UI] `clickable-chronicle-entries` — **Make chronicle entries clickable.** Turns each chronicle line into a way to reach what it describes instead of a dead label.
-  - Starting point: A species entry switches to the Phylo tab and highlights that species; a location entry focuses the camera there. The extinction post-mortem item in roadmap Theme 1 wants the same click target, so check that shape before building.
-  - Source: docs/ROADMAP.md (Cool ideas to try), 2026-09-16
 - [RENDER] `creature-portrait-v2-polish` — **Polish the creature portrait.** V1 reads the anatomy correctly but looks rough, and the portrait is one of the main places the sim is looked at closely.
   - Starting point: Curved or jointed limbs instead of single line segments, layered fin art with veins or gradients, a subtly shaded torso, an idle breathing animation synced to Age, visibly stacking armor plates for multiple ArmorPlate genes, and proper bilateral-pair alignment along a centre axis rather than jittering on attachment slot offsets. Metaballs and L-systems remain optional future work. See `docs/design/creature-portrait.md`.
   - Source: docs/ROADMAP.md (Cool ideas to try), 2026-09-16
