@@ -18,6 +18,7 @@ impl Plugin for CorePlugin {
             app.insert_resource(session);
         }
         app.add_event::<WorldEventRequest>()
+            .add_event::<CameraFocusRequest>()
             .insert_resource(SimConfig::default())
             .insert_resource(SimStats::default())
             .insert_resource(PredationStats::default())
@@ -659,6 +660,14 @@ pub enum WorldEventRequest {
     CambrianSpark,
     Save,
 }
+
+/// Ask the camera to centre on a world position. Fired by UI elements that
+/// name a place (a chronicle entry for a volcano, for instance) and consumed
+/// by the render crate's camera system, which is the only thing that moves
+/// the camera. The UI crate cannot reach the camera directly because it does
+/// not depend on the render crate.
+#[derive(Event, Clone, Copy, Debug, PartialEq)]
+pub struct CameraFocusRequest(pub Vec2);
 
 /// Active temporary bloom effects — decay over time
 #[derive(Resource, Default)]

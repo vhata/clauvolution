@@ -278,10 +278,23 @@ pub struct WorldChronicle {
     pub log_path: Option<std::path::PathBuf>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ChronicleEntry {
     pub tick: u64,
     pub text: String,
+    /// What the entry is about, when it is about something the UI can show.
+    /// Entries with no target render as plain text.
+    pub target: Option<ChronicleTarget>,
+}
+
+/// The thing a chronicle entry describes, so the Chronicle tab can turn the
+/// line into a way of reaching it. A species entry leads to the Phylo tab
+/// (and is the hook an extinction post-mortem would key off); a location
+/// entry leads the camera to the spot.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ChronicleTarget {
+    Species(u64),
+    Location(Vec2),
 }
 
 impl Default for WorldChronicle {
@@ -295,7 +308,24 @@ impl Default for WorldChronicle {
 }
 
 impl WorldChronicle {
+    /// Record an entry that is not about anything the UI can navigate to.
     pub fn log(&mut self, tick: u64, text: String) {
+        self.log_with_target(tick, text, None);
+    }
+
+    /// Record an entry about a species; the Chronicle tab links it to the
+    /// Phylo tab.
+    pub fn log_species(&mut self, tick: u64, text: String, species_id: u64) {
+        self.log_with_target(tick, text, Some(ChronicleTarget::Species(species_id)));
+    }
+
+    /// Record an entry about a place; the Chronicle tab links it to the
+    /// camera.
+    pub fn log_location(&mut self, tick: u64, text: String, position: Vec2) {
+        self.log_with_target(tick, text, Some(ChronicleTarget::Location(position)));
+    }
+
+    pub fn log_with_target(&mut self, tick: u64, text: String, target: Option<ChronicleTarget>) {
         // Write to file if path is set
         if let Some(ref path) = self.log_path {
             use std::io::Write;
@@ -313,7 +343,7 @@ impl WorldChronicle {
                 let _ = writeln!(file, "[{}] {}", time_str, text);
             }
         }
-        self.entries.push(ChronicleEntry { tick, text });
+        self.entries.push(ChronicleEntry { tick, text, target });
     }
 
     pub fn render_text(&self) -> String {
@@ -774,6 +804,25 @@ mod tests {
         let mut innovation = InnovationCounter(0);
         let mut rng = StdRng::seed_from_u64(seed);
         Genome::new_minimal(&mut innovation, &mut rng)
+    }
+
+    #[test]
+    fn chronicle_entries_carry_the_target_they_were_logged_with() {
+        let mut chronicle = WorldChronicle::default();
+        chronicle.log(1, "Spring arrives".to_string());
+        chronicle.log_species(2, "New species: Foo".to_string(), 7);
+        chronicle.log_location(3, "VOLCANIC ERUPTION!".to_string(), Vec2::new(40.0, 60.0));
+
+        assert_eq!(chronicle.entries[0].target, None);
+        assert_eq!(
+            chronicle.entries[1].target,
+            Some(ChronicleTarget::Species(7))
+        );
+        assert_eq!(
+            chronicle.entries[2].target,
+            Some(ChronicleTarget::Location(Vec2::new(40.0, 60.0)))
+        );
+        assert_eq!(chronicle.entries[1].text, "New species: Foo");
     }
 
     #[test]

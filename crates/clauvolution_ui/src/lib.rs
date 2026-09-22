@@ -8,7 +8,7 @@ use clauvolution_brain::Brain;
 use clauvolution_core::*;
 use clauvolution_genome::{Genome, SegmentType, Symmetry, NUM_INPUTS, NUM_OUTPUTS};
 use clauvolution_phylogeny::{
-    classify_strategy, PhyloNode, PhyloTree, SpeciesStrategy, WorldChronicle,
+    classify_strategy, ChronicleTarget, PhyloNode, PhyloTree, SpeciesStrategy, WorldChronicle,
 };
 use clauvolution_world::TileMap;
 use egui_plot::{HLine, Legend, Line, Plot, PlotPoints};
@@ -111,6 +111,23 @@ pub struct UiState {
     pub right_tab: RightTab,
     pub egui_wants_keyboard: bool,
     pub chronicle_hide_seasons: bool,
+    /// Species whose row the Phylo tab draws highlighted. Set by clicking a
+    /// species name in the Phylo tab or a species entry in the Chronicle tab.
+    pub phylo_highlight_species: Option<u64>,
+    /// One-shot: the next Phylo frame scrolls to the highlighted row and
+    /// opens the "Recently extinct" section if the species is in it.
+    pub phylo_reveal_pending: bool,
+}
+
+impl UiState {
+    /// Jump to the Phylo tab with `species_id` highlighted and scrolled into
+    /// view. Selection of a living member is the caller's job, since it
+    /// needs the organism query.
+    pub fn show_species_in_phylo(&mut self, species_id: u64) {
+        self.right_tab = RightTab::Phylo;
+        self.phylo_highlight_species = Some(species_id);
+        self.phylo_reveal_pending = true;
+    }
 }
 
 fn help_tab(ui: &mut egui::Ui) {
@@ -286,6 +303,7 @@ fn right_panel_system(
     mut ui_state: ResMut<UiState>,
     chronicle: Res<WorldChronicle>,
     mut event_writer: EventWriter<WorldEventRequest>,
+    mut focus_writer: EventWriter<CameraFocusRequest>,
     bloom: Res<BloomEffects>,
     mut selected: ResMut<SelectedOrganism>,
     organisms: Query<
@@ -346,13 +364,27 @@ fn right_panel_system(
                     );
                 }
                 RightTab::Phylo => {
-                    phylo_tab(ui, &phylo, tick.0, &mut selected, &species_members);
+                    phylo_tab(
+                        ui,
+                        &phylo,
+                        tick.0,
+                        &mut ui_state,
+                        &mut selected,
+                        &species_members,
+                    );
                 }
                 RightTab::Graphs => {
                     graphs_tab(ui, &history);
                 }
                 RightTab::Chronicle => {
-                    chronicle_tab(ui, &chronicle, &mut ui_state.chronicle_hide_seasons);
+                    chronicle_tab(
+                        ui,
+                        &chronicle,
+                        &mut ui_state,
+                        &mut selected,
+                        &species_members,
+                        &mut focus_writer,
+                    );
                 }
                 RightTab::Events => {
                     events_tab(ui, &mut event_writer, &bloom);
@@ -370,6 +402,7 @@ fn phylo_tab(
     ui: &mut egui::Ui,
     phylo: &PhyloTree,
     current_tick: u64,
+    ui_state: &mut UiState,
     selected: &mut SelectedOrganism,
     species_members: &Query<(Entity, &SpeciesId), With<Organism>>,
 ) {
@@ -382,6 +415,12 @@ fn phylo_tab(
     // If a species name gets clicked below, we'll remember its id and resolve
     // the first living-member lookup after the tree renders.
     let mut clicked_species: Option<u64> = None;
+
+    let highlight = ui_state.phylo_highlight_species;
+    let reveal = std::mem::take(&mut ui_state.phylo_reveal_pending);
+    let highlight_is_extinct = highlight
+        .and_then(|id| phylo.nodes.get(&id))
+        .is_some_and(|n| n.extinct_tick.is_some());
 
     let living: Vec<&PhyloNode> = phylo
         .nodes
@@ -461,8 +500,14 @@ fn phylo_tab(
                     .default_open(true)
                     .show(ui, |ui| {
                         for node in &members {
-                            if species_row(ui, node, current_tick) {
+                            let highlighted = highlight == Some(node.species_id);
+                            let (clicked, response) =
+                                species_row(ui, node, current_tick, highlighted);
+                            if clicked {
                                 clicked_species = Some(node.species_id);
+                            }
+                            if highlighted && reveal {
+                                response.scroll_to_me(Some(egui::Align::Center));
                             }
                         }
                     });
@@ -483,10 +528,14 @@ fn phylo_tab(
             if !recently_extinct.is_empty() {
                 ui.add_space(8.0);
                 ui.separator();
+                // Force the section open on the frame a chronicle click lands
+                // on an extinct species; otherwise leave its state alone.
+                let open = (reveal && highlight_is_extinct).then_some(true);
                 egui::CollapsingHeader::new(format!(
                     "Recently extinct ({})",
                     recently_extinct.len().min(10)
                 ))
+                .open(open)
                 .show(ui, |ui| {
                     for node in recently_extinct.iter().take(10) {
                         let age_secs =
@@ -496,32 +545,63 @@ fn phylo_tab(
                             .unwrap_or(0)
                             .saturating_sub(node.born_tick)
                             / 30;
-                        ui.horizontal(|ui| {
-                            ui.small(format!("✝ {}", node.name));
+                        let highlighted = highlight == Some(node.species_id);
+                        let response = ui.horizontal(|ui| {
+                            let name = egui::RichText::new(format!("✝ {}", node.name)).small();
+                            ui.label(if highlighted {
+                                name.strong().background_color(highlight_fill(ui))
+                            } else {
+                                name
+                            });
                             ui.small(format!(
                                 "peak {} · lived {}s · died {}s ago",
                                 node.peak_population, lived, age_secs
                             ));
                         });
+                        if highlighted && reveal {
+                            response.response.scroll_to_me(Some(egui::Align::Center));
+                        }
                     }
                 });
             }
         });
 
     // Resolve a click on a species name into a selection of a living member.
-    // First match wins — arbitrary but deterministic given query ordering.
     if let Some(sp_id) = clicked_species {
-        for (entity, species) in species_members.iter() {
-            if species.0 == sp_id {
-                selected.entity = Some(entity);
-                break;
-            }
+        ui_state.phylo_highlight_species = Some(sp_id);
+        select_living_member(sp_id, selected, species_members);
+    }
+}
+
+/// Select the first living member of `species_id`, if there is one. First
+/// match wins: arbitrary but deterministic given query ordering. Leaves the
+/// selection alone when the species has no living members.
+fn select_living_member(
+    species_id: u64,
+    selected: &mut SelectedOrganism,
+    species_members: &Query<(Entity, &SpeciesId), With<Organism>>,
+) {
+    for (entity, species) in species_members.iter() {
+        if species.0 == species_id {
+            selected.entity = Some(entity);
+            break;
         }
     }
 }
 
-/// Returns true if the species name was clicked (caller resolves the selection).
-fn species_row(ui: &mut egui::Ui, node: &PhyloNode, current_tick: u64) -> bool {
+/// Background for the highlighted species row in the Phylo tab.
+fn highlight_fill(ui: &egui::Ui) -> egui::Color32 {
+    ui.visuals().selection.bg_fill
+}
+
+/// Returns whether the species name was clicked (caller resolves the
+/// selection) and the row's response, so a caller can scroll to it.
+fn species_row(
+    ui: &mut egui::Ui,
+    node: &PhyloNode,
+    current_tick: u64,
+    highlighted: bool,
+) -> (bool, egui::Response) {
     let age_secs = current_tick.saturating_sub(node.born_tick) / 30;
     let age_str = if age_secs >= 60 {
         format!("{}m{:02}s", age_secs / 60, age_secs % 60)
@@ -534,11 +614,17 @@ fn species_row(ui: &mut egui::Ui, node: &PhyloNode, current_tick: u64) -> bool {
     let declining = node.current_population < node.peak_population / 2;
 
     let mut clicked = false;
-    ui.horizontal(|ui| {
+    let response = ui.horizontal(|ui| {
         ui.colored_label(strategy_badge.1, strategy_badge.0);
         // Clickable name — selects a living member of this species
+        let name = egui::RichText::new(&node.name);
+        let name = if highlighted {
+            name.strong().background_color(highlight_fill(ui))
+        } else {
+            name
+        };
         if ui
-            .link(&node.name)
+            .link(name)
             .on_hover_text("Click to select a living member")
             .clicked()
         {
@@ -553,7 +639,7 @@ fn species_row(ui: &mut egui::Ui, node: &PhyloNode, current_tick: u64) -> bool {
             ui.small(format!("pop {}", node.current_population));
         });
     });
-    clicked
+    (clicked, response.response)
 }
 
 fn inspect_tab(
@@ -2023,15 +2109,26 @@ fn events_tab(
     });
 }
 
-fn chronicle_tab(ui: &mut egui::Ui, chronicle: &WorldChronicle, hide_seasons: &mut bool) {
+/// Chronicle entries that carry a target are links: a species entry shows
+/// that species in the Phylo tab (and selects a living member if it has one),
+/// a location entry centres the camera there.
+fn chronicle_tab(
+    ui: &mut egui::Ui,
+    chronicle: &WorldChronicle,
+    ui_state: &mut UiState,
+    selected: &mut SelectedOrganism,
+    species_members: &Query<(Entity, &SpeciesId), With<Organism>>,
+    focus_writer: &mut EventWriter<CameraFocusRequest>,
+) {
     ui.horizontal(|ui| {
         ui.heading("Chronicle");
         ui.add_space(8.0);
-        ui.checkbox(hide_seasons, "Hide seasons");
+        ui.checkbox(&mut ui_state.chronicle_hide_seasons, "Hide seasons");
     });
     ui.separator();
 
-    let hide = *hide_seasons;
+    let hide = ui_state.chronicle_hide_seasons;
+    let mut clicked_target: Option<ChronicleTarget> = None;
     egui::ScrollArea::vertical()
         .stick_to_bottom(true)
         .auto_shrink([false, false])
@@ -2056,10 +2153,34 @@ fn chronicle_tab(ui: &mut egui::Ui, chronicle: &WorldChronicle, hide_seasons: &m
                 };
                 ui.horizontal(|ui| {
                     ui.monospace(format!("[{}]", time_str));
-                    ui.label(&entry.text);
+                    match entry.target {
+                        None => {
+                            ui.label(&entry.text);
+                        }
+                        Some(target) => {
+                            let hover = match target {
+                                ChronicleTarget::Species(_) => "Click to show in the Phylo tab",
+                                ChronicleTarget::Location(_) => "Click to focus the camera here",
+                            };
+                            if ui.link(&entry.text).on_hover_text(hover).clicked() {
+                                clicked_target = Some(target);
+                            }
+                        }
+                    }
                 });
             }
         });
+
+    match clicked_target {
+        None => {}
+        Some(ChronicleTarget::Species(species_id)) => {
+            ui_state.show_species_in_phylo(species_id);
+            select_living_member(species_id, selected, species_members);
+        }
+        Some(ChronicleTarget::Location(position)) => {
+            focus_writer.send(CameraFocusRequest(position));
+        }
+    }
 }
 
 /// Panel colour for a strategy, shared by the Phylo badges, the Inspect

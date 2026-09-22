@@ -2,7 +2,9 @@ use bevy::prelude::*;
 use clauvolution_brain::Brain;
 use clauvolution_core::*;
 use clauvolution_genome::*;
-use clauvolution_phylogeny::{PhyloNode, PhyloTree, SpeciesStrategy, WorldChronicle};
+use clauvolution_phylogeny::{
+    ChronicleTarget, PhyloNode, PhyloTree, SpeciesStrategy, WorldChronicle,
+};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -184,6 +186,32 @@ pub struct SavePhyloNode {
 pub struct SaveChronicleEntry {
     pub tick: u64,
     pub text: String,
+    /// Added after the first saves were written; older files have no field
+    /// and load as untargeted entries.
+    #[serde(default)]
+    pub target: Option<SaveChronicleTarget>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub enum SaveChronicleTarget {
+    Species { id: u64 },
+    Location { x: f32, y: f32 },
+}
+
+impl SaveChronicleTarget {
+    fn from_target(target: ChronicleTarget) -> Self {
+        match target {
+            ChronicleTarget::Species(id) => SaveChronicleTarget::Species { id },
+            ChronicleTarget::Location(pos) => SaveChronicleTarget::Location { x: pos.x, y: pos.y },
+        }
+    }
+
+    fn into_target(self) -> ChronicleTarget {
+        match self {
+            SaveChronicleTarget::Species { id } => ChronicleTarget::Species(id),
+            SaveChronicleTarget::Location { x, y } => ChronicleTarget::Location(Vec2::new(x, y)),
+        }
+    }
 }
 
 // --- Conversion helpers ---
@@ -402,6 +430,7 @@ pub fn save_world(
             .map(|e| SaveChronicleEntry {
                 tick: e.tick,
                 text: e.text.clone(),
+                target: e.target.map(SaveChronicleTarget::from_target),
             })
             .collect(),
     };
@@ -567,6 +596,7 @@ pub fn restore_chronicle(chronicle: &mut WorldChronicle, entries: &[SaveChronicl
             .push(clauvolution_phylogeny::ChronicleEntry {
                 tick: e.tick,
                 text: e.text.clone(),
+                target: e.target.map(SaveChronicleTarget::into_target),
             });
     }
 }
@@ -719,5 +749,40 @@ mod tests {
         assert_eq!(g.armor, d.armor);
         assert_eq!(g.disease_resistance, d.disease_resistance);
         assert_eq!(g.diet, d.diet);
+    }
+
+    #[test]
+    fn chronicle_targets_survive_a_save_round_trip() {
+        let mut chronicle = WorldChronicle::default();
+        chronicle.log(1, "plain".to_string());
+        chronicle.log_species(2, "species".to_string(), 42);
+        chronicle.log_location(3, "place".to_string(), Vec2::new(12.5, -3.0));
+
+        let saved: Vec<SaveChronicleEntry> = chronicle
+            .entries
+            .iter()
+            .map(|e| SaveChronicleEntry {
+                tick: e.tick,
+                text: e.text.clone(),
+                target: e.target.map(SaveChronicleTarget::from_target),
+            })
+            .collect();
+        let json = serde_json::to_string(&saved).unwrap();
+        let loaded: Vec<SaveChronicleEntry> = serde_json::from_str(&json).unwrap();
+
+        let mut restored = WorldChronicle::default();
+        restore_chronicle(&mut restored, &loaded);
+        assert_eq!(restored.entries, chronicle.entries);
+    }
+
+    #[test]
+    fn chronicle_entries_without_a_target_field_still_load() {
+        let legacy = r#"[{"tick": 5, "text": "World loaded from save"}]"#;
+        let loaded: Vec<SaveChronicleEntry> = serde_json::from_str(legacy).unwrap();
+        let mut restored = WorldChronicle::default();
+        restore_chronicle(&mut restored, &loaded);
+        assert_eq!(restored.entries.len(), 1);
+        assert_eq!(restored.entries[0].tick, 5);
+        assert_eq!(restored.entries[0].target, None);
     }
 }
