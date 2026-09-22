@@ -143,7 +143,3 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 - [PERSIST] `persist-terrain-state` — **Save terrain state instead of regenerating it from the seed.** Niche construction changes to vegetation density, moisture, and nutrients are silently lost on save and load, so a loaded world is not the world that was saved.
   - Starting point: Decide whether to persist the full tilemap or only the fields organisms modify.
   - Source: CLAUDE.md (Known rough edges), 2026-09-16
-- [PERF] `reproduction-linear-scans` — **Replace the linear scan in `reproduction_system`.** `already_mated.contains` scans a vector once per organism and once per nearby candidate, so mate search is quadratic in population; at 6000 organisms the carrying-capacity experiment measured 2.5x to 3.4x the tick cost of 2000 (that measurement predates the removal of the `mate_candidates` scan).
-  - Starting point: A `HashSet` for `already_mated`. This is the first performance cost the population-ceiling raise in phase 1 of `docs/design/simulation-rules.md` will hit.
-  - Source: roadmap/emergent-carrying-capacity branch, 2026-09-18
-  - Related: `split-reproduction-system`, `rayon-remaining-systems`
