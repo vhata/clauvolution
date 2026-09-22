@@ -29,7 +29,6 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 - [SIM] `system-ordering-convention` — **Decide one convention for simulation system ordering.** Some systems use explicit `.chain()` and others rely on default Bevy ordering within a tuple, so the intent behind any given ordering is unclear.
   - Starting point: Establish which form is deliberate, then apply it consistently and record the choice.
   - Source: docs/ROADMAP.md (Known tech debt), 2026-09-16
-  - Related: `document-world-mutation-event-convention`
 - [BRAIN] `convergent-detection-noise` — **Assess convergent evolution detection cost and noise.** Detection scans every species on each classification tick, and early in a run the results may be noisy enough to be misleading.
   - Starting point: Measure how often it fires in the first few thousand ticks before deciding between a cheaper scan, a warm-up delay, or leaving it alone.
   - Source: CLAUDE.md (Known rough edges), 2026-09-16
@@ -131,10 +130,6 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 - [SIM] `split-reproduction-system` — **Split reproduction into its three concerns.** `reproduction_system` runs about 114 lines mixing mate finding, genome crossover and mutation, and child spawning.
   - Starting point: The three concerns are a natural split boundary.
   - Source: docs/ROADMAP.md (Known tech debt), 2026-09-16
-- [DOCS] `document-world-mutation-event-convention` — **Document when a world mutation goes through an event.** `mass_extinction_input_system` raises a `WorldEventRequest` while `action_system` spawns food entities directly, and nothing records which is intended.
-  - Starting point: The current rule is that only user-triggered mutations become events, which is a reasonable convention. It just needs writing down in `docs/ARCHITECTURE.md`.
-  - Source: docs/ROADMAP.md (Known tech debt), 2026-09-16
-  - Related: `system-ordering-convention`
 - [PERSIST] `genome-serde-default-consistency` — **Default every genome field for save compatibility.** Only `disease_resistance` carries `#[serde(default)]`, so an older save missing a newer field fails to load.
   - Starting point: Apply `#[serde(default)]` across the genome fields and record the rule so new fields get it too.
   - Source: docs/ROADMAP.md (Known tech debt), 2026-09-16
