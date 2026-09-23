@@ -819,6 +819,7 @@ struct ConfigOverrides {
     species_threshold: Option<f32>,
     bite_fraction: Option<f32>,
     bite_reach: Option<f32>,
+    mouthless_bite: Option<f32>,
     kill_transfer: Option<f32>,
     photo_drag: Option<f32>,
     leaf_capacity: Option<f32>,
@@ -841,6 +842,7 @@ impl ConfigOverrides {
             species_threshold: flag(args, "--species-threshold"),
             bite_fraction: flag(args, "--bite-fraction"),
             bite_reach: flag(args, "--bite-reach"),
+            mouthless_bite: flag(args, "--mouthless-bite"),
             kill_transfer: flag(args, "--kill-transfer"),
             photo_drag: flag(args, "--photo-drag"),
             leaf_capacity: flag(args, "--leaf-capacity"),
@@ -871,6 +873,11 @@ fn apply_config_overrides(overrides: Res<ConfigOverrides>, mut config: ResMut<Si
         "bite_fraction",
     );
     set(&mut config.bite_reach, overrides.bite_reach, "bite_reach");
+    set(
+        &mut config.mouthless_bite_bonus,
+        overrides.mouthless_bite,
+        "mouthless_bite_bonus",
+    );
     set(
         &mut config.kill_transfer_fraction,
         overrides.kill_transfer,

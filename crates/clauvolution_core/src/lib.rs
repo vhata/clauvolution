@@ -244,6 +244,11 @@ pub struct SimConfig {
     /// `docs/DECISIONS.md`, "Grazing through eat". Overridable with
     /// `--bite-reach`.
     pub bite_reach: f32,
+    /// Share of a plant bite an eater without a mouth segment takes (a
+    /// mouthed eater takes all of it). Food items keep their own fixed
+    /// mouthless share in `clauvolution_sim`. See `docs/DECISIONS.md`,
+    /// "Grazing through eat". Overridable with `--mouthless-bite`.
+    pub mouthless_bite_bonus: f32,
     /// Founders draw `diet` uniformly from `-spread..spread`. Overridable
     /// with `--founder-diet-spread`.
     pub founder_diet_spread: f32,
@@ -297,6 +302,7 @@ impl Default for SimConfig {
             reproduction_energy_threshold: 70.0,
             bite_fraction: 0.3,
             bite_reach: 3.0,
+            mouthless_bite_bonus: 0.3,
             kill_transfer_fraction: 0.1,
             photo_drag: 1.0,
             leaf_capacity_per_tile: 0.02,

@@ -276,6 +276,16 @@ pub fn mouth_bonus(genome: &Genome) -> f32 {
     }
 }
 
+/// The mouth bonus on a plant bite: `MOUTH_BONUS` with a mouth segment,
+/// `mouthless` (`SimConfig::mouthless_bite_bonus`) without.
+pub fn bite_mouth_bonus(genome: &Genome, mouthless: f32) -> f32 {
+    if genome.has_mouth() {
+        MOUTH_BONUS
+    } else {
+        mouthless
+    }
+}
+
 /// One bite of a living plant through `eat`: `bite_fraction` of what the
 /// plant holds, scaled by the eater's mouth. This is what the plant loses and
 /// what the eater then digests at its `plant_efficiency`.
@@ -1078,7 +1088,7 @@ fn grazing_system(
                 e,
                 pos.0,
                 body_size.0 * config.bite_reach,
-                mouth_bonus(genome),
+                bite_mouth_bonus(genome, config.mouthless_bite_bonus),
                 genome.is_photosynthesiser(),
             )
         })
