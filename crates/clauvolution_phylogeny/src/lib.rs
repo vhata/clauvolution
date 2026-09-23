@@ -405,6 +405,10 @@ pub enum SpeciesStrategy {
 /// food and at most 11% of the other (`Genome::plant_efficiency`).
 pub const DIET_SPECIALIST_THRESHOLD: f32 = 1.0 / 3.0;
 
+/// Members a living species needs before `PhyloTree::detect_convergence`
+/// counts it, so a handful of stragglers does not make a milestone.
+pub const CONVERGENCE_MIN_POPULATION: u32 = 10;
+
 impl SpeciesStrategy {
     /// Every strategy, in display order.
     pub const ALL: [SpeciesStrategy; 4] = [
@@ -596,51 +600,57 @@ impl PhyloTree {
         check_a.iter().any(|id| check_b.contains(id))
     }
 
-    /// Detect convergent evolution: count independent lineages per strategy.
-    /// Returns strategies where 2+ unrelated lineages evolved the same thing.
+    /// Detect convergent evolution: for each strategy, count the distinct
+    /// ancestral species it evolved from, among living species of at least
+    /// `CONVERGENCE_MIN_POPULATION` members. Returns strategies that evolved
+    /// from at least two.
+    ///
+    /// A strategy counts as evolved only where the tree records the change.
+    /// Walking up from a species while the strategy stays the same, the first
+    /// ancestor with a different strategy is where it departed from; a
+    /// species whose line keeps the strategy all the way back to its founder
+    /// inherited it and is not counted. Species that share a departure point
+    /// count once: descendants of one switch inherited it, and siblings that
+    /// crossed the line from the same parent are one population's drift.
     pub fn detect_convergence(&self) -> Vec<(SpeciesStrategy, usize)> {
-        let living = self.living_species();
-
-        let mut results = Vec::new();
-
-        for &strat in &SpeciesStrategy::ALL {
-            let species_with_strat: Vec<&PhyloNode> = living
-                .iter()
-                .filter(|n| n.strategy == strat && n.current_population >= 10)
-                .copied()
-                .collect();
-
-            if species_with_strat.len() < 2 {
+        let mut departures: HashMap<SpeciesStrategy, Vec<u64>> = HashMap::new();
+        for sp in self.living_species() {
+            if sp.current_population < CONVERGENCE_MIN_POPULATION {
                 continue;
             }
-
-            // Count independent lineages: group by shared ancestry
-            let mut lineage_roots: Vec<u64> = Vec::new();
-            for sp in &species_with_strat {
-                let mut root = sp.species_id;
-                let mut current = sp.species_id;
-                for _ in 0..10 {
-                    if let Some(n) = self.nodes.get(&current) {
-                        if let Some(pid) = n.parent_id {
-                            root = pid;
-                            current = pid;
-                        } else {
-                            break;
-                        }
-                    } else {
-                        break;
-                    }
+            if let Some(from) = self.strategy_departure(sp) {
+                let list = departures.entry(sp.strategy).or_default();
+                if !list.contains(&from) {
+                    list.push(from);
                 }
-                if !lineage_roots.contains(&root) {
-                    lineage_roots.push(root);
-                }
-            }
-
-            if lineage_roots.len() >= 2 {
-                results.push((strat, lineage_roots.len()));
             }
         }
-        results
+
+        SpeciesStrategy::ALL
+            .iter()
+            .filter_map(|strat| {
+                let count = departures.get(strat).map_or(0, Vec::len);
+                (count >= 2).then_some((*strat, count))
+            })
+            .collect()
+    }
+
+    /// The nearest ancestor of `node` whose strategy differs from `node`'s,
+    /// which is the species its strategy evolved from. `None` when the
+    /// strategy runs unbroken to a founder, or to an ancestor missing from
+    /// the tree, because then no change is recorded.
+    fn strategy_departure(&self, node: &PhyloNode) -> Option<u64> {
+        let mut current = node;
+        // Parents are recorded before their children, so the walk ends; the
+        // bound only guards against a malformed tree from a save.
+        for _ in 0..self.nodes.len() {
+            let parent = self.nodes.get(&current.parent_id?)?;
+            if parent.strategy != node.strategy {
+                return Some(parent.species_id);
+            }
+            current = parent;
+        }
+        None
     }
 
     /// Build a text representation of the tree for display
@@ -799,6 +809,7 @@ mod tests {
     };
     use rand::rngs::StdRng;
     use rand::SeedableRng;
+    use SpeciesStrategy::{Grazer, Hunter, Omnivore, Photosynthesizer};
 
     fn genome(seed: u64) -> Genome {
         let mut innovation = InnovationCounter(0);
@@ -1019,6 +1030,126 @@ mod tests {
         assert_eq!(words.len(), 3, "{name}");
         assert_eq!(words[0], "Plains");
         assert_eq!(words[2], "Grazer");
+    }
+
+    /// Records `(id, parent, strategy)` species, each alive with 20 members.
+    fn tree(species: &[(u64, Option<u64>, SpeciesStrategy)]) -> PhyloTree {
+        let mut tree = PhyloTree::default();
+        let mut counts = HashMap::new();
+        for &(id, parent, strategy) in species {
+            tree.record_species(id, parent, 0, Color::WHITE, strategy, None);
+            counts.insert(id, 20);
+        }
+        tree.update_populations(&counts, 0);
+        tree
+    }
+
+    #[test]
+    fn founders_sharing_a_strategy_are_not_convergence() {
+        // The first classification pass: every species is a founder.
+        let tree = tree(&[
+            (1, None, Photosynthesizer),
+            (2, None, Photosynthesizer),
+            (3, None, Photosynthesizer),
+            (4, None, Grazer),
+            (5, None, Grazer),
+        ]);
+        assert!(tree.detect_convergence().is_empty());
+    }
+
+    #[test]
+    fn descendants_that_kept_the_founder_strategy_are_not_convergence() {
+        let tree = tree(&[
+            (1, None, Grazer),
+            (2, None, Grazer),
+            (3, Some(1), Grazer),
+            (4, Some(2), Grazer),
+            (5, Some(4), Grazer),
+        ]);
+        assert!(tree.detect_convergence().is_empty());
+    }
+
+    #[test]
+    fn a_strategy_evolved_in_two_founder_lineages_is_convergence() {
+        let tree = tree(&[
+            (1, None, Grazer),
+            (2, None, Omnivore),
+            (3, Some(1), Hunter),
+            (4, Some(2), Hunter),
+        ]);
+        assert_eq!(tree.detect_convergence(), vec![(Hunter, 2)]);
+    }
+
+    #[test]
+    fn species_that_inherited_one_switch_count_once() {
+        // 3 became a hunter; 4 and 5 inherited it from 3.
+        let tree = tree(&[
+            (1, None, Grazer),
+            (3, Some(1), Hunter),
+            (4, Some(3), Hunter),
+            (5, Some(3), Hunter),
+        ]);
+        assert!(tree.detect_convergence().is_empty());
+    }
+
+    #[test]
+    fn siblings_that_switched_from_one_parent_count_once() {
+        // 3, 4 and 5 split off plant 1 as grazers in the same pass.
+        let tree = tree(&[
+            (1, None, Photosynthesizer),
+            (2, None, Photosynthesizer),
+            (3, Some(1), Grazer),
+            (4, Some(1), Grazer),
+            (5, Some(1), Grazer),
+        ]);
+        assert!(tree.detect_convergence().is_empty());
+    }
+
+    #[test]
+    fn two_switches_within_one_founder_lineage_count_twice() {
+        let tree = tree(&[
+            (1, None, Grazer),
+            (2, Some(1), Grazer),
+            (3, Some(1), Hunter),
+            (4, Some(2), Omnivore),
+            (5, Some(4), Hunter),
+        ]);
+        assert_eq!(tree.detect_convergence(), vec![(Hunter, 2)]);
+    }
+
+    #[test]
+    fn descendants_of_an_extinct_switch_share_its_departure() {
+        // 3 evolved hunting from 1 and died out; 4 and 5 still trace to 1.
+        let mut tree = tree(&[
+            (1, None, Grazer),
+            (2, None, Grazer),
+            (3, Some(1), Hunter),
+            (4, Some(3), Hunter),
+            (5, Some(3), Hunter),
+            (6, Some(2), Hunter),
+        ]);
+        let counts: HashMap<u64, u32> = [(1, 20), (2, 20), (4, 20), (5, 20), (6, 20)].into();
+        tree.update_populations(&counts, 1);
+        assert_eq!(tree.detect_convergence(), vec![(Hunter, 2)]);
+    }
+
+    #[test]
+    fn small_species_are_not_counted() {
+        let mut tree = tree(&[
+            (1, None, Grazer),
+            (2, None, Omnivore),
+            (3, Some(1), Hunter),
+            (4, Some(2), Hunter),
+        ]);
+        let counts: HashMap<u64, u32> = [
+            (1, 20),
+            (2, 20),
+            (3, 20),
+            (4, CONVERGENCE_MIN_POPULATION - 1),
+        ]
+        .into();
+        tree.update_populations(&counts, 1);
+        assert!(tree.detect_convergence().is_empty());
     }
 
     #[test]
