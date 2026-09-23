@@ -240,7 +240,8 @@ pub struct SimConfig {
     /// `--bite-fraction`.
     pub bite_fraction: f32,
     /// How far an eater can bite a living plant, as a multiple of its body
-    /// size. Shipped equal to the food-item reach (3 × body size). See
+    /// size. 1.0: a bite needs contact, where a food item is taken from 3 ×
+    /// body size; at 3.0 plants were grazed out on every seed. See
     /// `docs/DECISIONS.md`, "Grazing through eat". Overridable with
     /// `--bite-reach`.
     pub bite_reach: f32,
@@ -301,7 +302,7 @@ impl Default for SimConfig {
             movement_energy_cost: 0.04,
             reproduction_energy_threshold: 70.0,
             bite_fraction: 0.3,
-            bite_reach: 3.0,
+            bite_reach: 1.0,
             mouthless_bite_bonus: 0.3,
             kill_transfer_fraction: 0.1,
             photo_drag: 1.0,

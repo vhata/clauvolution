@@ -3597,9 +3597,14 @@ mod grazing_tests {
     use rand::{rngs::StdRng, SeedableRng};
 
     /// A world holding what `grazing_system` and `predation_system` read.
+    /// Bite reach is set to 3 × body size so the geometry below does not
+    /// move with the shipped default.
     fn feeding_world() -> World {
         let mut world = World::new();
-        world.insert_resource(SimConfig::default());
+        world.insert_resource(SimConfig {
+            bite_reach: 3.0,
+            ..SimConfig::default()
+        });
         world.insert_resource(SpatialHash::new(32.0));
         world.insert_resource(AteFoodThisTick::default());
         world.insert_resource(PredationStats::default());
