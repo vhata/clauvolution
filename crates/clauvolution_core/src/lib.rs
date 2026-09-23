@@ -235,9 +235,15 @@ pub struct SimConfig {
     pub food_energy_value: f32,
     pub species_compat_threshold: f32,
     pub terrain_seed: u64,
-    /// Fraction of a plant's current energy that one bite removes. See
-    /// `docs/DECISIONS.md`, "Grazing". Overridable with `--bite-fraction`.
+    /// Fraction of a plant's current energy that one bite removes, before
+    /// the mouth bonus. See `docs/DECISIONS.md`, "Grazing". Overridable with
+    /// `--bite-fraction`.
     pub bite_fraction: f32,
+    /// How far an eater can bite a living plant, as a multiple of its body
+    /// size. Shipped equal to the food-item reach (3 × body size). See
+    /// `docs/DECISIONS.md`, "Grazing through eat". Overridable with
+    /// `--bite-reach`.
+    pub bite_reach: f32,
     /// Founders draw `diet` uniformly from `-spread..spread`. Overridable
     /// with `--founder-diet-spread`.
     pub founder_diet_spread: f32,
@@ -290,6 +296,7 @@ impl Default for SimConfig {
             movement_energy_cost: 0.04,
             reproduction_energy_threshold: 70.0,
             bite_fraction: 0.3,
+            bite_reach: 3.0,
             kill_transfer_fraction: 0.1,
             photo_drag: 1.0,
             leaf_capacity_per_tile: 0.02,
@@ -380,16 +387,24 @@ pub struct PredationStats {
 /// victim that is not a photosynthesiser (`Genome::is_photosynthesiser`).
 #[derive(Clone, Copy, Default, Debug, PartialEq)]
 pub struct FeedingCounts {
-    /// Bites taken from a living plant through the `eat` output. Always 0
-    /// under the current rules; step 2 of the plan fills it.
+    /// Bites taken from a living plant through the `eat` output
+    /// (`grazing_system`, since step 2 of the plan).
     pub grazes_eat: u64,
-    /// Bites taken from a living plant through the `attack` output.
+    /// Bites taken from a living plant through the `attack` output. Always
+    /// 0 since step 2, where an attack on a plant is a kill attempt; kept so
+    /// history CSVs line up with the step 1 baseline.
     pub grazes_attack: u64,
+    /// The part of `grazes_eat` whose eater is itself a photosynthesiser.
+    pub grazes_eat_by_plant: u64,
     /// Kills whose victim is a consumer.
     pub kills_consumer: u64,
-    /// Kills whose victim is a photosynthesiser. Always 0 under the current
-    /// rules, where an attack on a plant is a graze.
+    /// Kills whose victim is a photosynthesiser.
     pub kills_plant: u64,
+    /// The part of `kills_plant` whose killer is not a photosynthesiser.
+    pub kills_plant_by_consumer: u64,
+    /// Energy kept (after digestion) by non-photosynthesiser killers from
+    /// the plants they killed: how much plant kills feed consumers.
+    pub plant_kill_energy_consumer: f64,
     /// Kills by a killer with `diet < 0`, any victim.
     pub grazer_kills: u64,
     /// Kills by a killer with `diet < 0` whose victim is a consumer: the
@@ -401,10 +416,21 @@ pub struct FeedingCounts {
 }
 
 impl FeedingCounts {
-    /// Count one kill by who made it and what it killed.
-    pub fn record_kill(&mut self, killer_diet: f32, victim_is_plant: bool) {
+    /// Count one kill by who made it and what it killed. `kept` is the
+    /// energy the killer kept after digestion.
+    pub fn record_kill(
+        &mut self,
+        killer_diet: f32,
+        killer_is_plant: bool,
+        victim_is_plant: bool,
+        kept: f32,
+    ) {
         if victim_is_plant {
             self.kills_plant += 1;
+            if !killer_is_plant {
+                self.kills_plant_by_consumer += 1;
+                self.plant_kill_energy_consumer += kept as f64;
+            }
         } else {
             self.kills_consumer += 1;
         }
@@ -427,8 +453,12 @@ impl FeedingCounts {
         FeedingCounts {
             grazes_eat: self.grazes_eat - other.grazes_eat,
             grazes_attack: self.grazes_attack - other.grazes_attack,
+            grazes_eat_by_plant: self.grazes_eat_by_plant - other.grazes_eat_by_plant,
             kills_consumer: self.kills_consumer - other.kills_consumer,
             kills_plant: self.kills_plant - other.kills_plant,
+            kills_plant_by_consumer: self.kills_plant_by_consumer - other.kills_plant_by_consumer,
+            plant_kill_energy_consumer: self.plant_kill_energy_consumer
+                - other.plant_kill_energy_consumer,
             grazer_kills: self.grazer_kills - other.grazer_kills,
             grazer_kills_consumer: self.grazer_kills_consumer - other.grazer_kills_consumer,
             attacks_no_plant_in_reach: self.attacks_no_plant_in_reach
@@ -1331,13 +1361,16 @@ mod feeding_count_tests {
     #[test]
     fn record_kill_sorts_by_killer_diet_and_victim() {
         let mut c = FeedingCounts::default();
-        c.record_kill(-0.8, false); // grazer kills a consumer
-        c.record_kill(-0.1, true); // plant-leaning killer kills a plant
-        c.record_kill(0.0, false); // neutral diet is not a grazer
-        c.record_kill(0.9, true); // hunter kills a plant
+        c.record_kill(-0.8, false, false, 1.0); // grazer kills a consumer
+        c.record_kill(-0.1, false, true, 2.0); // plant-leaning killer kills a plant
+        c.record_kill(0.0, false, false, 1.0); // neutral diet is not a grazer
+        c.record_kill(0.9, false, true, 0.5); // hunter kills a plant
+        c.record_kill(-0.5, true, true, 4.0); // a plant kills a plant
         assert_eq!(c.kills_consumer, 2);
-        assert_eq!(c.kills_plant, 2);
-        assert_eq!(c.grazer_kills, 2);
+        assert_eq!(c.kills_plant, 3);
+        assert_eq!(c.kills_plant_by_consumer, 2);
+        assert!((c.plant_kill_energy_consumer - 2.5).abs() < 1e-9);
+        assert_eq!(c.grazer_kills, 3);
         assert_eq!(c.grazer_kills_consumer, 1);
         assert_eq!(c.grazes(), 0);
     }
@@ -1348,8 +1381,11 @@ mod feeding_count_tests {
         let a = FeedingCounts {
             grazes_eat: 5,
             grazes_attack: 7,
+            grazes_eat_by_plant: 2,
             kills_consumer: 3,
             kills_plant: 1,
+            kills_plant_by_consumer: 1,
+            plant_kill_energy_consumer: 3.5,
             grazer_kills: 2,
             grazer_kills_consumer: 2,
             attacks_no_plant_in_reach: 9,
@@ -1357,8 +1393,11 @@ mod feeding_count_tests {
         let b = FeedingCounts {
             grazes_eat: 1,
             grazes_attack: 2,
+            grazes_eat_by_plant: 1,
             kills_consumer: 3,
             kills_plant: 0,
+            kills_plant_by_consumer: 0,
+            plant_kill_energy_consumer: 1.0,
             grazer_kills: 1,
             grazer_kills_consumer: 1,
             attacks_no_plant_in_reach: 4,
@@ -1371,6 +1410,9 @@ mod feeding_count_tests {
         assert_eq!(d.grazer_kills, 1);
         assert_eq!(d.grazer_kills_consumer, 1);
         assert_eq!(d.attacks_no_plant_in_reach, 5);
+        assert_eq!(d.grazes_eat_by_plant, 1);
+        assert_eq!(d.kills_plant_by_consumer, 1);
+        assert!((d.plant_kill_energy_consumer - 2.5).abs() < 1e-9);
         assert_eq!(a.grazes(), 12);
     }
 }

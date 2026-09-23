@@ -3,8 +3,8 @@
 
 Reads every seed<S>-run<R>.txt written by scripts/attractor_audit.sh and
 prints one row per run: final strategy counts, plant share, species, deaths
-by cause, kills, grazer kills of consumers, grazes by output, average body
-size, and average diet. Also reports whether the two
+by cause, kills, grazer kills of consumers, grazes by output, plant kills by
+consumers with the energy they kept, average body size, and average diet. Also reports whether the two
 determinism-probe runs match.
 
 Usage: scripts/attractor_audit_summary.py docs/audits/<dir>
@@ -33,6 +33,9 @@ FIELDS = {
     # Summaries from before plans/2026-09-21-pyramid-top.md step 1 show "?".
     "gkills": r"by grazers \(diet < 0\):\s+\d+ \((\d+) of consumers\)",
     "grazes": r"Grazes \(eat/attack\):\s+(\d+ / \d+)",
+    # Plants killed by non-photosynthesisers and the energy they kept.
+    # Summaries from before step 2 of that plan show "?".
+    "pkills": r"plants killed by consumers:\s+(\d+ \(kept [\d.]+\))",
 }
 
 
@@ -53,8 +56,8 @@ def label_key(path):
 
 def main(d):
     paths = sorted(Path(d).glob("seed*-run*.txt"), key=label_key)
-    print("| seed | run | plants | grazers | hunters | omnivores | plant % | species | deaths | starv | pred | old | dis | kills | grazer kills | grazes eat/attack | body | diet | light | ready p/e |")
-    print("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
+    print("| seed | run | plants | grazers | hunters | omnivores | plant % | species | deaths | starv | pred | old | dis | kills | grazer kills | grazes eat/attack | plant kills | body | diet | light | ready p/e |")
+    print("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
     probes = {}
     for p in paths:
         seed, run = label_key(p)
@@ -64,7 +67,7 @@ def main(d):
             share = f"{100 * int(r['plants']) / total:.0f}%" if total else "-"
         except ValueError:
             share = "-"
-        print(f"| {seed} | {run} | {r['plants']} | {r['grazers']} | {r['hunters']} | {r['omnivores']} | {share} | {r['species']} | {r['deaths']} | {r['starv']} | {r['pred']} | {r['old']} | {r['dis']} | {r['kills']} | {r['gkills']} | {r['grazes']} | {r['body']} | {r['diet']} | {r['light']} | {r['ready']} |")
+        print(f"| {seed} | {run} | {r['plants']} | {r['grazers']} | {r['hunters']} | {r['omnivores']} | {share} | {r['species']} | {r['deaths']} | {r['starv']} | {r['pred']} | {r['old']} | {r['dis']} | {r['kills']} | {r['gkills']} | {r['grazes']} | {r['pkills']} | {r['body']} | {r['diet']} | {r['light']} | {r['ready']} |")
         if run.startswith("probe"):
             probes[run] = p.with_suffix(".csv").read_bytes()
     if len(probes) == 2:
