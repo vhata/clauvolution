@@ -719,14 +719,17 @@ fn dump_history_csv(
          energy_total,flow_photosynthesis,flow_food,flow_predation,flow_grazing,flow_symbiosis,\
          flow_metabolism,flow_movement,flow_disease,flow_reproduction_spent,\
          flow_reproduction_received,flow_death,flow_clamp,flow_digestion,\
-         ledger_max_residual,ledger_cumulative_residual"
+         ledger_max_residual,ledger_cumulative_residual,\
+         grazes_eat,grazes_attack,kills_consumer,kills_plant,grazer_kills,grazer_kills_consumer,\
+         attacks_no_plant_in_reach"
     )?;
     for s in &history.snapshots {
         let fl = &s.energy_flows;
         writeln!(
             f,
             "{},{:.1},{},{},{},{},{},{},{},{},{:.2},{:.3},{:.3},{:.3},{:.3},{:.3},{:+.3},{:.3},{:.4},{:.4},{:.3},{:.3},{:.3},{:.3},{:.3},{},{},{},{},{},{},\
-             {:.2},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.6},{:.6}",
+             {:.2},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.6},{:.6},\
+             {},{},{},{},{},{},{}",
             s.tick,
             s.tick as f64 / 30.0,
             s.organisms,
@@ -774,6 +777,13 @@ fn dump_history_csv(
             fl.digestion,
             s.ledger_max_residual,
             s.ledger_cumulative_residual,
+            s.feeding.grazes_eat,
+            s.feeding.grazes_attack,
+            s.feeding.kills_consumer,
+            s.feeding.kills_plant,
+            s.feeding.grazer_kills,
+            s.feeding.grazer_kills_consumer,
+            s.feeding.attacks_no_plant_in_reach,
         )?;
     }
     Ok(())
@@ -1010,6 +1020,17 @@ fn print_headless_summary(
     eprintln!("Total deaths:            {}", stats.total_deaths);
     eprintln!("  by Starvation:         {}", stats.deaths_by_cause[0]);
     eprintln!("  by Predation:          {}", stats.deaths_by_cause[1]);
+    // Who the kills were: the graze/attack split in
+    // plans/2026-09-21-pyramid-top.md is judged by these lines.
+    let feeding = &predation.feeding;
+    eprintln!(
+        "    kills of consumers / plants: {} / {}",
+        feeding.kills_consumer, feeding.kills_plant
+    );
+    eprintln!(
+        "    by grazers (diet < 0):       {} ({} of consumers)",
+        feeding.grazer_kills, feeding.grazer_kills_consumer
+    );
     eprintln!("  by Old age:            {}", stats.deaths_by_cause[2]);
     eprintln!("  by Disease:            {}", stats.deaths_by_cause[3]);
     eprintln!("  by Event:              {}", stats.deaths_by_cause[4]);
@@ -1061,7 +1082,14 @@ fn print_headless_summary(
     eprintln!("  Rejected (size):     {}", predation.rejected_size_gate);
     eprintln!("  Rejected (damage):   {}", predation.rejected_damage);
     eprintln!("  Kills:               {}", predation.kills);
-    eprintln!("  Grazes:              {}", predation.grazes);
+    eprintln!(
+        "  No plant in reach:   {}",
+        predation.feeding.attacks_no_plant_in_reach
+    );
+    eprintln!(
+        "  Grazes (eat/attack): {} / {}",
+        predation.feeding.grazes_eat, predation.feeding.grazes_attack
+    );
     eprintln!();
     // Cumulative flows are magnitudes; the sign column says which way each
     // one moves organism energy. Grazing and symbiosis are transfers between

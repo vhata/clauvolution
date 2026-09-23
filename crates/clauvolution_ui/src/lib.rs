@@ -1618,6 +1618,14 @@ fn graphs_tab(ui: &mut egui::Ui, history: &PopulationHistory) {
                 .enumerate()
                 .map(|(i, s)| [i as f64, s.deaths_event as f64])
                 .collect();
+            // A subset of the predation line: kills of consumers by a
+            // plant-leaning killer (diet < 0), the bystander kills of the
+            // graze/attack split in plans/2026-09-21-pyramid-top.md.
+            let d_grazer_kill: PlotPoints = snaps
+                .iter()
+                .enumerate()
+                .map(|(i, s)| [i as f64, s.feeding.grazer_kills_consumer as f64])
+                .collect();
 
             Plot::new("deaths_by_cause")
                 .height(130.0)
@@ -1647,6 +1655,43 @@ fn graphs_tab(ui: &mut egui::Ui, history: &PopulationHistory) {
                         Line::new(d_evt)
                             .color(egui::Color32::from_rgb(255, 140, 40))
                             .name("Event"),
+                    );
+                    plot_ui.line(
+                        Line::new(d_grazer_kill)
+                            .color(egui::Color32::from_rgb(140, 200, 110))
+                            .name("Grazer kills of consumers"),
+                    );
+                });
+
+            ui.add_space(4.0);
+
+            // Grazes by output: today every bite goes through attack; the
+            // plan moves grazing to eat, and this chart shows the handover.
+            ui.label("Grazes per second by output");
+            let g_eat: PlotPoints = snaps
+                .iter()
+                .enumerate()
+                .map(|(i, s)| [i as f64, s.feeding.grazes_eat as f64])
+                .collect();
+            let g_attack: PlotPoints = snaps
+                .iter()
+                .enumerate()
+                .map(|(i, s)| [i as f64, s.feeding.grazes_attack as f64])
+                .collect();
+
+            Plot::new("grazes_by_output")
+                .height(110.0)
+                .legend(Legend::default().position(egui_plot::Corner::LeftTop))
+                .show(ui, |plot_ui| {
+                    plot_ui.line(
+                        Line::new(g_eat)
+                            .color(egui::Color32::from_rgb(120, 200, 120))
+                            .name("Through eat"),
+                    );
+                    plot_ui.line(
+                        Line::new(g_attack)
+                            .color(egui::Color32::from_rgb(230, 100, 100))
+                            .name("Through attack"),
                     );
                 });
 
