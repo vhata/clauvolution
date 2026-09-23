@@ -169,7 +169,7 @@ In rough order:
 
 ### Performance is on the critical path
 
-Emergent carrying capacity and continents both push population up, and the per-tick cost roughly doubled when the moisture fix grew more vegetation and more food. The existing `TODO.md` items `spatial-hash-organisms-only`, `photosynthesis-density-cache`, and `rayon-remaining-systems` are prerequisites for phases 1 and 2 rather than optional improvements, and `moisture-fix-tick-cost` is the measurement that says how far there is to go.
+Emergent carrying capacity and continents both push population up, and the per-tick cost roughly doubled when the moisture fix grew more vegetation and more food. The existing `TODO.md` items `spatial-hash-organisms-only`, `photosynthesis-density-cache`, and `rayon-remaining-systems` are prerequisites for phases 1 and 2 rather than optional improvements. The doubling was measured on 2026-09-23: the food-eating loop in `action_system` costs eaters × food × eaten items per tick, and all three grow with the food supply; it was nearly half the CPU of a 1000-tick run. `eat-scan-eaten-lookup` is the behaviour-neutral fix and `sensing-per-organism-cost` is what dominates after it.
 
 ### Measurement
 
