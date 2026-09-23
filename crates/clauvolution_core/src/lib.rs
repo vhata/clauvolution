@@ -212,7 +212,7 @@ impl Session {
 
 /// Shipped value of `SimConfig::strike_cost`. See `docs/DECISIONS.md`,
 /// "Strike cost".
-pub const DEFAULT_STRIKE_COST: f32 = 0.0;
+pub const DEFAULT_STRIKE_COST: f32 = 1.0;
 
 #[derive(Resource, Clone, Serialize, Deserialize)]
 pub struct SimConfig {
@@ -264,8 +264,10 @@ pub struct SimConfig {
     /// Energy an attacker pays per tick of a strike, per unit of strike
     /// force (`claw_power × body size`, the figure the damage gate reads).
     /// A strike is `attack` firing with a living organism within attack
-    /// range; firing at nothing is free. See `docs/DECISIONS.md`, "Strike
-    /// cost". Overridable with `--strike-cost`.
+    /// range; firing at nothing is free. Shipped at `DEFAULT_STRIKE_COST`,
+    /// 1.0: below a hunter's typical kill, above a grazer's (about nothing).
+    /// See `docs/DECISIONS.md`, "Strike cost". Overridable with
+    /// `--strike-cost`.
     pub strike_cost: f32,
     /// Drag per unit of photosynthetic surface area in the speed formula:
     /// `speed × 1 / (1 + photo_area × photo_drag)`, beside armour's 0.3 per

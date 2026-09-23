@@ -46,7 +46,7 @@ update_food_snapshot          ← collect (entity, position, energy) of all food
 sensing_and_brain_system      ← for each organism: gather inputs, evaluate brain, write outputs (par_iter_mut)
 action_system                 ← execute brain outputs (move, eat food items, signal, update memory)
 grazing_system                ← `eat` bites the nearest living plant in reach (skipping anyone fed on a food item this tick); one bite per plant per tick
-predation_system              ← attack intents → size and damage gates → kills of plants or animals (energy pyramid: 10%, digested by tissue); victim gets `Killed(Predation)`
+predation_system              ← attack intents → size and damage gates → kills of plants or animals (energy pyramid: 10%, digested by tissue); victim gets `Killed(Predation)`; every attacker with a living organism in reach pays the strike cost
 photosynthesis_system         ← sun energy for plants, factoring plant density competition (second pass par_iter_mut)
 niche_construction_system     ← organisms modify the tiles they occupy
 disease_transmission_system   ← background infections + proximity spread
