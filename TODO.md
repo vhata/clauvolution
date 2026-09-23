@@ -55,9 +55,6 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
   - Starting point: A phase 2 design question in `docs/design/simulation-rules.md`. If water becomes habitat: vegetation or a plankton analogue on water tiles, shallow water among the founding biomes, and the aquatic axis doing real work in metabolism and movement. Decide before the phase 2 terrain work, since it changes what the generator should produce.
   - Source: per-biome seeding review, 2026-09-18
   - Related: `move-cost-table-by-tile`
-- [TOOLING] `skip-test-hook-for-docs-only-pushes` — **Skip the pre-push test gate when a push touches no code.** Pushing a plan or a docs change runs the whole workspace test suite, which took 54 seconds for a single markdown file on 2026-09-22.
-  - Starting point: `scripts/test.sh` is the pre-push job in `lefthook.yml`. Decide first whether skipping is compatible with the gate policy in `docs/QUALITY.md`; if so, have the script diff the pushed range against the remote and exit early when only `*.md` under `docs/`, `plans/` and `review/` (plus `TODO.md` and `README.md`) changed. CI still runs the full suite either way.
-  - Source: pyramid-top plan push, 2026-09-22
 
 ## Needs proof of concept
 

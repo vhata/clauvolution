@@ -34,7 +34,8 @@ Every check is a standalone shell script in `scripts/`, runnable on its own with
 | --- | --- | --- | --- | --- | --- |
 | `scripts/fmt-check.sh` | `cargo fmt --all -- --check` | yes | yes | yes | yes |
 | `scripts/lint.sh` | `cargo clippy --workspace --all-targets -- -D warnings` | yes | yes | yes | yes |
-| `scripts/test.sh` | `cargo test --workspace` | no | yes | yes | yes |
+| `scripts/test.sh` | `cargo test --workspace` | no | yes, skipped for docs-only pushes | yes | yes |
+| `scripts/pre-push-test.sh` | the pre-push wrapper: `scripts/test.sh` unless the push changes only docs | | | | |
 | `scripts/smoke.sh` | release build, then `--headless 500 --seed 42`, must exit 0 with a living population | no | no | yes | yes |
 | `scripts/probe.sh SEED TICKS OUT_DIR` | one long headless run, described below | no | no | no | scheduled |
 | `scripts/check.sh` | `fmt-check` + `lint` + `test` | | | | |
@@ -85,7 +86,11 @@ Hooks are managed by [lefthook](https://github.com/evilmartians/lefthook), confi
 The generated hooks live in `.git/hooks`, which is shared by every worktree of this repository, so one install covers all of them.
 
 - **pre-commit** runs `scripts/fmt-check.sh` and `scripts/lint.sh`, in parallel. Both finish in about a second with a warm cache. The hook does not auto-format: a hook that rewrites the files being committed hides the change from the author, and `cargo fmt --all` is one command away.
-- **pre-push** runs `scripts/test.sh`. Test compilation is much slower than clippy, so it sits at push time. Pushes here open or update a PR, which is the moment the result matters.
+- **pre-push** runs `scripts/test.sh` through `scripts/pre-push-test.sh`. Test compilation is much slower than clippy, so it sits at push time. Pushes here open or update a PR, which is the moment the result matters.
+
+The pre-push wrapper skips the tests when a push changes only documentation. Git hands the hook one line per pushed ref; the wrapper diffs each ref against the remote's old tip, or against its merge-base with `origin/main` when the ref is new, and exits early only when every changed path is on the allowlist: `*.md` anywhere under `docs/`, `plans/` or `review/`, plus the top-level `TODO.md` and `README.md`. Anything it cannot account for runs the tests: a path outside the list (including `CLAUDE.md`, `AGENTS.md`, and markdown inside a crate), a remote tip it does not have locally, a new ref with no `origin/main` to measure from, or empty or malformed input. The diff lists both sides of a rename, so moving a source file into `docs/` still counts as a code change. `FORCE_TESTS=1 git push` always runs the tests, and `scripts/test.sh` runs them directly. Separately, lefthook itself skips a pre-push job when `HEAD` has no changes against its push target; that is lefthook's behaviour, not this wrapper's.
+
+Skipping fits the gate policy because the pre-push run is a local mirror of a CI gate, not the gate itself. CI runs `scripts/test.sh` on every pull request and on every push to `main`, including plans pushed straight to `main`, so every commit on `main` still gets a full test run either way. A docs-only push leaves the code identical to a commit that has already been through the gates, so the local run would compile and test exactly what was tested before; its only effect was close to a minute of waiting on pushes that are mostly plans and TODO edits. The allowlist is safe only while no crate reads a markdown file at compile time (`include_str!` or `#[doc = include_str!(...)]`); a change that adds one must drop the matching pattern from the wrapper.
 
 `--no-verify` is for recovering from a broken toolchain, not for deferring a fix. If a hook is wrong, fix the hook.
 
