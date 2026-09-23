@@ -821,6 +821,7 @@ struct ConfigOverrides {
     bite_reach: Option<f32>,
     mouthless_bite: Option<f32>,
     kill_transfer: Option<f32>,
+    strike_cost: Option<f32>,
     photo_drag: Option<f32>,
     leaf_capacity: Option<f32>,
     founder_diet_spread: Option<f32>,
@@ -844,6 +845,7 @@ impl ConfigOverrides {
             bite_reach: flag(args, "--bite-reach"),
             mouthless_bite: flag(args, "--mouthless-bite"),
             kill_transfer: flag(args, "--kill-transfer"),
+            strike_cost: flag(args, "--strike-cost"),
             photo_drag: flag(args, "--photo-drag"),
             leaf_capacity: flag(args, "--leaf-capacity"),
             founder_diet_spread: flag(args, "--founder-diet-spread"),
@@ -882,6 +884,11 @@ fn apply_config_overrides(overrides: Res<ConfigOverrides>, mut config: ResMut<Si
         &mut config.kill_transfer_fraction,
         overrides.kill_transfer,
         "kill_transfer_fraction",
+    );
+    set(
+        &mut config.strike_cost,
+        overrides.strike_cost,
+        "strike_cost",
     );
     set(&mut config.photo_drag, overrides.photo_drag, "photo_drag");
     set(
@@ -1052,6 +1059,18 @@ fn print_headless_summary(
     eprintln!("  by Old age:            {}", stats.deaths_by_cause[2]);
     eprintln!("  by Disease:            {}", stats.deaths_by_cause[3]);
     eprintln!("  by Event:              {}", stats.deaths_by_cause[4]);
+    if let Some(f) = founders {
+        let died = stats.founder_hunter_deaths;
+        let mean = if died > 0 {
+            stats.founder_hunter_age_sum as f64 / died as f64
+        } else {
+            0.0
+        };
+        eprintln!(
+            "Founding hunters died:   {} of {} (mean age {:.0} ticks, oldest {})",
+            died, f.hunters, mean, stats.founder_hunter_age_max
+        );
+    }
     // Any engagement here means the population was capped by a rule rather
     // than by energy; the counts make that visible in every audit summary.
     eprintln!(
@@ -1100,6 +1119,10 @@ fn print_headless_summary(
     eprintln!("  Rejected (size):     {}", predation.rejected_size_gate);
     eprintln!("  Rejected (damage):   {}", predation.rejected_damage);
     eprintln!("  Kills:               {}", predation.kills);
+    eprintln!(
+        "  Strikes (paid):      {} ({:.1} energy)",
+        predation.strikes, predation.strike_energy
+    );
     eprintln!(
         "  No plant in reach:   {}",
         predation.feeding.attacks_no_plant_in_reach

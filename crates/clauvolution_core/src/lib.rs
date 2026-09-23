@@ -210,6 +210,10 @@ impl Session {
     }
 }
 
+/// Shipped value of `SimConfig::strike_cost`. See `docs/DECISIONS.md`,
+/// "Strike cost".
+pub const DEFAULT_STRIKE_COST: f32 = 0.0;
+
 #[derive(Resource, Clone, Serialize, Deserialize)]
 pub struct SimConfig {
     pub world_width: u32,
@@ -257,6 +261,12 @@ pub struct SimConfig {
     /// the per-meal trophic share. See `docs/DECISIONS.md`, "Energy pyramid".
     /// Overridable with `--kill-transfer`.
     pub kill_transfer_fraction: f32,
+    /// Energy an attacker pays per tick of a strike, per unit of strike
+    /// force (`claw_power × body size`, the figure the damage gate reads).
+    /// A strike is `attack` firing with a living organism within attack
+    /// range; firing at nothing is free. See `docs/DECISIONS.md`, "Strike
+    /// cost". Overridable with `--strike-cost`.
+    pub strike_cost: f32,
     /// Drag per unit of photosynthetic surface area in the speed formula:
     /// `speed × 1 / (1 + photo_area × photo_drag)`, beside armour's 0.3 per
     /// unit. A light-catching surface is broad and flat, so it is a sail.
@@ -305,6 +315,7 @@ impl Default for SimConfig {
             bite_reach: 1.0,
             mouthless_bite_bonus: 0.3,
             kill_transfer_fraction: 0.1,
+            strike_cost: DEFAULT_STRIKE_COST,
             photo_drag: 1.0,
             leaf_capacity_per_tile: 0.02,
             founder_diet_spread: 1.0,
@@ -358,6 +369,13 @@ pub struct SimStats {
     pub ceiling_episodes: u64,
     /// Births blocked by the population ceiling over the whole run.
     pub ceiling_blocked_births: u64,
+    /// Founders (generation 0) labelled hunters (`diet >= 1/3`, not a
+    /// photosynthesiser) that have died, the sum of their ages at death in
+    /// ticks, and the oldest of them. `hunter-emergence` reads how long a
+    /// founding hunter lives from these.
+    pub founder_hunter_deaths: u64,
+    pub founder_hunter_age_sum: u64,
+    pub founder_hunter_age_max: u64,
 }
 
 /// Instrumentation counters for the attack path. Rolled up over a whole run
@@ -377,6 +395,12 @@ pub struct PredationStats {
     pub rejected_damage: u64,
     /// Successful kills
     pub kills: u64,
+    /// Attack intents with a living organism within attack range, each
+    /// charged `SimConfig::strike_cost` per unit of strike force.
+    pub strikes: u64,
+    /// Energy attackers paid for those strikes (booked to the ledger's
+    /// `movement` flow).
+    pub strike_energy: f64,
     /// Who fed on whom, and through which output. Counted over the whole
     /// run; `PopulationHistory` diffs it into per-second values for the
     /// Graphs tab and the history CSV.
