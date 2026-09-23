@@ -36,6 +36,57 @@ const SPRITE_CULL_MARGIN_PX: f32 = 20.0;
 /// infection indicator rings, which are drawn larger than the body.
 const INDICATOR_CULL_MARGIN_PX: f32 = 40.0;
 
+/// Selection ring radius as a multiple of the selected organism's body size.
+const SELECTION_RING_SCALE: f32 = 3.5;
+/// Selection ring depth: just behind active organisms (z 1.0), in front of
+/// plants (z 0.3) and food (z 0.5).
+const SELECTION_RING_Z: f32 = 0.9;
+
+/// Uniform `Transform` scale for an organism sprite. The simple LOD draws a
+/// unit circle, so it scales by body size. The detailed LOD draws
+/// `BodyPlan` parts whose sizes already include body size, so it must not
+/// scale by it again. Both give a radius of `2 × body_size` for a unit
+/// torso, so the two LODs agree and switching between them does not pop.
+fn organism_sprite_scale(body_size: f32, detailed: bool, energy_factor: f32, flash: f32) -> f32 {
+    let size = if detailed { 1.0 } else { body_size };
+    size * 2.0 * energy_factor * flash
+}
+
+/// Logical window size assumed when the primary window cannot be read. It is
+/// the resolution the app requests at startup.
+const FALLBACK_WINDOW_SIZE: Vec2 = Vec2::new(1920.0, 1080.0);
+
+/// Logical size of the primary window, which is what the 2D camera's default
+/// `ScalingMode::WindowSize` projection maps one world unit per pixel onto.
+fn window_logical_size(windows: &Query<&Window, With<PrimaryWindow>>) -> Vec2 {
+    windows
+        .get_single()
+        .map(|w| Vec2::new(w.width(), w.height()))
+        .unwrap_or(FALLBACK_WINDOW_SIZE)
+}
+
+/// World-space rectangle the camera shows, grown by `margin_px` screen pixels
+/// on every side. `zoom` is `OrthographicProjection::scale`. Culling and the
+/// minimap viewport box both derive from this so they follow the real window
+/// size rather than a fixed one.
+fn visible_world_rect(camera_center: Vec2, window_size: Vec2, zoom: f32, margin_px: f32) -> Rect {
+    let half = (window_size * 0.5 + Vec2::splat(margin_px)) * zoom;
+    Rect::from_center_half_size(camera_center, half)
+}
+
+/// Minimap pixel bounds `(left, right, top, bottom)` of a world rectangle on a
+/// `size`-pixel square minimap of a `world` sized map. Minimap y grows
+/// downwards, world y upwards. Values may fall outside the image; the painter
+/// clips them.
+fn minimap_rect_px(view: Rect, world: Vec2, size: usize) -> (i32, i32, i32, i32) {
+    let s = size as f32;
+    let left = (view.min.x / world.x * s) as i32;
+    let right = (view.max.x / world.x * s) as i32;
+    let top = size as i32 - 1 - (view.max.y / world.y * s) as i32;
+    let bottom = size as i32 - 1 - (view.min.y / world.y * s) as i32;
+    (left, right, top, bottom)
+}
+
 /// Minimap dot colour per strategy (normal mode, heatmap blend, legend).
 fn strategy_rgb(strategy: SpeciesStrategy) -> [u8; 3] {
     match strategy {
@@ -82,6 +133,7 @@ impl Plugin for RenderPlugin {
                 (
                     spawn_terrain_sprites,
                     sync_organism_transforms,
+                    sync_selection_ring,
                     sync_food_transforms,
                     update_death_markers,
                     draw_trails_system,
@@ -102,6 +154,12 @@ pub struct OrganismSprite;
 
 #[derive(Component)]
 pub struct SelectionRing;
+
+/// Marks an organism whose sprite was built at the detailed LOD (body-plan
+/// parts rather than a circle). `lod_change_system` strips it with the
+/// sprite. Read by `sync_organism_transforms` to pick the sprite scale.
+#[derive(Component)]
+pub struct DetailedSprite;
 
 #[derive(Component)]
 pub struct FoodSprite;
@@ -152,6 +210,7 @@ pub struct SharedMeshes {
     pub food_circle: Option<Handle<Mesh>>,
     pub food_material: Option<Handle<ColorMaterial>>,
     pub outline_material: Option<Handle<ColorMaterial>>,
+    pub selection_material: Option<Handle<ColorMaterial>>,
 }
 
 #[derive(Component)]
@@ -167,6 +226,8 @@ fn setup_shared_meshes(
     shared.food_material = Some(materials.add(ColorMaterial::from(Color::srgb(0.2, 0.8, 0.2))));
     shared.outline_material =
         Some(materials.add(ColorMaterial::from(Color::srgba(0.0, 0.0, 0.0, 0.6))));
+    shared.selection_material =
+        Some(materials.add(ColorMaterial::from(Color::srgba(1.0, 1.0, 0.0, 0.5))));
 }
 
 #[derive(Component)]
@@ -192,8 +253,22 @@ fn setup_camera(mut commands: Commands, config: Res<SimConfig>, asset_server: Re
     // along with the rest of the panels).
 }
 
+/// True while either Shift key is held. Every Shift-modified binding (drag
+/// pan, click suppression, Shift+S, Shift+M, WASD suppression) goes through
+/// this so left and right Shift behave the same.
+fn shift_held(keys: &ButtonInput<KeyCode>) -> bool {
+    keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight])
+}
+
 /// Keyboard speed controls: Space = pause, [ = slower, ] = faster
-fn speed_control_system(keys: Res<ButtonInput<KeyCode>>, mut speed: ResMut<SimSpeed>) {
+fn speed_control_system(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut speed: ResMut<SimSpeed>,
+    ui_input: Res<UiInputState>,
+) {
+    if ui_input.wants_keyboard {
+        return;
+    }
     if keys.just_pressed(KeyCode::Space) {
         speed.paused = !speed.paused;
     }
@@ -213,14 +288,10 @@ fn click_select_system(
     camera: Query<(&Transform, &OrthographicProjection), With<MainCamera>>,
     organisms: Query<(Entity, &Position, &BodySize), With<Organism>>,
     mut selected: ResMut<SelectedOrganism>,
-    mut commands: Commands,
-    existing_rings: Query<Entity, With<SelectionRing>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
     ui_input: Res<UiInputState>,
 ) {
     // Don't select when dragging or when pointer is over an egui panel
-    if keys.pressed(KeyCode::ShiftLeft) || ui_input.pointer_over_ui {
+    if shift_held(&keys) || ui_input.pointer_over_ui {
         return;
     }
 
@@ -263,29 +334,54 @@ fn click_select_system(
         }
     }
 
-    // Remove old selection ring
-    for ring in &existing_rings {
-        commands.entity(ring).try_despawn();
-    }
+    // The ring follows from `sync_selection_ring`.
+    selected.entity = nearest;
+}
 
-    if let Some(entity) = nearest {
-        selected.entity = Some(entity);
-
-        // Add selection ring
-        let mesh = meshes.add(Circle::new(1.0));
-        let material = materials.add(ColorMaterial::from(Color::srgba(1.0, 1.0, 0.0, 0.5)));
-        if let Ok((_, pos, body_size)) = organisms.get(entity) {
-            commands.spawn((
-                Mesh2d(mesh),
-                MeshMaterial2d(material),
-                Transform::from_xyz(pos.0.x, pos.0.y, 0.9)
-                    .with_scale(Vec3::splat(body_size.0 * 3.5)),
-                SelectionRing,
-            ));
+/// Keep exactly one selection ring on the selected organism, whichever path
+/// selected it (click, R, `,`/`.`, a panel link), and remove it when nothing
+/// is selected or the selected organism has died.
+fn sync_selection_ring(
+    mut commands: Commands,
+    selected: Res<SelectedOrganism>,
+    shared_meshes: Res<SharedMeshes>,
+    organisms: Query<(&Position, &BodySize), With<Organism>>,
+    mut rings: Query<(Entity, &mut Transform), With<SelectionRing>>,
+) {
+    let Some((pos, body_size)) = selected.entity.and_then(|e| organisms.get(e).ok()) else {
+        for (ring, _) in &rings {
+            commands.entity(ring).try_despawn();
         }
-    } else {
-        selected.entity = None;
+        return;
+    };
+    let ring_transform = Transform::from_xyz(pos.0.x, pos.0.y, SELECTION_RING_Z)
+        .with_scale(Vec3::splat(body_size.0 * SELECTION_RING_SCALE));
+
+    let mut have_ring = false;
+    for (ring, mut transform) in &mut rings {
+        if have_ring {
+            commands.entity(ring).try_despawn();
+        } else {
+            *transform = ring_transform;
+            have_ring = true;
+        }
     }
+    if have_ring {
+        return;
+    }
+    let (Some(mesh), Some(material)) = (
+        shared_meshes.circle.clone(),
+        shared_meshes.selection_material.clone(),
+    ) else {
+        warn_once!("sync_selection_ring: shared meshes missing — no selection ring");
+        return;
+    };
+    commands.spawn((
+        Mesh2d(mesh),
+        MeshMaterial2d(material),
+        ring_transform,
+        SelectionRing,
+    ));
 }
 
 fn spawn_terrain_sprites(
@@ -392,6 +488,7 @@ fn sync_organism_transforms(
             &ActionFlash,
             &mut Transform,
             &mut Visibility,
+            Has<DetailedSprite>,
         ),
         (With<Organism>, With<OrganismSprite>),
     >,
@@ -401,33 +498,29 @@ fn sync_organism_transforms(
     >,
     config: Res<SimConfig>,
     mut species_colors: ResMut<SpeciesColors>,
-    selected: Res<SelectedOrganism>,
-    mut selection_rings: Query<
-        &mut Transform,
-        (With<SelectionRing>, Without<Organism>, Without<MainCamera>),
-    >,
+    windows: Query<&Window, With<PrimaryWindow>>,
 ) {
-    let (zoom_scale, cam_left, cam_right, cam_bottom, cam_top) =
-        if let Ok((cam_t, proj)) = camera.get_single() {
-            let half_w = 960.0 * proj.scale;
-            let half_h = 540.0 * proj.scale;
-            let margin = SPRITE_CULL_MARGIN_PX * proj.scale;
-            (
+    let (zoom_scale, view) = if let Ok((cam_t, proj)) = camera.get_single() {
+        (
+            proj.scale,
+            visible_world_rect(
+                cam_t.translation.truncate(),
+                window_logical_size(&windows),
                 proj.scale,
-                cam_t.translation.x - half_w - margin,
-                cam_t.translation.x + half_w + margin,
-                cam_t.translation.y - half_h - margin,
-                cam_t.translation.y + half_h + margin,
-            )
-        } else {
-            (
-                1.0,
+                SPRITE_CULL_MARGIN_PX,
+            ),
+        )
+    } else {
+        (
+            1.0,
+            Rect::new(
+                0.0,
                 0.0,
                 config.world_width as f32,
-                0.0,
                 config.world_height as f32,
-            )
-        };
+            ),
+        )
+    };
 
     let use_detailed = zoom_scale < 0.6;
 
@@ -447,9 +540,11 @@ fn sync_organism_transforms(
             commands.entity(entity).insert((
                 Mesh2d(mesh),
                 MeshMaterial2d(material),
-                Transform::from_xyz(pos.0.x, pos.0.y, z_level)
-                    .with_scale(Vec3::splat(genome.body_size * 2.0)),
+                Transform::from_xyz(pos.0.x, pos.0.y, z_level).with_scale(Vec3::splat(
+                    organism_sprite_scale(genome.body_size, true, 1.0, 1.0),
+                )),
                 OrganismSprite,
+                DetailedSprite,
             ));
 
             for part in body_plan.parts.iter().skip(1) {
@@ -519,13 +614,10 @@ fn sync_organism_transforms(
     }
 
     // Update existing transforms — frustum cull off-screen organisms
-    for (pos, energy, body_size, flash, mut transform, mut vis) in &mut organisms_with_sprite {
-        let in_view = pos.0.x >= cam_left
-            && pos.0.x <= cam_right
-            && pos.0.y >= cam_bottom
-            && pos.0.y <= cam_top;
-
-        if !in_view {
+    for (pos, energy, body_size, flash, mut transform, mut vis, detailed) in
+        &mut organisms_with_sprite
+    {
+        if !view.contains(pos.0) {
             *vis = Visibility::Hidden;
             continue;
         }
@@ -541,18 +633,12 @@ fn sync_organism_transforms(
         } else {
             1.0
         };
-        transform.scale = Vec3::splat(body_size.0 * 2.0 * energy_factor * flash_pulse);
-    }
-
-    // Update selection ring position
-    if let Some(sel_entity) = selected.entity {
-        if let Ok((pos, _, body_size, _, _, _)) = organisms_with_sprite.get(sel_entity) {
-            for mut ring_transform in &mut selection_rings {
-                ring_transform.translation.x = pos.0.x;
-                ring_transform.translation.y = pos.0.y;
-                ring_transform.scale = Vec3::splat(body_size.0 * 3.5);
-            }
-        }
+        transform.scale = Vec3::splat(organism_sprite_scale(
+            body_size.0,
+            detailed,
+            energy_factor,
+            flash_pulse,
+        ));
     }
 }
 
@@ -689,31 +775,21 @@ fn camera_control_system(
 
     let dt = time.delta_secs();
 
-    // WASD panning — suppress the letter keys when shift is held so
-    // Shift+S (screenshot) and Shift+M (minimap toggle) don't also pan.
-    // Arrow keys are unaffected because they're not used as modifier
-    // targets anywhere.
-    let shift_held = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
-    let speed = 200.0 * projection.scale * dt;
-    if (keys.pressed(KeyCode::KeyW) && !shift_held) || keys.pressed(KeyCode::ArrowUp) {
-        transform.translation.y += speed;
-    }
-    if (keys.pressed(KeyCode::KeyS) && !shift_held) || keys.pressed(KeyCode::ArrowDown) {
-        transform.translation.y -= speed;
-    }
-    if (keys.pressed(KeyCode::KeyA) && !shift_held) || keys.pressed(KeyCode::ArrowLeft) {
-        transform.translation.x -= speed;
-    }
-    if (keys.pressed(KeyCode::KeyD) && !shift_held) || keys.pressed(KeyCode::ArrowRight) {
-        transform.translation.x += speed;
-    }
+    // Keyboard pan and zoom stand down while egui has keyboard focus, like
+    // every other hotkey.
+    if !ui_input.wants_keyboard {
+        let pan = keyboard_pan_direction(&keys);
+        let speed = 200.0 * projection.scale * dt;
+        transform.translation.x += pan.x * speed;
+        transform.translation.y += pan.y * speed;
 
-    let zoom_speed = 2.0 * dt;
-    if keys.pressed(KeyCode::KeyE) || keys.pressed(KeyCode::Equal) {
-        projection.scale *= 1.0 - zoom_speed;
-    }
-    if keys.pressed(KeyCode::KeyQ) || keys.pressed(KeyCode::Minus) {
-        projection.scale *= 1.0 + zoom_speed;
+        let zoom_speed = 2.0 * dt;
+        if keys.pressed(KeyCode::KeyE) || keys.pressed(KeyCode::Equal) {
+            projection.scale *= 1.0 - zoom_speed;
+        }
+        if keys.pressed(KeyCode::KeyQ) || keys.pressed(KeyCode::Minus) {
+            projection.scale *= 1.0 + zoom_speed;
+        }
     }
 
     // Only zoom with scroll when pointer is over the world, not when over egui panels
@@ -728,9 +804,7 @@ fn camera_control_system(
 
     projection.scale = projection.scale.clamp(0.02, 15.0);
 
-    let dragging = mouse_buttons.pressed(MouseButton::Middle)
-        || mouse_buttons.pressed(MouseButton::Right)
-        || (mouse_buttons.pressed(MouseButton::Left) && keys.pressed(KeyCode::ShiftLeft));
+    let dragging = drag_pan_held(&mouse_buttons, &keys);
 
     let mut latest_cursor_pos = None;
     for event in cursor_events.read() {
@@ -755,16 +829,48 @@ fn camera_control_system(
     }
 }
 
+/// Direction the keyboard asks the camera to pan in, one unit per held axis
+/// (not normalised, matching the original per-key speed). WASD is
+/// suppressed while Shift is held so Shift+S (screenshot) and Shift+M
+/// (minimap toggle) don't also pan. Arrow keys are unaffected because they
+/// are not used as modifier targets anywhere.
+fn keyboard_pan_direction(keys: &ButtonInput<KeyCode>) -> Vec2 {
+    let letters = !shift_held(keys);
+    let held =
+        |letter: KeyCode, arrow: KeyCode| (letters && keys.pressed(letter)) || keys.pressed(arrow);
+    let mut dir = Vec2::ZERO;
+    if held(KeyCode::KeyW, KeyCode::ArrowUp) {
+        dir.y += 1.0;
+    }
+    if held(KeyCode::KeyS, KeyCode::ArrowDown) {
+        dir.y -= 1.0;
+    }
+    if held(KeyCode::KeyA, KeyCode::ArrowLeft) {
+        dir.x -= 1.0;
+    }
+    if held(KeyCode::KeyD, KeyCode::ArrowRight) {
+        dir.x += 1.0;
+    }
+    dir
+}
+
+/// Mouse-drag pan: middle or right button, or Shift plus left button.
+fn drag_pan_held(mouse_buttons: &ButtonInput<MouseButton>, keys: &ButtonInput<KeyCode>) -> bool {
+    mouse_buttons.pressed(MouseButton::Middle)
+        || mouse_buttons.pressed(MouseButton::Right)
+        || (mouse_buttons.pressed(MouseButton::Left) && shift_held(keys))
+}
+
 fn toggle_minimap_mode_system(
     keys: Res<ButtonInput<KeyCode>>,
     mut mode: ResMut<MinimapMode>,
     mut visible: ResMut<MinimapVisible>,
+    ui_input: Res<UiInputState>,
 ) {
-    if !keys.just_pressed(KeyCode::KeyM) {
+    if ui_input.wants_keyboard || !keys.just_pressed(KeyCode::KeyM) {
         return;
     }
-    let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
-    if shift {
+    if shift_held(&keys) {
         // Shift+M: toggle minimap visibility. draw_minimap_egui respects
         // the flag; legend follows the image automatically.
         visible.0 = !visible.0;
@@ -809,23 +915,23 @@ fn draw_infection_indicators_system(
         (With<MainCamera>, Without<Organism>, Without<SelectionRing>),
     >,
     time: Res<Time>,
+    windows: Query<&Window, With<PrimaryWindow>>,
 ) {
     let Ok((cam_t, proj)) = camera.get_single() else {
         return;
     };
-    let half_w = 960.0 * proj.scale;
-    let half_h = 540.0 * proj.scale;
-    let margin = INDICATOR_CULL_MARGIN_PX * proj.scale;
-    let cam_left = cam_t.translation.x - half_w - margin;
-    let cam_right = cam_t.translation.x + half_w + margin;
-    let cam_bottom = cam_t.translation.y - half_h - margin;
-    let cam_top = cam_t.translation.y + half_h + margin;
+    let view = visible_world_rect(
+        cam_t.translation.truncate(),
+        window_logical_size(&windows),
+        proj.scale,
+        INDICATOR_CULL_MARGIN_PX,
+    );
 
     // Pulse rate: slow (about 1Hz). Breath-like.
     let pulse = (time.elapsed_secs() * std::f32::consts::TAU).sin() * 0.15 + 0.85;
 
     for (pos, body_size, infection) in &infected {
-        if pos.0.x < cam_left || pos.0.x > cam_right || pos.0.y < cam_bottom || pos.0.y > cam_top {
+        if !view.contains(pos.0) {
             continue;
         }
         // Purple, opacity scales with severity
@@ -897,6 +1003,7 @@ fn lod_change_system(
         commands
             .entity(entity)
             .remove::<OrganismSprite>()
+            .remove::<DetailedSprite>()
             .remove::<Mesh2d>()
             .remove::<MeshMaterial2d<ColorMaterial>>();
 
@@ -920,12 +1027,15 @@ fn manual_screenshot_system(
     mut state: ResMut<ScreenshotState>,
     main_camera: Query<(&Transform, &OrthographicProjection), With<MainCamera>>,
     primary_window: Query<(Entity, &Window), With<PrimaryWindow>>,
+    ui_input: Res<UiInputState>,
 ) {
     // Shift+S takes a screenshot. Plain S is WASD camera-south; the
     // camera_control_system skips panning when shift is pressed so the
     // two don't fight.
-    let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
-    if shift && keys.just_pressed(KeyCode::KeyS) {
+    if ui_input.wants_keyboard {
+        return;
+    }
+    if shift_held(&keys) && keys.just_pressed(KeyCode::KeyS) {
         let time_secs = tick.0 / 30;
         let label = format!("screenshot_{}s", time_secs);
         let path = session.screenshot_path(&label);
@@ -987,6 +1097,7 @@ fn update_minimap(
     camera: Query<(&Transform, &OrthographicProjection), With<MainCamera>>,
     minimap_mode: Res<MinimapMode>,
     selected: Res<SelectedOrganism>,
+    windows: Query<&Window, With<PrimaryWindow>>,
 ) {
     minimap.timer.tick(time.delta());
     if !minimap.timer.just_finished() {
@@ -1030,15 +1141,13 @@ fn update_minimap(
 
     // Paint camera viewport rectangle (both modes)
     if let Ok((cam_transform, projection)) = camera.get_single() {
-        let cam_x = cam_transform.translation.x;
-        let cam_y = cam_transform.translation.y;
-        let half_w = 960.0 * projection.scale;
-        let half_h = 540.0 * projection.scale;
-
-        let left = ((cam_x - half_w) / world_w * size as f32) as i32;
-        let right = ((cam_x + half_w) / world_w * size as f32) as i32;
-        let top = size as i32 - 1 - ((cam_y + half_h) / world_h * size as f32) as i32;
-        let bottom = size as i32 - 1 - ((cam_y - half_h) / world_h * size as f32) as i32;
+        let view = visible_world_rect(
+            cam_transform.translation.truncate(),
+            window_logical_size(&windows),
+            projection.scale,
+            0.0,
+        );
+        let (left, right, top, bottom) = minimap_rect_px(view, Vec2::new(world_w, world_h), size);
 
         for x in left.max(0)..=right.min(size as i32 - 1) {
             for &y in &[top, bottom] {
@@ -1438,4 +1547,271 @@ fn cycle_species_member_system(
         (cur_idx + members.len() - 1) % members.len()
     };
     selected.entity = Some(members[new_idx]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clauvolution_genome::InnovationCounter;
+    use rand::rngs::StdRng;
+    use rand::SeedableRng;
+
+    fn keys_with(pressed: &[KeyCode]) -> ButtonInput<KeyCode> {
+        let mut keys = ButtonInput::<KeyCode>::default();
+        for &k in pressed {
+            keys.press(k);
+        }
+        keys
+    }
+
+    fn assert_vec2_eq(a: Vec2, b: Vec2) {
+        assert!((a - b).length() < 1e-4, "{a} != {b}");
+    }
+
+    // --- shift-modifier-checks-inconsistent ---
+
+    #[test]
+    fn either_shift_key_counts_as_shift() {
+        assert!(shift_held(&keys_with(&[KeyCode::ShiftLeft])));
+        assert!(shift_held(&keys_with(&[KeyCode::ShiftRight])));
+        assert!(!shift_held(&keys_with(&[KeyCode::KeyS])));
+    }
+
+    #[test]
+    fn right_shift_plus_left_drag_pans() {
+        let mut mouse = ButtonInput::<MouseButton>::default();
+        mouse.press(MouseButton::Left);
+        assert!(drag_pan_held(&mouse, &keys_with(&[KeyCode::ShiftRight])));
+        assert!(drag_pan_held(&mouse, &keys_with(&[KeyCode::ShiftLeft])));
+        assert!(!drag_pan_held(&mouse, &keys_with(&[])));
+    }
+
+    #[test]
+    fn shift_suppresses_wasd_but_not_arrows() {
+        assert_vec2_eq(
+            keyboard_pan_direction(&keys_with(&[KeyCode::ShiftRight, KeyCode::KeyS])),
+            Vec2::ZERO,
+        );
+        assert_vec2_eq(
+            keyboard_pan_direction(&keys_with(&[KeyCode::ShiftLeft, KeyCode::ArrowDown])),
+            Vec2::new(0.0, -1.0),
+        );
+        assert_vec2_eq(
+            keyboard_pan_direction(&keys_with(&[KeyCode::KeyW, KeyCode::KeyD])),
+            Vec2::new(1.0, 1.0),
+        );
+    }
+
+    // --- hotkeys-ignore-egui-keyboard-focus ---
+
+    fn app_with_keys(pressed: &[KeyCode], wants_keyboard: bool) -> App {
+        let mut app = App::new();
+        app.insert_resource(keys_with(pressed));
+        app.insert_resource(UiInputState {
+            wants_keyboard,
+            pointer_over_ui: false,
+        });
+        app
+    }
+
+    #[test]
+    fn space_and_brackets_act_only_without_egui_focus() {
+        for (wants_keyboard, expect_acted) in [(false, true), (true, false)] {
+            let mut app = app_with_keys(&[KeyCode::Space, KeyCode::BracketRight], wants_keyboard);
+            app.insert_resource(SimSpeed {
+                paused: false,
+                multiplier: 1.0,
+            });
+            app.add_systems(Update, speed_control_system);
+            app.update();
+            let speed = app.world().resource::<SimSpeed>();
+            assert_eq!(speed.paused, expect_acted);
+            let expect_multiplier = if expect_acted { 2.0 } else { 1.0 };
+            assert_eq!(speed.multiplier, expect_multiplier);
+        }
+    }
+
+    #[test]
+    fn m_cycles_minimap_only_without_egui_focus() {
+        for (wants_keyboard, expect_heatmap) in [(false, true), (true, false)] {
+            let mut app = app_with_keys(&[KeyCode::KeyM], wants_keyboard);
+            app.init_resource::<MinimapMode>();
+            app.init_resource::<MinimapVisible>();
+            app.add_systems(Update, toggle_minimap_mode_system);
+            app.update();
+            let heatmap = *app.world().resource::<MinimapMode>() == MinimapMode::Heatmap;
+            assert_eq!(heatmap, expect_heatmap);
+        }
+    }
+
+    #[test]
+    fn right_shift_m_hides_minimap() {
+        let mut app = app_with_keys(&[KeyCode::ShiftRight, KeyCode::KeyM], false);
+        app.init_resource::<MinimapMode>();
+        app.init_resource::<MinimapVisible>();
+        app.add_systems(Update, toggle_minimap_mode_system);
+        app.update();
+        assert!(!app.world().resource::<MinimapVisible>().0);
+        assert!(*app.world().resource::<MinimapMode>() == MinimapMode::Normal);
+    }
+
+    // --- hardcoded-half-viewport ---
+
+    #[test]
+    fn visible_rect_matches_old_constants_at_default_window() {
+        let rect = visible_world_rect(Vec2::new(100.0, 50.0), FALLBACK_WINDOW_SIZE, 1.0, 0.0);
+        assert_vec2_eq(rect.min, Vec2::new(100.0 - 960.0, 50.0 - 540.0));
+        assert_vec2_eq(rect.max, Vec2::new(100.0 + 960.0, 50.0 + 540.0));
+    }
+
+    #[test]
+    fn visible_rect_follows_window_size_zoom_and_margin() {
+        let rect = visible_world_rect(Vec2::ZERO, Vec2::new(1280.0, 720.0), 2.0, 0.0);
+        assert_vec2_eq(rect.half_size(), Vec2::new(1280.0, 720.0));
+
+        // The margin is in screen pixels, so it scales with zoom too.
+        let rect = visible_world_rect(Vec2::ZERO, Vec2::new(800.0, 600.0), 0.5, 20.0);
+        assert_vec2_eq(rect.half_size(), Vec2::new(210.0, 160.0));
+    }
+
+    #[test]
+    fn minimap_rect_spans_the_minimap_when_the_whole_world_is_visible() {
+        let world = Vec2::new(512.0, 256.0);
+        let view = Rect::new(0.0, 0.0, world.x, world.y);
+        assert_eq!(minimap_rect_px(view, world, 160), (0, 160, -1, 159));
+    }
+
+    #[test]
+    fn minimap_rect_shrinks_with_the_window() {
+        let world = Vec2::new(1000.0, 1000.0);
+        let center = Vec2::new(500.0, 500.0);
+        let wide = visible_world_rect(center, Vec2::new(400.0, 200.0), 1.0, 0.0);
+        let narrow = visible_world_rect(center, Vec2::new(200.0, 200.0), 1.0, 0.0);
+        let (wl, wr, wt, wb) = minimap_rect_px(wide, world, 100);
+        let (nl, nr, nt, nb) = minimap_rect_px(narrow, world, 100);
+        assert_eq!((wl, wr), (30, 70));
+        assert_eq!((nl, nr), (40, 60));
+        // Same height, so the same rows.
+        assert_eq!((wt, wb), (nt, nb));
+    }
+
+    // --- detailed-lod-double-scale ---
+
+    #[test]
+    fn detailed_torso_matches_simple_circle_radius() {
+        let mut rng = StdRng::seed_from_u64(3);
+        let mut innovation = InnovationCounter(0);
+        for body_size in [0.5, 1.0, 2.0] {
+            let mut genome = Genome::new_minimal(&mut innovation, &mut rng);
+            genome.body_size = body_size;
+            genome.body_segments[0].size = 1.0;
+            let plan = BodyPlan::from_genome(&genome);
+
+            // The torso ellipse's semi-major axis is the part size; the
+            // simple LOD is a unit circle.
+            let detailed_radius =
+                plan.parts[0].size * organism_sprite_scale(body_size, true, 1.0, 1.0);
+            let simple_radius = organism_sprite_scale(body_size, false, 1.0, 1.0);
+            assert!(
+                (detailed_radius - simple_radius).abs() < 1e-5,
+                "body_size {body_size}: detailed {detailed_radius} vs simple {simple_radius}"
+            );
+        }
+    }
+
+    #[test]
+    fn sprite_scale_applies_energy_and_flash_in_both_lods() {
+        let simple = organism_sprite_scale(1.5, false, 0.5, 1.2);
+        let detailed = organism_sprite_scale(1.5, true, 0.5, 1.2);
+        assert!((simple - 1.5 * 2.0 * 0.5 * 1.2).abs() < 1e-6);
+        assert!((detailed - 2.0 * 0.5 * 1.2).abs() < 1e-6);
+    }
+
+    // --- selection-ring-only-on-click ---
+
+    fn ring_app() -> App {
+        let mut app = App::new();
+        app.init_resource::<SelectedOrganism>();
+        app.insert_resource(SharedMeshes {
+            circle: Some(Handle::default()),
+            selection_material: Some(Handle::default()),
+            ..default()
+        });
+        app.add_systems(Update, sync_selection_ring);
+        app
+    }
+
+    fn rings(app: &mut App) -> Vec<Vec3> {
+        let world = app.world_mut();
+        world
+            .query_filtered::<&Transform, With<SelectionRing>>()
+            .iter(world)
+            .map(|t| t.translation)
+            .collect()
+    }
+
+    fn spawn_organism(app: &mut App, at: Vec2) -> Entity {
+        app.world_mut()
+            .spawn((Organism, Position(at), BodySize(1.0)))
+            .id()
+    }
+
+    fn select(app: &mut App, entity: Option<Entity>) {
+        app.world_mut().resource_mut::<SelectedOrganism>().entity = entity;
+    }
+
+    #[test]
+    fn ring_appears_for_any_selection_and_follows_it() {
+        let mut app = ring_app();
+        let a = spawn_organism(&mut app, Vec2::new(10.0, 20.0));
+        let b = spawn_organism(&mut app, Vec2::new(30.0, 40.0));
+
+        app.update();
+        assert!(rings(&mut app).is_empty(), "no selection, no ring");
+
+        // Selection set directly, as R, `,`/`.`, and the panel links do.
+        select(&mut app, Some(a));
+        app.update();
+        assert_eq!(
+            rings(&mut app),
+            vec![Vec3::new(10.0, 20.0, SELECTION_RING_Z)]
+        );
+
+        select(&mut app, Some(b));
+        app.update();
+        assert_eq!(
+            rings(&mut app),
+            vec![Vec3::new(30.0, 40.0, SELECTION_RING_Z)]
+        );
+
+        // The ring tracks movement.
+        app.world_mut().get_mut::<Position>(b).unwrap().0 = Vec2::new(35.0, 45.0);
+        app.update();
+        assert_eq!(
+            rings(&mut app),
+            vec![Vec3::new(35.0, 45.0, SELECTION_RING_Z)]
+        );
+    }
+
+    #[test]
+    fn ring_goes_when_the_selected_organism_dies_or_selection_clears() {
+        let mut app = ring_app();
+        let a = spawn_organism(&mut app, Vec2::new(10.0, 20.0));
+        select(&mut app, Some(a));
+        app.update();
+        assert_eq!(rings(&mut app).len(), 1);
+
+        app.world_mut().despawn(a);
+        app.update();
+        assert!(rings(&mut app).is_empty(), "ring outlived its organism");
+
+        let b = spawn_organism(&mut app, Vec2::new(1.0, 2.0));
+        select(&mut app, Some(b));
+        app.update();
+        assert_eq!(rings(&mut app).len(), 1);
+
+        select(&mut app, None);
+        app.update();
+        assert!(rings(&mut app).is_empty());
+    }
 }
