@@ -1193,6 +1193,85 @@ pub fn strike_cost(attack_strength: f32, rate: f32) -> f32 {
     (attack_strength * rate).max(0.0)
 }
 
+/// Which instrumented bands an attacker falls in, for the gate counters of
+/// step 5 of `plans/2026-09-21-pyramid-top.md`. Read only by counters.
+#[derive(Clone, Copy, Debug, Default)]
+struct AttackerBand {
+    /// A consumer (not a photosynthesiser) with `diet >= 0`.
+    diet_nonneg: bool,
+    /// Labelled hunter: a consumer with `diet >= 1/3`.
+    hunter: bool,
+    /// A hunter of generation 0.
+    founder_hunter: bool,
+    /// The attacker's age in ticks.
+    age: u64,
+}
+
+impl AttackerBand {
+    fn of(genome: &Genome, lineage: Option<(&Age, &Generation)>) -> Self {
+        let consumer = !genome.is_photosynthesiser();
+        let hunter = classify_strategy(genome) == SpeciesStrategy::Hunter;
+        let (age, generation) = lineage.map(|(a, g)| (a.0, g.0)).unwrap_or((0, u32::MAX));
+        Self {
+            diet_nonneg: consumer && genome.diet >= 0.0,
+            hunter,
+            founder_hunter: hunter && generation == 0,
+            age,
+        }
+    }
+
+    fn tracked(&self) -> bool {
+        self.diet_nonneg
+    }
+}
+
+/// Which gates the consumers in an attacker's reach passed.
+#[derive(Clone, Copy, Debug)]
+struct ConsumerGates {
+    any_size: bool,
+    any_damage: bool,
+    any_both: bool,
+    struck_consumer: bool,
+}
+
+/// Count one attack by a tracked attacker into its bands' gate counters
+/// (step 5 of `plans/2026-09-21-pyramid-top.md`). Counters only.
+fn record_band_attack(
+    stats: &mut PredationStats,
+    band: &AttackerBand,
+    anyone_in_reach: bool,
+    consumers: Option<ConsumerGates>,
+    attacker: Entity,
+) {
+    let bump = |g: &mut GateOutcomes| {
+        g.intents += 1;
+        if anyone_in_reach {
+            g.strikes += 1;
+        }
+        if let Some(c) = consumers {
+            g.record_consumer_attack(c.any_size, c.any_damage, c.any_both, c.struck_consumer);
+        }
+    };
+    bump(&mut stats.diet_nonneg_gates);
+    if band.hunter {
+        bump(&mut stats.feeding.hunter_gates);
+        let bucket = age_bucket(band.age);
+        stats.hunter_intent_ages[bucket] += 1;
+        if consumers.is_some() {
+            stats.hunter_reach_ages[bucket] += 1;
+        }
+    }
+    if band.founder_hunter {
+        bump(&mut stats.founder_hunter_gates);
+        if stats.founder_hunters_fired.insert(attacker) {
+            stats.founder_hunter_first_intent_age_sum += band.age;
+        }
+        if consumers.is_some() && stats.founder_hunters_reached.insert(attacker) {
+            stats.founder_hunter_first_reach_age_sum += band.age;
+        }
+    }
+}
+
 /// Predation: organisms can attack and eat each other. Every strike is a
 /// kill attempt, plant or animal, under the same size and damage gates;
 /// grazing is `eat`'s job (`grazing_system`).
@@ -1212,18 +1291,20 @@ fn predation_system(
         ),
         With<Organism>,
     >,
+    lineage: Query<(&Age, &Generation), With<Organism>>,
     mut commands: Commands,
     mut predation_stats: ResMut<PredationStats>,
     mut ledger: ResMut<EnergyLedger>,
 ) {
     // Collect attack intents
-    let attackers: Vec<(Entity, Vec2, f32, f32, f32)> = organisms
+    let attackers: Vec<(Entity, Vec2, f32, f32, f32, AttackerBand)> = organisms
         .iter()
         .filter(|(_, _, _, _, _, _, _, output)| output.attack > 0.5)
         .map(|(e, pos, _, _, _, genome, body_size, _)| {
             let attack_str = genome.claw_power() * body_size.0;
             let attack_range = body_size.0 * 4.0;
-            (e, pos.0, attack_str, attack_range, body_size.0)
+            let band = AttackerBand::of(genome, lineage.get(e).ok());
+            (e, pos.0, attack_str, attack_range, body_size.0, band)
         })
         .collect();
     predation_stats.attacks_attempted += attackers.len() as u64;
@@ -1241,9 +1322,16 @@ fn predation_system(
     // this tick; charged after the kills are resolved.
     let mut strike_costs: Vec<(Entity, f32)> = Vec::new();
 
-    for (attacker_entity, attacker_pos, attack_str, attack_range, attacker_size) in &attackers {
+    for (attacker_entity, attacker_pos, attack_str, attack_range, attacker_size, band) in &attackers
+    {
         let nearby = spatial_hash.query_radius(*attacker_pos, *attack_range);
         candidates.clear();
+        // Instrument only: which gates the unclaimed consumers in reach
+        // passed (step 5 of plans/2026-09-21-pyramid-top.md).
+        let mut consumer_in_reach = false;
+        let mut consumer_size_ok = false;
+        let mut consumer_damage_ok = false;
+        let mut consumer_both_ok = false;
         // Instrument only: whether any living plant was within reach,
         // claimed or not. It does not affect which target is struck.
         let mut plant_in_reach = false;
@@ -1297,6 +1385,12 @@ fn predation_system(
                 if !damage_ok {
                     predation_stats.rejected_damage += 1;
                 }
+                if !is_plant {
+                    consumer_in_reach = true;
+                    consumer_size_ok |= size_ok;
+                    consumer_damage_ok |= damage_ok;
+                    consumer_both_ok |= size_ok && damage_ok;
+                }
 
                 if damage_ok && size_ok {
                     candidates.push(StrikeCandidate {
@@ -1321,7 +1415,22 @@ fn predation_system(
                 strike_cost(*attack_str, config.strike_cost),
             ));
         }
-        if let Some(target) = nearest_target(&candidates) {
+        let struck = nearest_target(&candidates);
+        if band.tracked() {
+            record_band_attack(
+                &mut predation_stats,
+                band,
+                anyone_in_reach,
+                consumer_in_reach.then_some(ConsumerGates {
+                    any_size: consumer_size_ok,
+                    any_damage: consumer_damage_ok,
+                    any_both: consumer_both_ok,
+                    struck_consumer: struck.is_some_and(|t| !t.is_plant),
+                }),
+                *attacker_entity,
+            );
+        }
+        if let Some(target) = struck {
             kills.push((
                 *attacker_entity,
                 target.entity,
@@ -4115,5 +4224,100 @@ mod grazing_tests {
         assert!((stats.strike_energy - 1.0).abs() < 1e-6);
         let ledger = world.resource::<EnergyLedger>();
         assert!((ledger.tick.movement - 1.0).abs() < 1e-6);
+    }
+
+    /// The step 5 gate counters sort each hunter attack on consumer prey
+    /// by the gate that stopped it, and leave grazer attackers out.
+    #[test]
+    fn hunter_gate_counters_name_the_binding_gate() {
+        let mut world = feeding_world();
+        // (attacker size, claws) beside an unarmoured size-1 consumer.
+        let cases = [
+            (1.0, 1.0),  // kills
+            (0.5, 2.0),  // size gate: 0.5 is not above 0.6
+            (1.0, 0.05), // damage gate: 0.05 is not above 0.1
+            (0.5, 0.05), // both
+        ];
+        let mut founder = None;
+        for (i, (size, claws)) in cases.iter().enumerate() {
+            let x = 100.0 * (i as f32 + 1.0);
+            let e = spawn(
+                &mut world,
+                Vec2::new(x, 10.0),
+                50.0,
+                genome(false, false, 0.8, *claws),
+                *size,
+                attacking(),
+            );
+            if i == 0 {
+                world.entity_mut(e).insert((Age(40), Generation(0)));
+                founder = Some(e);
+            }
+            spawn(
+                &mut world,
+                Vec2::new(x + 1.0, 10.0),
+                50.0,
+                genome(false, false, -1.0, 0.0),
+                1.0,
+                idle(),
+            );
+        }
+        // A hunter with only a plant in reach, and a grazer attacker.
+        spawn(
+            &mut world,
+            Vec2::new(600.0, 10.0),
+            50.0,
+            genome(false, false, 0.8, 1.0),
+            1.0,
+            attacking(),
+        );
+        spawn(
+            &mut world,
+            Vec2::new(601.0, 10.0),
+            50.0,
+            genome(true, false, 0.0, 0.0),
+            1.0,
+            idle(),
+        );
+        spawn(
+            &mut world,
+            Vec2::new(700.0, 10.0),
+            50.0,
+            genome(false, false, -1.0, 1.0),
+            1.0,
+            attacking(),
+        );
+        spawn(
+            &mut world,
+            Vec2::new(701.0, 10.0),
+            50.0,
+            genome(false, false, -1.0, 0.0),
+            1.0,
+            idle(),
+        );
+
+        world.run_system_once(predation_system).unwrap();
+
+        let stats = world.resource::<PredationStats>();
+        let h = stats.feeding.hunter_gates;
+        assert_eq!((h.intents, h.strikes, h.consumer_in_reach), (5, 5, 4));
+        assert_eq!(
+            (
+                h.kills_consumer,
+                h.rejected_size,
+                h.rejected_damage,
+                h.rejected_both
+            ),
+            (1, 1, 1, 1)
+        );
+        assert_eq!(stats.diet_nonneg_gates, h);
+        let f = stats.founder_hunter_gates;
+        assert_eq!((f.intents, f.kills_consumer), (1, 1));
+        assert!(stats.founder_hunters_reached.contains(&founder.unwrap()));
+        assert_eq!(stats.founder_hunter_first_reach_age_sum, 40);
+        // Every attacker is younger than 100 ticks (one is 40, the rest have
+        // no Age and read 0), so everything lands in the first age bucket.
+        assert_eq!(stats.hunter_reach_ages[0], 4);
+        assert_eq!(stats.hunter_intent_ages[0], 5);
     }
 }

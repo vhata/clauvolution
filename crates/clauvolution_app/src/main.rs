@@ -722,7 +722,9 @@ fn dump_history_csv(
          ledger_max_residual,ledger_cumulative_residual,\
          grazes_eat,grazes_attack,kills_consumer,kills_plant,grazer_kills,grazer_kills_consumer,\
          attacks_no_plant_in_reach,grazes_eat_by_plant,kills_plant_by_consumer,\
-         plant_kill_energy_consumer"
+         plant_kill_energy_consumer,\
+         hunter_intents,hunter_strikes,hunter_consumer_in_reach,hunter_kills_consumer,\
+         hunter_rejected_size,hunter_rejected_damage,hunter_rejected_both"
     )?;
     for s in &history.snapshots {
         let fl = &s.energy_flows;
@@ -730,7 +732,7 @@ fn dump_history_csv(
             f,
             "{},{:.1},{},{},{},{},{},{},{},{},{:.2},{:.3},{:.3},{:.3},{:.3},{:.3},{:+.3},{:.3},{:.4},{:.4},{:.3},{:.3},{:.3},{:.3},{:.3},{},{},{},{},{},{},\
              {:.2},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.6},{:.6},\
-             {},{},{},{},{},{},{},{},{},{:.3}",
+             {},{},{},{},{},{},{},{},{},{:.3},{},{},{},{},{},{},{}",
             s.tick,
             s.tick as f64 / 30.0,
             s.organisms,
@@ -788,6 +790,13 @@ fn dump_history_csv(
             s.feeding.grazes_eat_by_plant,
             s.feeding.kills_plant_by_consumer,
             s.feeding.plant_kill_energy_consumer,
+            s.feeding.hunter_gates.intents,
+            s.feeding.hunter_gates.strikes,
+            s.feeding.hunter_gates.consumer_in_reach,
+            s.feeding.hunter_gates.kills_consumer,
+            s.feeding.hunter_gates.rejected_size,
+            s.feeding.hunter_gates.rejected_damage,
+            s.feeding.hunter_gates.rejected_both,
         )?;
     }
     Ok(())
@@ -1134,6 +1143,57 @@ fn print_headless_summary(
     eprintln!(
         "    eat bites by plants: {}",
         predation.feeding.grazes_eat_by_plant
+    );
+    // Step 5 of plans/2026-09-21-pyramid-top.md: what stops consumer
+    // attackers on the positive side of the diet axis from killing consumers.
+    eprintln!();
+    eprintln!("Consumer-prey gates (attacks with a consumer in reach):");
+    eprintln!(
+        "  band            intents  strikes  in reach    kill  plant  size-only  damage-only  both  mixed"
+    );
+    for (label, g) in [
+        ("diet >= 0", &predation.diet_nonneg_gates),
+        ("hunters", &predation.feeding.hunter_gates),
+        ("founding hunt.", &predation.founder_hunter_gates),
+    ] {
+        eprintln!(
+            "  {:<14} {:>8} {:>8} {:>9} {:>7} {:>6} {:>10} {:>12} {:>5} {:>6}",
+            label,
+            g.intents,
+            g.strikes,
+            g.consumer_in_reach,
+            g.kills_consumer,
+            g.kills_plant_instead,
+            g.rejected_size,
+            g.rejected_damage,
+            g.rejected_both,
+            g.rejected_mixed
+        );
+    }
+    let fmt_ages = |ages: &[u64]| {
+        ages.iter()
+            .map(|n| n.to_string())
+            .collect::<Vec<_>>()
+            .join(" / ")
+    };
+    eprintln!("  Hunter intents by age (<100/<200/<300/<500/<1000/older):");
+    eprintln!(
+        "    all:         {}",
+        fmt_ages(&predation.hunter_intent_ages)
+    );
+    eprintln!(
+        "    in reach:    {}",
+        fmt_ages(&predation.hunter_reach_ages)
+    );
+    let fired = predation.founder_hunters_fired.len() as u64;
+    let reached = predation.founder_hunters_reached.len() as u64;
+    let mean = |sum: u64, n: u64| if n > 0 { sum as f64 / n as f64 } else { 0.0 };
+    eprintln!(
+        "  Founding hunters that fired: {} (first at mean age {:.0}); with a consumer in reach: {} (first at mean age {:.0})",
+        fired,
+        mean(predation.founder_hunter_first_intent_age_sum, fired),
+        reached,
+        mean(predation.founder_hunter_first_reach_age_sum, reached)
     );
     eprintln!();
     // Cumulative flows are magnitudes; the sign column says which way each
