@@ -427,6 +427,8 @@ pub struct PredationStats {
     /// and the sum of their ages the first time.
     pub founder_hunters_reached: HashSet<Entity>,
     pub founder_hunter_first_reach_age_sum: u64,
+    /// Founding hunters that killed at least one consumer.
+    pub founder_hunters_killed: HashSet<Entity>,
 }
 
 /// Upper bounds (exclusive, in ticks of age) of the attacker-age buckets the

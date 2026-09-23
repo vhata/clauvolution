@@ -1195,6 +1195,10 @@ fn print_headless_summary(
         reached,
         mean(predation.founder_hunter_first_reach_age_sum, reached)
     );
+    eprintln!(
+        "  Founding hunters that killed a consumer: {}",
+        predation.founder_hunters_killed.len()
+    );
     eprintln!();
     // Cumulative flows are magnitudes; the sign column says which way each
     // one moves organism energy. Grazing and symbiosis are transfers between

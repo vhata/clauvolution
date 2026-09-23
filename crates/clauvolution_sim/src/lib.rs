@@ -1269,6 +1269,9 @@ fn record_band_attack(
         if consumers.is_some() && stats.founder_hunters_reached.insert(attacker) {
             stats.founder_hunter_first_reach_age_sum += band.age;
         }
+        if consumers.is_some_and(|c| c.any_both && c.struck_consumer) {
+            stats.founder_hunters_killed.insert(attacker);
+        }
     }
 }
 
@@ -4315,6 +4318,7 @@ mod grazing_tests {
         assert_eq!((f.intents, f.kills_consumer), (1, 1));
         assert!(stats.founder_hunters_reached.contains(&founder.unwrap()));
         assert_eq!(stats.founder_hunter_first_reach_age_sum, 40);
+        assert_eq!(stats.founder_hunters_killed.len(), 1);
         // Every attacker is younger than 100 ticks (one is 40, the rest have
         // no Age and read 0), so everything lands in the first age bucket.
         assert_eq!(stats.hunter_reach_ages[0], 4);
