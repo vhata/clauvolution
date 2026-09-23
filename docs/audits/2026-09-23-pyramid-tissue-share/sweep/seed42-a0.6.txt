@@ -1,0 +1,106 @@
+Compute pool capped at 6 workers (set CLAU_WORKERS to override)
+Headless run: 5000 ticks, seed 42 at 10× virtual-time
+Config override: kill_transfer_animal = 0.6
+
+=== Headless summary ===
+Founders by biome: Sand 63 (tiles 26978), Grassland 185 (tiles 79347), Forest 152 (tiles 65377), Rock 0 (tiles 0); strategies: 133 plants, 87 grazers, 76 hunters, 104 omnivores; imported 0; starting energy 41.2..78.7
+Total organisms (final): 3884
+Species (final):         47
+Max generation:          81
+Total births:            78970
+Total deaths:            75624
+  by Starvation:         19178
+  by Predation:          54580
+    kills of consumers / plants: 35069 / 19511
+    by grazers (diet < 0):       9373 (5240 of consumers)
+    plants killed by consumers:  19468 (kept 9819.6 energy)
+    plants killed by hunters:    15270 (kept 764.3 energy)
+  by Old age:            0
+  by Disease:            1866
+  by Event:              0
+Founding hunters died:   76 of 76 (mean age 312 ticks, oldest 2706)
+Population ceiling:      6000 (engaged 0 times, 0 births blocked)
+
+Final strategy breakdown:
+  Plants:              1887
+  Grazers:             1946
+  Hunters:             50
+  Omnivores:           1
+  Infected:            1148
+
+Final trait averages:
+  Body size:           1.09
+  Speed:               1.30
+  Attack:              0.12
+  Armor:               1.10
+  Photosynthesis:      47%
+  Diet (consumers):    -0.89
+  Leaf area (plants):  1.99
+  Speed plants/eaters: 0.834 / 1.973 per tick
+  Light share (plants): 0.59
+  Ready plants/eaters: 0% / 0%
+  Disease resistance:  13%
+  Symbiosis rate:      -0.01
+  Symbiotic pairs:     44
+  Avg lifespan:        191 ticks
+
+Grazer timeline (every 500 ticks; eat reach = 1 x body size):
+   tick  plants  grazers  hunters  grazer size  grazer armour  eat grazes  per grazer-s
+    511     320     2037       29         1.28           0.07        2756          0.16
+   1021     101     1522      387         1.47           0.23        6687          0.19
+   1501      12     1487       29         1.50           0.87         506          0.02
+   2011     137      817        2         1.48           0.65         415          0.03
+   2521    1210     2644      123         1.54           0.52       20482          0.64
+   3001     171     1318      120         1.60           1.67       12202          0.52
+   3511     704      797        9         1.52           1.37        5418          0.25
+   4021    2912     2324       82         1.44           0.93       29332          1.37
+   4501    1267     2181      113         1.68           1.87       30315          1.13
+   4981    1887     1946       50         1.77           1.83       65874          1.61
+
+Predation funnel:
+  Attack intents:      3142820
+  Targets considered:  4548482
+  Rejected (size):     28028
+  Rejected (damage):   4469676
+  Kills:               54580
+  Strikes (paid):      1938051 (254646.8 energy)
+  No plant in reach:   2722637
+  Grazes (eat/attack): 176298 / 0
+    eat bites by plants: 3163
+
+Consumer-prey gates (attacks with a consumer in reach):
+  band            intents  strikes  in reach    kill  plant  size-only  damage-only  both  mixed
+  diet >= 0        471672   162753    154873   29829   1312       4733       117441   717    841
+  hunters          451807   158717    150990   29113   1309       4659       114418   687    804
+  founding hunt.     8716      888       760     425      1          9          247    78      0
+  Hunter intents by age (<100/<200/<300/<500/<1000/older):
+    all:         267353 / 103179 / 43652 / 28279 / 7508 / 1836
+    in reach:    109491 / 26029 / 9174 / 5107 / 1042 / 147
+  Founding hunters that fired: 25 (first at mean age 8); with a consumer in reach: 20 (first at mean age 70)
+  Founding hunters that killed a consumer: 9
+
+Energy ledger:
+  Baseline energy:     23414.1
+  Final live energy:   128282.2
+  Cumulative flows:
+    + photosynthesis              2200619.3
+    + food                        6041969.2
+    + predation                    602900.7
+      grazing                     1000289.8
+      symbiosis                      2115.0
+    - metabolism                  4192583.0
+    - movement                    1475177.1
+    - disease                       32410.3
+    - reproduction_spent          3499096.4
+    + reproduction_received       2799277.2
+    - death                       1703547.3
+    - clamp                        100532.9
+    - digestion                    536551.3
+  Net of flows:        +104868.1
+  Largest |residual|:  0.000441 per tick (tolerance 0.1)
+  Final residual:      +0.000220
+  Cumulative residual: -0.069607
+  Ticks over tolerance: 0
+
+Wrote 166 snapshots to /private/tmp/claude-502/-Users-jonathan-hitchcock-src-clauvolution/fb1d13e6-a5b9-4f65-be0b-cd0d88c8f0b4/scratchpad/ts/seed42-a0.6.csv
+Headless run complete in 73.72s
