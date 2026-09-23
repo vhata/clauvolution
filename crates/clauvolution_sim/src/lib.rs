@@ -3640,12 +3640,13 @@ mod grazing_tests {
     use rand::{rngs::StdRng, SeedableRng};
 
     /// A world holding what `grazing_system` and `predation_system` read.
-    /// Bite reach is set to 3 × body size so the geometry below does not
-    /// move with the shipped default.
+    /// Bite reach is set to 3 × body size and strikes are free, so the
+    /// geometry and energies below do not move with the shipped defaults.
     fn feeding_world() -> World {
         let mut world = World::new();
         world.insert_resource(SimConfig {
             bite_reach: 3.0,
+            strike_cost: 0.0,
             ..SimConfig::default()
         });
         world.insert_resource(SpatialHash::new(32.0));
@@ -4017,5 +4018,79 @@ mod grazing_tests {
         assert_eq!(stats.feeding.kills_plant_by_consumer, 1);
         assert!((stats.feeding.plant_kill_energy_consumer - 8.0).abs() < 1e-4);
         assert_eq!(stats.feeding.grazes_attack, 0);
+    }
+
+    #[test]
+    fn strike_cost_scales_with_strike_force() {
+        assert!((strike_cost(2.0, 0.3) - 0.6).abs() < 1e-6);
+        assert_eq!(strike_cost(0.0, 0.3), 0.0);
+        assert_eq!(strike_cost(2.0, 0.0), 0.0);
+    }
+
+    /// A strike costs the attacker whether it lands or bounces; firing with
+    /// nobody in reach is free, and the cost is booked as movement.
+    #[test]
+    fn a_strike_costs_the_attacker_and_a_flail_does_not() {
+        let mut world = feeding_world();
+        world.resource_mut::<SimConfig>().strike_cost = 0.5;
+        // Lands: claws 1 × size 1 against an unarmoured consumer.
+        let killer = spawn(
+            &mut world,
+            Vec2::new(10.0, 10.0),
+            50.0,
+            genome(false, false, -1.0, 1.0),
+            1.0,
+            attacking(),
+        );
+        let victim = spawn(
+            &mut world,
+            Vec2::new(11.0, 10.0),
+            40.0,
+            genome(false, false, -1.0, 0.0),
+            1.0,
+            idle(),
+        );
+        // Bounces: too small to pass the size gate on its neighbour.
+        let bouncer = spawn(
+            &mut world,
+            Vec2::new(100.0, 100.0),
+            50.0,
+            genome(false, false, -1.0, 2.0),
+            0.5,
+            attacking(),
+        );
+        spawn(
+            &mut world,
+            Vec2::new(101.0, 100.0),
+            50.0,
+            genome(false, false, -1.0, 0.0),
+            1.0,
+            idle(),
+        );
+        // Flails: nobody within attack range.
+        let flailer = spawn(
+            &mut world,
+            Vec2::new(300.0, 300.0),
+            50.0,
+            genome(false, false, -1.0, 2.0),
+            1.0,
+            attacking(),
+        );
+
+        world.run_system_once(predation_system).unwrap();
+
+        assert!(world.get::<Killed>(victim).is_some());
+        // A tenth of 40 at animal efficiency 0 is nothing; the strike costs
+        // 0.5 × claws 1 × size 1.
+        assert!((energy(&world, killer) - 49.5).abs() < 1e-4);
+        // 0.5 × claws 2 × size 0.5.
+        assert!((energy(&world, bouncer) - 49.5).abs() < 1e-4);
+        assert_eq!(energy(&world, flailer), 50.0);
+        let stats = world.resource::<PredationStats>();
+        assert_eq!(stats.attacks_attempted, 3);
+        assert_eq!(stats.strikes, 2);
+        assert!((stats.strike_energy - 1.0).abs() < 1e-6);
+        let ledger = world.resource::<EnergyLedger>();
+        assert!((ledger.tick.movement - 1.0).abs() < 1e-6);
     }
 }
