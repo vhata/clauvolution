@@ -500,6 +500,14 @@ impl PhyloTree {
         self.nodes.insert(species_id, node);
     }
 
+    /// The id for the next new species: one past the highest id the tree
+    /// holds, living or extinct, or 1 for an empty tree. Nodes are never
+    /// removed and the save keeps every node, so an id is never issued twice
+    /// in a run's history, including across a save and load.
+    pub fn next_species_id(&self) -> u64 {
+        self.nodes.keys().max().map_or(1, |max| max + 1)
+    }
+
     /// A name for a new species that no living species already carries. A
     /// child inherits its parent's habitat and noun, so the descriptor is
     /// walked first; when every descriptor is taken by a living relative,
@@ -1042,6 +1050,18 @@ mod tests {
         }
         tree.update_populations(&counts, 0);
         tree
+    }
+
+    #[test]
+    fn next_species_id_counts_extinct_species() {
+        assert_eq!(PhyloTree::default().next_species_id(), 1);
+        let mut tree = tree(&[(1, None, Grazer), (2, None, Grazer), (3, Some(1), Hunter)]);
+        assert_eq!(tree.next_species_id(), 4);
+        // The highest-numbered species dies out; its id stays issued.
+        let counts = HashMap::from([(1, 20), (2, 20)]);
+        tree.update_populations(&counts, 10);
+        assert_eq!(tree.nodes[&3].extinct_tick, Some(10));
+        assert_eq!(tree.next_species_id(), 4);
     }
 
     #[test]

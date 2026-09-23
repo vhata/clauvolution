@@ -1944,7 +1944,11 @@ fn species_classification_system(
     }
 
     let mut species_reps: Vec<(u64, Genome)> = Vec::new();
-    let mut next_species_id: u64 = 1;
+    // Start past every id the tree has ever held, extinct species included:
+    // `record_species` ignores an id it already has, so a reused id would
+    // fold the newcomer into the dead species' record. The scan below still
+    // raises it past any living id missing from the tree.
+    let mut next_species_id = phylo.next_species_id();
 
     let mut seen_species: HashMap<u64, usize> = HashMap::new();
     for (_entity, genome, species_id) in &org_data {
