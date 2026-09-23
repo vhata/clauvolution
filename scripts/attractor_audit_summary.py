@@ -35,7 +35,7 @@ FIELDS = {
     "grazes": r"Grazes \(eat/attack\):\s+(\d+ / \d+)",
     # Plants killed by non-photosynthesisers and the energy they kept.
     # Summaries from before step 2 of that plan show "?".
-    "pkills": r"plants killed by consumers:\s+(\d+ \(kept [\d.]+\))",
+    "pkills": r"plants killed by consumers:\s+(\d+) \(kept ([\d.]+) energy\)",
 }
 
 
@@ -44,7 +44,7 @@ def parse(path):
     row = {}
     for key, pat in FIELDS.items():
         m = re.search(pat, text)
-        row[key] = m.group(1) if m else "?"
+        row[key] = " / ".join(m.groups()) if m else "?"
     return row
 
 
@@ -56,7 +56,7 @@ def label_key(path):
 
 def main(d):
     paths = sorted(Path(d).glob("seed*-run*.txt"), key=label_key)
-    print("| seed | run | plants | grazers | hunters | omnivores | plant % | species | deaths | starv | pred | old | dis | kills | grazer kills | grazes eat/attack | plant kills | body | diet | light | ready p/e |")
+    print("| seed | run | plants | grazers | hunters | omnivores | plant % | species | deaths | starv | pred | old | dis | kills | grazer kills | grazes eat/attack | plant kills by consumers / energy kept | body | diet | light | ready p/e |")
     print("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
     probes = {}
     for p in paths:
