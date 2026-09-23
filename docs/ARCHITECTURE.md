@@ -105,6 +105,7 @@ update_minimap                ← repaint the minimap image every 0.5s
 | Save/load | `clauvolution_sim::save` module |
 | Creature export / `--seed-with` import | `CreatureFile` in `clauvolution_sim::save`; founders spawned by `spawn_initial_population` |
 | Energy accounting | `EnergyLedger` and `EnergyFlows` in `clauvolution_core`; `clauvolution_sim::ledger_system` |
+| Command-line flags (known list, `--help`, rejection of unknown flags) | `FLAGS` in `clauvolution_app/src/cli.rs`; values are read in `main` |
 
 ## Bevy schedule essentials
 
