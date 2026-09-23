@@ -36,9 +36,6 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
   - Starting point: Re-measure after `todo/speciation-stalls-after-founding` lands, since the stay-threshold fix changes both churn and speciation rates; the 8-seed counts are in `docs/audits/2026-09-23-pyramid-reread/`.
   - Source: roadmap/pyramid-reread branch, 2026-09-23
   - Related: `species-distance-unrelated-ceiling`
-- [RENDER] `render-handle-clone-clarity` — **Clarify frequent mesh and material handle cloning in the render systems.** The clones are cheap because handles are Arc-like, but the pattern reads as expensive and obscures that.
-  - Starting point: Decide whether a comment, a helper, or no change at all is the right answer before touching code.
-  - Source: docs/ROADMAP.md (Known tech debt), 2026-09-16
 - [SIM] `system-ordering-convention` — **Decide one convention for simulation system ordering.** Some systems use explicit `.chain()` and others rely on default Bevy ordering within a tuple, so the intent behind any given ordering is unclear.
   - Starting point: Establish which form is deliberate, then apply it consistently and record the choice.
   - Source: docs/ROADMAP.md (Known tech debt), 2026-09-16
