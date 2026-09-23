@@ -1,0 +1,17 @@
+02:42:24 start seed1-run1
+02:42:24 start seed2-run1
+02:42:24 start seed42-run1
+02:42:24 start seed3-run1
+02:52:42 done  seed2-run1
+02:53:07 done  seed42-run1
+02:54:27 done  seed3-run1
+02:55:38 done  seed1-run1
+02:55:38 start seed314-run1
+02:55:38 start seed7-run1
+02:55:38 start seed99-run1
+02:55:38 start seed1000-run1
+04:10:30 done  seed7-run1
+04:11:32 done  seed99-run1
+04:12:14 done  seed1000-run1
+04:15:18 done  seed314-run1
+04:15:18 audit complete

@@ -1,0 +1,80 @@
+Compute pool capped at 6 workers (set CLAU_WORKERS to override)
+Headless run: 15000 ticks, seed 99 at 10× virtual-time
+
+=== Headless summary ===
+Founders by biome: Sand 134 (tiles 23575), Grassland 143 (tiles 25051), Forest 86 (tiles 15076), Rock 37 (tiles 6594); strategies: 133 plants, 97 grazers, 94 hunters, 76 omnivores; imported 0; starting energy 41.0..78.7
+Total organisms (final): 5467
+Species (final):         52
+Max generation:          96
+Total births:            124895
+Total deaths:            119828
+  by Starvation:         20125
+  by Predation:          29138
+    kills of consumers / plants: 19553 / 9585
+    by grazers (diet < 0):       28893 (19414 of consumers)
+    plants killed by consumers:  9294 (kept 18465.6 energy)
+  by Old age:            310
+  by Disease:            70255
+  by Event:              0
+Founding hunters died:   94 of 94 (mean age 249 ticks, oldest 844)
+Population ceiling:      6000 (engaged 5 times, 473475 births blocked)
+
+Final strategy breakdown:
+  Plants:              2787
+  Grazers:             2680
+  Hunters:             0
+  Omnivores:           0
+  Infected:            3497
+
+Final trait averages:
+  Body size:           1.03
+  Speed:               1.04
+  Attack:              0.09
+  Armor:               0.56
+  Photosynthesis:      53%
+  Diet (consumers):    -0.97
+  Leaf area (plants):  1.99
+  Speed plants/eaters: 0.312 / 2.962 per tick
+  Light share (plants): 0.50
+  Ready plants/eaters: 0% / 1%
+  Disease resistance:  8%
+  Symbiosis rate:      +0.05
+  Symbiotic pairs:     128
+  Avg lifespan:        455 ticks
+
+Predation funnel:
+  Attack intents:      8775229
+  Targets considered:  9916135
+  Rejected (size):     263197
+  Rejected (damage):   9872183
+  Kills:               29138
+  Strikes (paid):      3719834 (184563.6 energy)
+  No plant in reach:   6631936
+  Grazes (eat/attack): 1702659 / 0
+    eat bites by plants: 57713
+
+Energy ledger:
+  Baseline energy:     23181.7
+  Final live energy:   175761.6
+  Cumulative flows:
+    + photosynthesis             13993235.8
+    + food                       12552694.7
+    + predation                     19678.3
+      grazing                     7165756.8
+      symbiosis                     18352.3
+    - metabolism                 16570441.7
+    - movement                    4682397.0
+    - disease                     1754109.7
+    - reproduction_spent          5670127.0
+    + reproduction_received       4536101.7
+    - death                       1499063.7
+    - clamp                        279907.6
+    - digestion                    493083.9
+  Net of flows:        +152579.7
+  Largest |residual|:  0.000528 per tick (tolerance 0.1)
+  Final residual:      -0.000140
+  Cumulative residual: +0.141239
+  Ticks over tolerance: 0
+
+Wrote 500 snapshots to docs/audits/2026-09-23-pyramid-reread/seed99-run1.csv
+Headless run complete in 1092.90s
