@@ -4,7 +4,8 @@ One-liner list of what Clauvolution does, grouped by area. For the design ration
 
 ## Simulation dynamics
 
-- **Per-organism NEAT neural networks** — 22 sensory inputs, 9 outputs, 3 recurrent memory slots
+- **Per-organism NEAT neural networks** — 26 sensory inputs, 9 outputs, 3 recurrent memory slots
+- **Nearest-eater sensing** — four brain inputs give the direction, closeness and size ratio of the nearest non-photosynthesiser in sense range, encoded as the nearest-organism inputs are, so a brain can steer at an animal when the nearest organism is a plant. Labelled `eater dx` / `eater dy` / `eater near` / `eater size` in the Inspect brain view. Genomes from older saves and creature files gain these inputs unconnected on load and behave as before
 - **Emergent behaviour** — no scripted actions; movement, feeding, attack, reproduction all evolve from selection
 - **Genetic system** — neurons, connections, body segments, traits; mutation + crossover + structural innovations (add-neuron, add-connection). Crossover blends each scalar trait with its own factor, so a child can take one parent's speed and the other's armour
 - **Body segments** — torso, limb, fin, eye, mouth, photo surface, claw, armor plate; each affects gameplay
