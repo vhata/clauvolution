@@ -258,10 +258,17 @@ pub struct SimConfig {
     /// Founders draw `diet` uniformly from `-spread..spread`. Overridable
     /// with `--founder-diet-spread`.
     pub founder_diet_spread: f32,
-    /// Fraction of a victim's energy offered to its killer before digestion,
-    /// the per-meal trophic share. See `docs/DECISIONS.md`, "Energy pyramid".
-    /// Overridable with `--kill-transfer`.
-    pub kill_transfer_fraction: f32,
+    /// Fraction of an animal victim's energy (a consumer, not a
+    /// photosynthesiser) offered to its killer before digestion: the
+    /// per-meal trophic share of a hunter's kill. See `docs/DECISIONS.md`,
+    /// "Energy pyramid" and "Kill share by victim tissue". Overridable with
+    /// `--kill-transfer-animal`, or with `--kill-transfer`, which sets both
+    /// shares.
+    pub kill_transfer_animal: f32,
+    /// Fraction of a plant victim's energy (a photosynthesiser) offered to
+    /// its killer before digestion. Overridable with `--kill-transfer-plant`,
+    /// or with `--kill-transfer`, which sets both shares.
+    pub kill_transfer_plant: f32,
     /// Energy an attacker pays per tick of a strike, per unit of strike
     /// force (`claw_power × body size`, the figure the damage gate reads).
     /// A strike is `attack` firing with a living organism within attack
@@ -317,7 +324,8 @@ impl Default for SimConfig {
             bite_fraction: 0.3,
             bite_reach: 1.0,
             mouthless_bite_bonus: 0.3,
-            kill_transfer_fraction: 0.1,
+            kill_transfer_animal: 0.1,
+            kill_transfer_plant: 0.1,
             strike_cost: DEFAULT_STRIKE_COST,
             photo_drag: 1.0,
             leaf_capacity_per_tile: 0.02,
@@ -335,6 +343,19 @@ impl Default for SimConfig {
             species_compat_threshold: 1.0,
             terrain_seed: rand::random(),
             population_ceiling: 6000,
+        }
+    }
+}
+
+impl SimConfig {
+    /// The share of a victim's energy offered to its killer before
+    /// digestion, by the victim's tissue: `kill_transfer_plant` for a
+    /// photosynthesiser, `kill_transfer_animal` for anything else.
+    pub fn kill_share(&self, victim_is_plant: bool) -> f32 {
+        if victim_is_plant {
+            self.kill_transfer_plant
+        } else {
+            self.kill_transfer_animal
         }
     }
 }
@@ -429,6 +450,11 @@ pub struct PredationStats {
     pub founder_hunter_first_reach_age_sum: u64,
     /// Founding hunters that killed at least one consumer.
     pub founder_hunters_killed: HashSet<Entity>,
+    /// Plants killed by hunters (the strategy label, `diet >= 1/3` and not a
+    /// photosynthesiser), and the energy those hunters kept from them after
+    /// digestion. A run total only, so the history CSV is unchanged.
+    pub hunter_plant_kills: u64,
+    pub hunter_plant_kill_energy: f64,
 }
 
 /// Upper bounds (exclusive, in ticks of age) of the attacker-age buckets the
@@ -751,6 +777,12 @@ pub struct PopSnapshot {
     /// Grazes and kills during this one-second interval, by output and by
     /// who killed whom. See `FeedingCounts`.
     pub feeding: FeedingCounts,
+    /// Mean body size and armour value over labelled grazers
+    /// (`diet <= -1/3`, not a photosynthesiser); 0.0 when none is alive.
+    /// Read by the headless summary's grazer timeline, not written to the
+    /// history CSV.
+    pub avg_grazer_body_size: f32,
+    pub avg_grazer_armor: f32,
 }
 
 /// Tracks organism lifespans for fitness measurement
@@ -859,6 +891,8 @@ impl PopulationHistory {
             ledger_max_residual,
             ledger_cumulative_residual: ledger.cumulative_residual as f32,
             feeding,
+            avg_grazer_body_size: snapshot.avg_grazer_body_size,
+            avg_grazer_armor: snapshot.avg_grazer_armor,
         });
 
         if self.snapshots.len() > self.max_entries {
@@ -894,6 +928,8 @@ pub struct PopSnapshotInput {
     pub ready_share_eaters: f32,
     pub symbiotic_pairs: u32,
     pub avg_symbiosis_rate: f32,
+    pub avg_grazer_body_size: f32,
+    pub avg_grazer_armor: f32,
 }
 
 /// Tracks whether egui is currently capturing mouse/keyboard input
@@ -1438,6 +1474,28 @@ impl EnergyLedger {
     /// The largest absolute residual since the last call, then reset.
     pub fn take_interval_max_residual(&mut self) -> f64 {
         std::mem::take(&mut self.interval_max_residual)
+    }
+}
+
+#[cfg(test)]
+mod kill_share_tests {
+    use super::*;
+
+    #[test]
+    fn kill_share_follows_victim_tissue() {
+        let config = SimConfig {
+            kill_transfer_animal: 0.6,
+            kill_transfer_plant: 0.1,
+            ..Default::default()
+        };
+        assert_eq!(config.kill_share(false), 0.6);
+        assert_eq!(config.kill_share(true), 0.1);
+    }
+
+    #[test]
+    fn default_shares_are_equal() {
+        let config = SimConfig::default();
+        assert_eq!(config.kill_share(false), config.kill_share(true));
     }
 }
 

@@ -830,6 +830,8 @@ struct ConfigOverrides {
     bite_reach: Option<f32>,
     mouthless_bite: Option<f32>,
     kill_transfer: Option<f32>,
+    kill_transfer_animal: Option<f32>,
+    kill_transfer_plant: Option<f32>,
     strike_cost: Option<f32>,
     photo_drag: Option<f32>,
     leaf_capacity: Option<f32>,
@@ -854,6 +856,8 @@ impl ConfigOverrides {
             bite_reach: flag(args, "--bite-reach"),
             mouthless_bite: flag(args, "--mouthless-bite"),
             kill_transfer: flag(args, "--kill-transfer"),
+            kill_transfer_animal: flag(args, "--kill-transfer-animal"),
+            kill_transfer_plant: flag(args, "--kill-transfer-plant"),
             strike_cost: flag(args, "--strike-cost"),
             photo_drag: flag(args, "--photo-drag"),
             leaf_capacity: flag(args, "--leaf-capacity"),
@@ -889,10 +893,18 @@ fn apply_config_overrides(overrides: Res<ConfigOverrides>, mut config: ResMut<Si
         overrides.mouthless_bite,
         "mouthless_bite_bonus",
     );
+    // `--kill-transfer` predates the split by victim tissue and sets both
+    // shares, so older audit commands still mean what they meant; a
+    // per-tissue flag given alongside it wins for its own share.
     set(
-        &mut config.kill_transfer_fraction,
-        overrides.kill_transfer,
-        "kill_transfer_fraction",
+        &mut config.kill_transfer_animal,
+        overrides.kill_transfer_animal.or(overrides.kill_transfer),
+        "kill_transfer_animal",
+    );
+    set(
+        &mut config.kill_transfer_plant,
+        overrides.kill_transfer_plant.or(overrides.kill_transfer),
+        "kill_transfer_plant",
     );
     set(
         &mut config.strike_cost,
@@ -1024,6 +1036,56 @@ fn headless_tick_counter(
     }
 }
 
+/// Ticks between rows of the headless summary's grazer timeline.
+const GRAZER_TIMELINE_STEP: u64 = 500;
+
+/// Grazer size, armour and eat grazing through the run, one row per
+/// `GRAZER_TIMELINE_STEP` ticks. Eat reach is `bite_reach × body size`, so
+/// the size column is also the grazers' mean reach in units of `bite_reach`.
+/// The grazes column sums the snapshots since the previous row.
+fn print_grazer_timeline(
+    history: &clauvolution_core::PopulationHistory,
+    config: &clauvolution_core::SimConfig,
+) {
+    if history.snapshots.is_empty() {
+        return;
+    }
+    eprintln!();
+    eprintln!(
+        "Grazer timeline (every {GRAZER_TIMELINE_STEP} ticks; eat reach = {} x body size):",
+        config.bite_reach
+    );
+    eprintln!(
+        "   tick  plants  grazers  hunters  grazer size  grazer armour  eat grazes  per grazer-s"
+    );
+    let mut next = GRAZER_TIMELINE_STEP;
+    let mut grazes = 0u64;
+    let mut grazer_seconds = 0u64;
+    let last = history.snapshots.len() - 1;
+    for (i, s) in history.snapshots.iter().enumerate() {
+        grazes += s.feeding.grazes_eat;
+        grazer_seconds += s.grazers as u64;
+        if s.tick >= next || i == last {
+            eprintln!(
+                "  {:>5} {:>7} {:>8} {:>8} {:>12.2} {:>14.2} {:>11} {:>13.2}",
+                s.tick,
+                s.plants,
+                s.grazers,
+                s.hunters,
+                s.avg_grazer_body_size,
+                s.avg_grazer_armor,
+                grazes,
+                grazes as f64 / grazer_seconds.max(1) as f64
+            );
+            while next <= s.tick {
+                next += GRAZER_TIMELINE_STEP;
+            }
+            grazes = 0;
+            grazer_seconds = 0;
+        }
+    }
+}
+
 fn print_headless_summary(
     stats: &clauvolution_core::SimStats,
     predation: &clauvolution_core::PredationStats,
@@ -1064,6 +1126,10 @@ fn print_headless_summary(
     eprintln!(
         "    plants killed by consumers:  {} (kept {:.1} energy)",
         feeding.kills_plant_by_consumer, feeding.plant_kill_energy_consumer
+    );
+    eprintln!(
+        "    plants killed by hunters:    {} (kept {:.1} energy)",
+        predation.hunter_plant_kills, predation.hunter_plant_kill_energy
     );
     eprintln!("  by Old age:            {}", stats.deaths_by_cause[2]);
     eprintln!("  by Disease:            {}", stats.deaths_by_cause[3]);
@@ -1121,6 +1187,7 @@ fn print_headless_summary(
         eprintln!("  Symbiotic pairs:     {}", latest.symbiotic_pairs);
         eprintln!("  Avg lifespan:        {:.0} ticks", latest.avg_lifespan);
     }
+    print_grazer_timeline(history, config);
     eprintln!();
     eprintln!("Predation funnel:");
     eprintln!("  Attack intents:      {}", predation.attacks_attempted);
