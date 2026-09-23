@@ -940,6 +940,10 @@ const BRAIN_INPUT_LABELS: [&str; NUM_INPUTS] = [
     "group sz",
     "group sig",
     "bias",
+    "eater dx",
+    "eater dy",
+    "eater near",
+    "eater size",
 ];
 
 const BRAIN_OUTPUT_LABELS: [&str; NUM_OUTPUTS] = [
@@ -1229,7 +1233,8 @@ fn draw_brain_viz(
     // Clamp width so the painter can never exceed the current UI's clip —
     // prevents the heatmap drifting outside the side panel on wider monitors.
     let width = ui.available_width().clamp(200.0, 360.0);
-    let height = 300.0_f32;
+    // About 13 px per input row, so the 9.5 pt labels do not overlap.
+    let height = 340.0_f32;
     let (response, painter) = ui.allocate_painter(EVec2::new(width, height), Sense::hover());
     let rect = response.rect;
     // Force the painter's clip rect to the allocated area so drawing stays

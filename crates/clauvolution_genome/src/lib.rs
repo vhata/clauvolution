@@ -24,7 +24,7 @@ impl InnovationCounter {
 
 // --- Brain I/O ---
 
-pub const NUM_INPUTS: usize = 22;
+pub const NUM_INPUTS: usize = 26;
 pub const NUM_OUTPUTS: usize = 9;
 pub const NUM_MEMORY: usize = 3;
 
@@ -51,6 +51,15 @@ pub const NUM_MEMORY: usize = 3;
 // 19: nearby_same_species_count (0-1, normalized: 0=alone, 1=10+ nearby)
 // 20: avg_nearby_same_species_signal (-1 to 1) — average signal of nearby kin
 // 21: bias (always 1.0)
+// 22: nearest_eater_dir_x (-1 to 1) — nearest non-photosynthesiser in sense range
+// 23: nearest_eater_dir_y
+// 24: nearest_eater_dist (0-1, 1 = touching, 0 = none in range)
+// 25: nearest_eater_size_ratio (its size / own size, capped at 2, halved)
+//
+// Input neurons carry ids 0..NUM_INPUTS and output neurons the next
+// NUM_OUTPUTS ids; hidden neurons take ids above those. Genomes written
+// with fewer inputs are brought up to this layout by
+// `Genome::migrate_input_layout`.
 
 // Outputs:
 //  0: move_x (-1 to 1)
@@ -1007,6 +1016,65 @@ impl Genome {
             .sum();
         sum / SCALAR_TRAIT_COUNT as f32
     }
+
+    /// Bring a genome written with fewer brain inputs up to the current
+    /// layout, so it behaves exactly as it did. Returns whether anything
+    /// changed.
+    ///
+    /// Inputs occupy ids `0..NUM_INPUTS` and outputs follow them, so a
+    /// genome from an older layout with `k` inputs has its outputs at
+    /// `k..`. Every id at or above `k` (outputs and hidden neurons) moves up
+    /// by `NUM_INPUTS - k`, connections are rewritten to match, and the
+    /// missing inputs are added with ids `k..NUM_INPUTS` and no
+    /// connections. Innovation numbers are untouched: the connections are
+    /// the same genes between the same neurons. The brain reads inputs and
+    /// outputs by sorted id, which the shift preserves, and a new input with
+    /// no connections contributes nothing, so the brain's outputs for the
+    /// old inputs are unchanged. A genome whose inputs are not exactly
+    /// `0..k` is not a layout this knows and is left alone. See "Brain
+    /// inputs grow by migration" in `docs/DECISIONS.md`.
+    pub fn migrate_input_layout(&mut self) -> bool {
+        let mut input_ids: Vec<u64> = self
+            .neurons
+            .iter()
+            .filter(|n| n.neuron_type == NeuronType::Input)
+            .map(|n| n.id)
+            .collect();
+        if input_ids.len() >= NUM_INPUTS {
+            return false;
+        }
+        input_ids.sort_unstable();
+        if input_ids.iter().enumerate().any(|(i, &id)| id != i as u64) {
+            return false;
+        }
+
+        let old_count = input_ids.len() as u64;
+        let shift = NUM_INPUTS as u64 - old_count;
+        let remap = |id: u64| if id >= old_count { id + shift } else { id };
+        for neuron in &mut self.neurons {
+            neuron.id = remap(neuron.id);
+        }
+        for conn in &mut self.connections {
+            conn.from = remap(conn.from);
+            conn.to = remap(conn.to);
+        }
+
+        // New inputs go directly after the last existing one, so a founder's
+        // neuron list keeps its inputs-then-outputs order.
+        let insert_at = self
+            .neurons
+            .iter()
+            .rposition(|n| n.neuron_type == NeuronType::Input)
+            .map_or(0, |i| i + 1);
+        let new_inputs = (old_count..NUM_INPUTS as u64).map(|id| NeuronGene {
+            id,
+            neuron_type: NeuronType::Input,
+            activation: ActivationFn::Sigmoid,
+            bias: 0.0,
+        });
+        self.neurons.splice(insert_at..insert_at, new_inputs);
+        true
+    }
 }
 
 #[cfg(test)]
@@ -1204,5 +1272,125 @@ mod tests {
             off_line > 0,
             "no offspring combined A's speed with B's armour in 500 trials"
         );
+    }
+
+    /// A genome in the 22-input layout that preceded the nearest-eater
+    /// inputs: inputs 0..22, outputs 22..31, one hidden neuron at 31 with a
+    /// self-loop.
+    fn legacy_22_input_genome() -> Genome {
+        let mut genome = base_genome(5);
+        genome.neurons.clear();
+        genome.connections.clear();
+        for id in 0..22u64 {
+            genome.neurons.push(NeuronGene {
+                id,
+                neuron_type: NeuronType::Input,
+                activation: ActivationFn::Sigmoid,
+                bias: 0.0,
+            });
+        }
+        for id in 22..31u64 {
+            genome.neurons.push(NeuronGene {
+                id,
+                neuron_type: NeuronType::Output,
+                activation: ActivationFn::Tanh,
+                bias: 0.1,
+            });
+        }
+        genome.neurons.push(NeuronGene {
+            id: 31,
+            neuron_type: NeuronType::Hidden,
+            activation: ActivationFn::Relu,
+            bias: 0.0,
+        });
+        for (innovation, (from, to)) in [(0, 22), (21, 26), (4, 31), (31, 26), (31, 31)]
+            .into_iter()
+            .enumerate()
+        {
+            genome.connections.push(ConnectionGene {
+                innovation: innovation as u64 + 100,
+                from,
+                to,
+                weight: 0.5,
+                enabled: true,
+            });
+        }
+        genome
+    }
+
+    #[test]
+    fn legacy_genome_migrates_to_the_current_input_layout() {
+        let mut genome = legacy_22_input_genome();
+        assert!(genome.migrate_input_layout());
+
+        let ids_of = |kind: NeuronType| -> Vec<u64> {
+            let mut ids: Vec<u64> = genome
+                .neurons
+                .iter()
+                .filter(|n| n.neuron_type == kind)
+                .map(|n| n.id)
+                .collect();
+            ids.sort_unstable();
+            ids
+        };
+        let shift = (NUM_INPUTS - 22) as u64;
+        assert_eq!(
+            ids_of(NeuronType::Input),
+            (0..NUM_INPUTS as u64).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            ids_of(NeuronType::Output),
+            (NUM_INPUTS as u64..(NUM_INPUTS + NUM_OUTPUTS) as u64).collect::<Vec<_>>()
+        );
+        assert_eq!(ids_of(NeuronType::Hidden), vec![31 + shift]);
+
+        // Same genes, same innovations, endpoints moved with their neurons.
+        let edges: Vec<(u64, u64, u64)> = genome
+            .connections
+            .iter()
+            .map(|c| (c.innovation, c.from, c.to))
+            .collect();
+        assert_eq!(
+            edges,
+            vec![
+                (100, 0, 22 + shift),
+                (101, 21, 26 + shift),
+                (102, 4, 31 + shift),
+                (103, 31 + shift, 26 + shift),
+                (104, 31 + shift, 31 + shift),
+            ]
+        );
+        // The new inputs are unconnected.
+        for id in 22..NUM_INPUTS as u64 {
+            assert!(genome
+                .connections
+                .iter()
+                .all(|c| c.from != id && c.to != id));
+        }
+        // Inputs stay ahead of the outputs in the neuron list.
+        let first_output = genome
+            .neurons
+            .iter()
+            .position(|n| n.neuron_type == NeuronType::Output)
+            .unwrap();
+        assert_eq!(first_output, NUM_INPUTS);
+
+        assert!(!genome.migrate_input_layout(), "migration is idempotent");
+    }
+
+    #[test]
+    fn current_and_unrecognised_layouts_are_left_alone() {
+        let mut current = base_genome(8);
+        let before: Vec<u64> = current.neurons.iter().map(|n| n.id).collect();
+        assert!(!current.migrate_input_layout());
+        assert_eq!(
+            current.neurons.iter().map(|n| n.id).collect::<Vec<_>>(),
+            before
+        );
+
+        // Inputs that are not 0..k are not a known older layout.
+        let mut odd = legacy_22_input_genome();
+        odd.neurons[3].id = 500;
+        assert!(!odd.migrate_input_layout());
     }
 }

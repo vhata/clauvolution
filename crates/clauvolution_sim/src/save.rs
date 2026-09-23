@@ -486,7 +486,19 @@ fn genome_to_save(g: &Genome) -> SaveGenome {
     }
 }
 
+/// The genome as the sim uses it. A genome written with fewer brain
+/// inputs than `NUM_INPUTS` (a save or creature file from before an input
+/// was added) is migrated to the current layout with the new inputs
+/// unconnected, so it behaves as it did; see
+/// `Genome::migrate_input_layout`.
 fn save_to_genome(s: &SaveGenome) -> Genome {
+    let mut genome = save_to_genome_as_written(s);
+    genome.migrate_input_layout();
+    genome
+}
+
+/// The genome exactly as the file describes it, without input migration.
+fn save_to_genome_as_written(s: &SaveGenome) -> Genome {
     Genome {
         neurons: s
             .neurons
@@ -675,6 +687,17 @@ pub fn load_world(path: &Path) -> Option<SaveState> {
     };
 
     validate_save_state(&mut state);
+    let legacy = state
+        .organisms
+        .iter()
+        .filter(|org| input_count(&org.genome) < NUM_INPUTS)
+        .count();
+    if legacy > 0 {
+        info!(
+            "Save file has {} organism(s) with an older brain layout; adding the missing inputs unconnected",
+            legacy
+        );
+    }
     Some(state)
 }
 
@@ -824,6 +847,11 @@ pub fn restore_chronicle(chronicle: &mut WorldChronicle, entries: &[SaveChronicl
                 target: e.target.map(SaveChronicleTarget::into_target),
             });
     }
+}
+
+/// Number of input neurons in a serialised genome.
+fn input_count(genome: &SaveGenome) -> usize {
+    genome.neurons.iter().filter(|n| n.neuron_type == 0).count()
 }
 
 /// Why a serialised genome cannot be spawned, or `None` when it can.
@@ -1455,6 +1483,149 @@ mod tests {
         let encoded = value["vegetation_density"].as_str().expect("a string");
         // 24 x 16 tiles, four bytes each, base64 without line breaks.
         assert_eq!(encoded.len(), (24 * 16 * 4usize).div_ceil(3) * 4);
+    }
+
+    /// A genome in the 22-input layout that preceded the nearest-eater
+    /// inputs, as a file from before that change holds it: inputs 0..22,
+    /// outputs 22..31, hidden neurons 31 and 32, and connections through
+    /// them including a self-loop.
+    fn legacy_22_input_save_genome() -> SaveGenome {
+        let mut neurons = Vec::new();
+        for id in 0..22 {
+            neurons.push(SaveNeuron {
+                id,
+                neuron_type: 0,
+                activation: 0,
+                bias: 0.0,
+            });
+        }
+        for id in 22..31 {
+            neurons.push(SaveNeuron {
+                id,
+                neuron_type: 2,
+                activation: 1,
+                bias: 0.05 * id as f32 - 1.0,
+            });
+        }
+        neurons.push(SaveNeuron {
+            id: 31,
+            neuron_type: 1,
+            activation: 2,
+            bias: 0.2,
+        });
+        neurons.push(SaveNeuron {
+            id: 32,
+            neuron_type: 1,
+            activation: 0,
+            bias: -0.3,
+        });
+        let edges: [(u64, u64, f32); 8] = [
+            (1, 22, 1.2),
+            (2, 23, -0.7),
+            (4, 31, 0.9),
+            (31, 26, 1.5),
+            (31, 32, -1.1),
+            (32, 24, 0.8),
+            (32, 32, 0.4),
+            (21, 30, -0.6),
+        ];
+        let connections = edges
+            .iter()
+            .enumerate()
+            .map(|(i, &(from, to, weight))| SaveConnection {
+                innovation: 50 + i as u64,
+                from,
+                to,
+                weight,
+                enabled: true,
+            })
+            .collect();
+        SaveGenome {
+            neurons,
+            connections,
+            body_segments: vec![SaveBodySegment {
+                segment_type: 0,
+                size: 1.0,
+                attachment_angle: 0.0,
+                attachment_slot: 0,
+                symmetry: 1,
+            }],
+            ..SaveGenome::default()
+        }
+    }
+
+    /// A save or creature file from before the nearest-eater inputs loads
+    /// through both entry points, gains the new inputs, and its brain gives
+    /// the same outputs for the same old inputs.
+    #[test]
+    fn genome_with_the_old_input_count_migrates_on_load() {
+        let legacy = legacy_22_input_save_genome();
+        let scratch = ScratchDir::new("legacy-inputs");
+
+        let creature_path = scratch.0.join("legacy.json");
+        let genome_json = serde_json::to_string(&legacy).unwrap();
+        std::fs::write(&creature_path, format!("{{\"genome\": {genome_json}}}")).unwrap();
+        let from_creature = load_creature(&creature_path)
+            .expect("an old-layout creature file loads")
+            .genome();
+
+        let world_path = scratch.0.join("save.json");
+        let org_json = serde_json::to_string(&SaveOrganism {
+            x: 1.0,
+            y: 2.0,
+            energy: 50.0,
+            health: 1.0,
+            age: 0,
+            generation: 0,
+            species_id: 1,
+            signal: 0.0,
+            memory: [0.0; 3],
+            genome: legacy.clone(),
+        })
+        .unwrap();
+        std::fs::write(
+            &world_path,
+            format!(
+                r#"{{"tick": 3, "season_tick": 0, "terrain_seed": 42,
+                "stats": {{"total_births": 0, "total_deaths": 0, "max_generation": 0}},
+                "organisms": [{org_json}], "food": [], "innovation_counter": 60,
+                "phylo_nodes": [], "chronicle_entries": []}}"#
+            ),
+        )
+        .unwrap();
+        let state = load_world(&world_path).expect("an old-layout save loads");
+        assert_eq!(state.organisms.len(), 1);
+        let from_save = save_to_genome(&state.organisms[0].genome);
+
+        let as_written = save_to_genome_as_written(&legacy);
+        let old_brain = Brain::from_genome(&as_written);
+        assert_eq!(old_brain.input_ids().len(), 22);
+
+        for migrated in [&from_creature, &from_save] {
+            let inputs = migrated
+                .neurons
+                .iter()
+                .filter(|n| n.neuron_type == NeuronType::Input)
+                .count();
+            assert_eq!(inputs, NUM_INPUTS);
+            assert_eq!(
+                migrated.neurons.len(),
+                as_written.neurons.len() + NUM_INPUTS - 22
+            );
+            assert_eq!(migrated.connections.len(), as_written.connections.len());
+
+            let new_brain = Brain::from_genome(migrated);
+            let expected_outputs: Vec<u64> =
+                (NUM_INPUTS as u64..(NUM_INPUTS + NUM_OUTPUTS) as u64).collect();
+            assert_eq!(new_brain.output_ids(), &expected_outputs[..]);
+            for step in 0..40 {
+                let mut inputs = [0.0f32; NUM_INPUTS];
+                for (i, value) in inputs.iter_mut().enumerate() {
+                    *value = ((step * 7 + i * 13) % 17) as f32 / 8.0 - 1.0;
+                }
+                assert_eq!(old_brain.evaluate(&inputs), new_brain.evaluate(&inputs));
+            }
+        }
     }
 
     #[test]

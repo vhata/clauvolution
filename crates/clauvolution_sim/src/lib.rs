@@ -823,6 +823,11 @@ fn sensing_and_brain_system(
         let mut nearest_org_same_species = 0.0f32;
         let mut nearest_org_photo_hint = 0.5f32;
         let mut nearest_org_signal = 0.0f32;
+        // The nearest non-photosynthesiser: what a hunter can steer at when
+        // the nearest organism overall is a plant.
+        let mut nearest_eater_dist = f32::MAX;
+        let mut nearest_eater_dir = Vec2::ZERO;
+        let mut nearest_eater_size_ratio = 1.0f32;
 
         // Social sensing: count nearby same-species, average their signals
         let mut same_species_count = 0u32;
@@ -858,6 +863,12 @@ fn sensing_and_brain_system(
                     nearest_org_photo_hint = other_genome.photosynthesis_rate.min(1.0);
                     nearest_org_signal = other_signal.0;
                 }
+
+                if dist < nearest_eater_dist && dist < sense_range && !other_genome.is_photosynthesiser() {
+                    nearest_eater_dist = dist;
+                    nearest_eater_dir = if dist > 0.001 { diff / dist } else { Vec2::ZERO };
+                    nearest_eater_size_ratio = other_size.0 / body_size.0;
+                }
             }
         }
 
@@ -891,6 +902,13 @@ fn sensing_and_brain_system(
             0.0
         };
         inputs[21] = 1.0; // bias
+        // Nearest eater, encoded as the nearest-organism inputs are.
+        if nearest_eater_dist < f32::MAX {
+            inputs[22] = nearest_eater_dir.x;
+            inputs[23] = nearest_eater_dir.y;
+            inputs[24] = 1.0 - (nearest_eater_dist / sense_range).min(1.0);
+            inputs[25] = nearest_eater_size_ratio.min(2.0) / 2.0;
+        }
 
         let (brain_out, trace) = brain.evaluate_trace(&inputs);
         output.move_x = brain_out[0];
