@@ -31,7 +31,7 @@ One-liner list of what Clauvolution does, grouped by area. For the design ration
 - **Species classification** — NEAT compatibility distance with hysteresis; re-evaluated every 5 seconds. Trait-led: the body term is normalised to 0..1 across the ten scalar traits and weighted 1.0, the three NEAT brain terms 0.5 each
 - **Phylogenetic tree** — ancestry tracking with parent/child lineage grouping
 - **Species naming** — three-word trait-based names (habitat + descriptor + strategy noun); children inherit two-of-three from parent; no two living species share a name (the descriptor is walked past taken names, a number is the last resort)
-- **Parent species tracking** — inspect panel shows organism's lineage
+- **Parent species tracking** — inspect panel shows organism's lineage; species ids are issued once, so a new species never takes over an extinct one's tree node
 - **World chronicle** — automatic event log (speciation, extinction, convergence, seasons, bloom/extinction events)
 - **Convergent evolution detection** — one chronicle line per strategy each time the number of independent times it evolved (a species switching strategy from its parent, founders excluded) reaches a new high
 - **Fitness tracking** — average lifespan plotted over time
