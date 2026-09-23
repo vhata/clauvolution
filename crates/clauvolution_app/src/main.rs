@@ -370,7 +370,7 @@ fn load_saved_world(
     let mut rng = rand::rngs::StdRng::seed_from_u64(config.terrain_seed);
     let mut tile_map =
         clauvolution_world::TileMap::generate(config.world_width, config.world_height, &mut rng);
-    save::restore_terrain(&mut tile_map, state.terrain.as_ref());
+    let terrain_restored = save::restore_terrain(&mut tile_map, state.terrain.as_ref());
     commands.insert_resource(tile_map);
 
     // Reseed SimRng from the saved seed. (Mid-run save/load diverges from
@@ -388,6 +388,10 @@ fn load_saved_world(
     save::restore_phylo(&mut phylo, &state.phylo_nodes);
     save::restore_chronicle(&mut chronicle, &state.chronicle_entries);
     chronicle.log(tick.0, "World loaded from save".to_string());
+    if let Err(message) = terrain_restored {
+        eprintln!("Warning: {}", message);
+        chronicle.log(tick.0, message);
+    }
 }
 
 fn fresh_world(

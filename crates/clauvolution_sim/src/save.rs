@@ -54,9 +54,8 @@ impl std::error::Error for SaveError {
 /// would put the population on a different map) and `organisms` (the world
 /// itself). Every other field has a neutral value and loads without it,
 /// `terrain` included. A new field goes in one group or the other on
-/// purpose. See "Save format: every field has
-/// a default unless the world cannot be rebuilt without it" in
-/// `docs/DECISIONS.md`.
+/// purpose. See "Save format: every field has a default unless the world
+/// cannot be rebuilt without it" in `docs/DECISIONS.md`.
 #[derive(Serialize, Deserialize)]
 pub struct SaveState {
     pub tick: u64,
@@ -188,22 +187,21 @@ impl SaveTerrain {
 }
 
 /// Apply the saved terrain state to `map`, the terrain regenerated from the
-/// save's seed. Logs a warning and leaves `map` as regenerated when the save
-/// has no terrain state or it does not fit.
-pub fn restore_terrain(map: &mut TileMap, terrain: Option<&SaveTerrain>) {
-    match terrain {
-        None => warn!(
-            "Save has no terrain state; using terrain regenerated from the seed, so vegetation, moisture, nutrient and temperature changes since tick 0 are lost"
-        ),
-        Some(t) => {
-            if let Err(reason) = t.apply_to(map) {
-                warn!(
-                    "Saved terrain state not applied ({}); using terrain regenerated from the seed",
-                    reason
-                );
-            }
-        }
-    }
+/// save's seed. When the save has no terrain state or it does not fit,
+/// leaves `map` as regenerated and returns a warning for the caller to put
+/// where the user will see it (headless runs have no log).
+pub fn restore_terrain(map: &mut TileMap, terrain: Option<&SaveTerrain>) -> Result<(), String> {
+    let reason = match terrain {
+        None => "the save has no usable terrain state".to_string(),
+        Some(t) => match t.apply_to(map) {
+            Ok(()) => return Ok(()),
+            Err(reason) => reason,
+        },
+    };
+    Err(format!(
+        "Terrain regenerated from the seed because {}; vegetation, moisture, nutrient and temperature changes since tick 0 are lost",
+        reason
+    ))
 }
 
 /// Serde adapter that stores a `Vec<f32>` as base64 of its little-endian
@@ -1401,7 +1399,7 @@ mod tests {
         assert_eq!(terrain, &SaveTerrain::from_tile_map(&map));
 
         let mut loaded = small_map(state.terrain_seed);
-        restore_terrain(&mut loaded, state.terrain.as_ref());
+        restore_terrain(&mut loaded, state.terrain.as_ref()).expect("the terrain fits");
         assert_eq!(tile_fields(&loaded), at_save);
     }
 
@@ -1417,7 +1415,9 @@ mod tests {
 
         let mut map = small_map(state.terrain_seed);
         let regenerated = tile_fields(&map);
-        restore_terrain(&mut map, state.terrain.as_ref());
+        let warning = restore_terrain(&mut map, state.terrain.as_ref())
+            .expect_err("a missing terrain is reported");
+        assert!(warning.contains("no usable terrain state"), "{warning}");
         assert_eq!(tile_fields(&map), regenerated);
     }
 
