@@ -17,9 +17,4 @@ See the [`code review guide`](../docs/CODE_REVIEW_GUIDE.md) for how findings ent
 
 ## P3 Low
 
-- [RENDER] `render-input-viewport-fixes` — **Fix the render-side input and viewport defects together.** Culling and the minimap rectangle assume a 1920×1080 window, the selection ring only appears on mouse click and outlives its organism, detailed-LOD bodies are scaled by body size twice, some hotkeys ignore egui keyboard focus, and Shift checks are inconsistent.
-  - Starting point: All in `clauvolution_render/src/lib.rs` (`sync_organism_transforms`, `click_select_system`, `speed_control_system`, `toggle_minimap_mode_system`, `camera_control_system`, `update_minimap`) plus `keyboard_to_events_system` in `clauvolution_sim`. Validate in the GUI at a non-default window size: no edge pop-in, ring follows R and `,`/`.` selections, close-zoom body sizes match the circle LOD.
-  - Source: review/2026-09-17-0756-full.md, 2026-09-17
-  - Findings: `hardcoded-half-viewport`, `selection-ring-only-on-click`, `detailed-lod-double-scale`, `hotkeys-ignore-egui-keyboard-focus`, `shift-modifier-checks-inconsistent`
-
 ## Unprioritized
