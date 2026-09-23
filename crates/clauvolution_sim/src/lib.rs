@@ -3228,3 +3228,91 @@ mod predation_target_tests {
         assert_eq!(nearest_target(&[]), None);
     }
 }
+
+#[cfg(test)]
+mod species_classification_tests {
+    use super::*;
+    use bevy::ecs::system::RunSystemOnce;
+    use rand::{rngs::StdRng, SeedableRng};
+
+    /// A world holding what `species_classification_system` reads and
+    /// writes, with virtual time already past the classification period so
+    /// the first run is a pass. The threshold is tiny so that any two
+    /// distinct genomes fall in different species.
+    fn classification_world(tick: u64) -> World {
+        let mut world = World::new();
+        let mut time = Time::<()>::default();
+        time.advance_by(std::time::Duration::from_secs_f32(
+            SPECIES_CLASSIFICATION_PERIOD_SECS + 0.1,
+        ));
+        world.insert_resource(time);
+        world.insert_resource(SpeciesClassificationTimer(Timer::from_seconds(
+            SPECIES_CLASSIFICATION_PERIOD_SECS,
+            TimerMode::Repeating,
+        )));
+        world.insert_resource(SimConfig {
+            species_compat_threshold: 1e-6,
+            ..SimConfig::default()
+        });
+        world.insert_resource(TickCounter(tick));
+        world.insert_resource(SimStats::default());
+        world.insert_resource(SpeciesColors::default());
+        world.insert_resource(PhyloTree::default());
+        world.insert_resource(WorldChronicle::default());
+        world.insert_resource(ConvergenceHighWater::default());
+        world
+    }
+
+    fn spawn_member(world: &mut World, genome_seed: u64, species: u64) -> Entity {
+        let mut innovation = InnovationCounter(0);
+        let mut rng = StdRng::seed_from_u64(genome_seed);
+        let genome = Genome::new_minimal(&mut innovation, &mut rng);
+        world.spawn((Organism, genome, SpeciesId(species))).id()
+    }
+
+    /// Species 2 was the highest id ever issued and has died out; species 1
+    /// is alive and one of its members has drifted far enough to found a
+    /// new species. The newcomer must get an id the tree has never held, so
+    /// that it becomes its own node rather than being folded into the dead
+    /// species' record.
+    #[test]
+    fn a_new_species_never_reuses_an_extinct_species_id() {
+        let mut world = classification_world(900);
+        {
+            let mut phylo = world.resource_mut::<PhyloTree>();
+            phylo.record_species(
+                1,
+                None,
+                0,
+                Color::WHITE,
+                SpeciesStrategy::Photosynthesizer,
+                None,
+            );
+            phylo.record_species(2, Some(1), 300, Color::WHITE, SpeciesStrategy::Hunter, None);
+            let mut counts = HashMap::new();
+            counts.insert(1, 2);
+            phylo.update_populations(&counts, 600);
+            assert_eq!(phylo.nodes[&2].extinct_tick, Some(600));
+        }
+        let stayer = spawn_member(&mut world, 1, 1);
+        let drifter = spawn_member(&mut world, 2, 1);
+
+        world
+            .run_system_once(species_classification_system)
+            .unwrap();
+
+        let ids = [stayer, drifter].map(|e| world.get::<SpeciesId>(e).unwrap().0);
+        let new_id = if ids[0] == 1 { ids[1] } else { ids[0] };
+        assert!(ids.contains(&1), "one member keeps species 1: {ids:?}");
+        assert!(new_id > 2, "new species reused an issued id: {ids:?}");
+
+        let phylo = world.resource::<PhyloTree>();
+        let dead = &phylo.nodes[&2];
+        assert_eq!(dead.extinct_tick, Some(600), "the dead species stays dead");
+        assert_eq!(dead.current_population, 0);
+        let newcomer = &phylo.nodes[&new_id];
+        assert_eq!(newcomer.parent_id, Some(1));
+        assert_eq!(newcomer.born_tick, 900);
+        assert_eq!(newcomer.extinct_tick, None);
+    }
+}
