@@ -2617,6 +2617,7 @@ fn save_system(
     >,
     food: Query<(&Position, &FoodEnergy), With<Food>>,
     phylo: Res<PhyloTree>,
+    tile_map: Option<Res<TileMap>>,
     mut chronicle: ResMut<WorldChronicle>,
     mut report: ResMut<SaveReport>,
 ) {
@@ -2658,6 +2659,7 @@ fn save_system(
         &food_data,
         &phylo,
         &chronicle,
+        tile_map.as_deref(),
     );
 
     // Surface the outcome everywhere the user might be looking: the log,

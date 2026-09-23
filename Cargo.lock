@@ -1770,6 +1770,7 @@ dependencies = [
 name = "clauvolution_sim"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "bevy",
  "clauvolution_brain",
  "clauvolution_core",
