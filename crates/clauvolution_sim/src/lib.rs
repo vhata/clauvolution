@@ -929,7 +929,11 @@ fn action_system(
 ) {
     let foods = &food_snapshot.entries;
 
+    // `eaten_food` keeps the despawn order; `eaten` is the per-snapshot-index
+    // flag the scan checks, so skipping an eaten item is O(1) rather than a
+    // linear search of everything eaten so far this tick.
     let mut eaten_food: Vec<Entity> = Vec::new();
+    let mut eaten = vec![false; foods.len()];
     ate_food.0.clear();
 
     for (
@@ -994,8 +998,8 @@ fn action_system(
         if output.eat > 0.0 {
             let mouth_bonus = mouth_bonus(genome);
             let eat_range = body_size.0 * 3.0;
-            for &(food_entity, food_pos, food_energy) in foods {
-                if eaten_food.contains(&food_entity) {
+            for (index, &(food_entity, food_pos, food_energy)) in foods.iter().enumerate() {
+                if eaten[index] {
                     continue;
                 }
                 let dist = (pos.0 - food_pos).length();
@@ -1008,6 +1012,7 @@ fn action_system(
                     ledger.tick.clamp +=
                         credit_clamped(&mut energy, gained, config.max_organism_energy) as f64;
                     ledger.tick.food += gained as f64;
+                    eaten[index] = true;
                     eaten_food.push(food_entity);
                     ate_food.0.insert(entity);
                     flash.action = ActionType::Eating;
