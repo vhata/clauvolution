@@ -831,6 +831,12 @@ impl<T> Default for CellGrid<T> {
 /// can never skip an item that the range test would accept.
 const CELL_REACH_MARGIN: f32 = 0.5;
 
+/// Cell size of sensing's food grid, in world units. Food order does not
+/// depend on cells (ties go to the earlier snapshot entry), so this is
+/// free to differ from the spatial hash's. Coarser than the hash because
+/// food is sparse for most of a run and every visited cell costs a lookup.
+const FOOD_CELL_SIZE: f32 = 32.0;
+
 impl<T: Copy> CellGrid<T> {
     /// Rebuild from `(cell key, item)` pairs. A counting sort, so items that
     /// share a cell keep their relative order.
@@ -902,6 +908,16 @@ impl<T: Copy> CellGrid<T> {
         }
     }
 
+    /// The inclusive range of keys, on one axis, of cells that can hold a
+    /// point within `range` (plus `CELL_REACH_MARGIN`) of coordinate `p`.
+    fn span(&self, p: f32, range: f32) -> (i32, i32) {
+        let reach = range + CELL_REACH_MARGIN;
+        (
+            ((p - reach) / self.cell_size).floor() as i32,
+            ((p + reach) / self.cell_size).floor() as i32,
+        )
+    }
+
     /// The items in one cell, or nothing if every point of the cell is
     /// beyond `range` (plus `CELL_REACH_MARGIN`) from `pos`.
     fn cell_within(&self, key: (i32, i32), pos: Vec2, range: f32) -> &[T] {
@@ -969,15 +985,21 @@ fn sensing_and_brain_system(
             })
         }),
     );
+    let food_key = |pos: Vec2| {
+        (
+            (pos.x / FOOD_CELL_SIZE).floor() as i32,
+            (pos.y / FOOD_CELL_SIZE).floor() as i32,
+        )
+    };
     food_grid.rebuild(
-        cell_size,
+        FOOD_CELL_SIZE,
         food_snapshot
             .entries
             .iter()
             .enumerate()
             .map(|(index, &(_, food_pos, _))| {
                 (
-                    spatial_hash.cell_key(food_pos),
+                    food_key(food_pos),
                     SensedFood {
                         pos: food_pos,
                         index: index as u32,
@@ -1006,11 +1028,11 @@ fn sensing_and_brain_system(
         // The nearest food item in range; on equal distances the one earlier
         // in the snapshot, as the full scan over the snapshot chose.
         let mut nearest_food_index = u32::MAX;
-        let range_cells = spatial_hash.cell_range(sense_range);
-        let (cx, cy) = spatial_hash.cell_key(pos.0);
-        for dx in -range_cells..=range_cells {
-            for dy in -range_cells..=range_cells {
-                for food in food_grid.cell_within((cx + dx, cy + dy), pos.0, sense_range) {
+        let (x0, x1) = food_grid.span(pos.0.x, sense_range);
+        let (y0, y1) = food_grid.span(pos.0.y, sense_range);
+        for ky in y0..=y1 {
+            for kx in x0..=x1 {
+                for food in food_grid.cell_within((kx, ky), pos.0, sense_range) {
                     let diff = food.pos - pos.0;
                     let dist = diff.length();
                     if dist < sense_range
@@ -1049,8 +1071,12 @@ fn sensing_and_brain_system(
 
         // The cells `query_radius` would visit, in its order, less those
         // wholly out of range.
-        for dx in -range_cells..=range_cells {
-            for dy in -range_cells..=range_cells {
+        let range_cells = spatial_hash.cell_range(sense_range);
+        let (cx, cy) = spatial_hash.cell_key(pos.0);
+        let (x0, x1) = organism_grid.span(pos.0.x, sense_range);
+        let (y0, y1) = organism_grid.span(pos.0.y, sense_range);
+        for dx in (-range_cells).max(x0 - cx)..=range_cells.min(x1 - cx) {
+            for dy in (-range_cells).max(y0 - cy)..=range_cells.min(y1 - cy) {
                 let key = (cx + dx, cy + dy);
                 for other in organism_grid.cell_within(key, pos.0, sense_range) {
                     if other.entity == entity {
