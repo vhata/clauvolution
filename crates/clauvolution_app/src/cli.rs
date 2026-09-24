@@ -106,12 +106,32 @@ pub const FLAGS: &[Flag] = &[
         "F",
         "override bite_fraction",
     ),
+    flag("--bite-reach", Value::Float, "R", "override bite_reach"),
+    flag(
+        "--mouthless-bite",
+        Value::Float,
+        "B",
+        "override mouthless_bite_bonus",
+    ),
     flag(
         "--kill-transfer",
         Value::Float,
         "K",
-        "override kill_transfer",
+        "override both kill shares (animal and plant victims)",
     ),
+    flag(
+        "--kill-transfer-animal",
+        Value::Float,
+        "K",
+        "override kill_transfer_animal",
+    ),
+    flag(
+        "--kill-transfer-plant",
+        Value::Float,
+        "K",
+        "override kill_transfer_plant",
+    ),
+    flag("--strike-cost", Value::Float, "C", "override strike_cost"),
     flag("--photo-drag", Value::Float, "D", "override photo_drag"),
     flag(
         "--leaf-capacity",
