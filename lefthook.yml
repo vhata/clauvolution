@@ -12,5 +12,8 @@ pre-commit:
 
 pre-push:
   jobs:
+    # The wrapper reads git's pushed refs on stdin and skips scripts/test.sh
+    # when only docs changed. FORCE_TESTS=1 runs it anyway.
     - name: test
-      run: scripts/test.sh
+      run: scripts/pre-push-test.sh {1}
+      use_stdin: true
