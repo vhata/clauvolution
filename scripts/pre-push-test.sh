@@ -19,15 +19,67 @@ set -euo pipefail
 ZERO_SHA_PATTERN='^0+$'
 
 # True when a path cannot affect a build or a test: markdown under docs/,
-# plans/ or review/, and the top-level TODO.md and README.md. No crate reads a
-# markdown file with include_str!, which is what keeps this list safe; adding
-# one would mean removing the matching pattern here.
+# plans/ or review/, and the top-level TODO.md. README.md is not on the list:
+# crates/clauvolution_app/src/cli.rs reads it with include_str! to check the
+# flag table. unsafe_includes below refuses the skip if any crate starts
+# reading a path this function accepts.
 is_docs_path() {
   case "$1" in
-    TODO.md | README.md) return 0 ;;
+    TODO.md) return 0 ;;
     docs/*.md | plans/*.md | review/*.md) return 0 ;;
     *) return 1 ;;
   esac
+}
+
+# Collapses "." and ".." segments in a relative path without touching the
+# filesystem. Prints nothing when the path climbs above the repository root.
+normalize_path() {
+  local part out=()
+  local IFS=/
+  for part in $1; do
+    case "$part" in
+      "" | .) ;;
+      ..)
+        ((${#out[@]} > 0)) || return 1
+        unset 'out[${#out[@]}-1]'
+        ;;
+      *) out+=("$part") ;;
+    esac
+  done
+  echo "${out[*]}"
+}
+
+# Reads "<file>:<line text>" lines, as grep -rn prints them minus the line
+# number, and prints one line for each include_str!/include_bytes! that makes
+# the allowlist unsafe: its target is a path is_docs_path accepts, or it has
+# no string literal on the same line to resolve (a multi-line call, concat!,
+# env!), which the check cannot rule out.
+unsafe_includes_from() {
+  local file text literal target
+  local literal_pattern='include_(str|bytes)!\([[:space:]]*"([^"]+)"'
+  while IFS= read -r line; do
+    file="${line%%:*}"
+    text="${line#*:}"
+    if [[ ! "$text" =~ $literal_pattern ]]; then
+      echo "$file: include without a same-line literal: $text"
+      continue
+    fi
+    literal="${BASH_REMATCH[2]}"
+    target="$(normalize_path "$(dirname "$file")/$literal")" || continue
+    if is_docs_path "$target"; then
+      echo "$file: includes $target"
+    fi
+  done
+}
+
+# Scans crate sources for compile-time reads of allowlisted paths. Prints
+# each offender and succeeds when there is at least one.
+unsafe_includes() {
+  local found
+  found="$(grep -rnE --include='*.rs' 'include_(str|bytes)!' crates 2>/dev/null |
+    sed -E 's/^([^:]+):[0-9]+:/\1:/' | unsafe_includes_from)"
+  [[ -n "$found" ]] || return 1
+  echo "$found"
 }
 
 # Prints the commit to diff a pushed ref against, or fails when there is none
@@ -82,6 +134,15 @@ docs_only_push() {
   done
   if ((lines == 0)); then
     echo "pre-push: no refs on stdin" >&2
+    return 1
+  fi
+  local offenders line
+  if offenders="$(unsafe_includes)"; then
+    echo "pre-push: a crate reads an allowlisted path at compile time, so the" >&2
+    echo "pre-push: docs-only skip is unsafe; drop it from is_docs_path:" >&2
+    while IFS= read -r line; do
+      echo "pre-push:   $line" >&2
+    done <<<"$offenders"
     return 1
   fi
   echo "pre-push: no pushed ref changes code" >&2
