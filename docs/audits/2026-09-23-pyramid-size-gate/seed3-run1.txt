@@ -1,0 +1,91 @@
+Compute pool capped at 6 workers (set CLAU_WORKERS to override)
+Headless run: 5000 ticks, seed 3 at 10× virtual-time
+
+=== Headless summary ===
+Founders by biome: Sand 20 (tiles 1738), Grassland 208 (tiles 49331), Forest 172 (tiles 38770), Rock 0 (tiles 0); strategies: 133 plants, 86 grazers, 98 hunters, 83 omnivores; imported 0; starting energy 41.1..78.6
+Total organisms (final): 3587
+Species (final):         28
+Max generation:          47
+Total births:            52663
+Total deaths:            49609
+  by Starvation:         19259
+  by Predation:          14265
+    kills of consumers / plants: 10758 / 3507
+    by grazers (diet < 0):       13718 (10282 of consumers)
+    plants killed by consumers:  3463 (kept 7152.8 energy)
+  by Old age:            11
+  by Disease:            16074
+  by Event:              0
+Founding hunters died:   98 of 98 (mean age 263 ticks, oldest 1463)
+Population ceiling:      6000 (engaged 0 times, 0 births blocked)
+
+Final strategy breakdown:
+  Plants:              1043
+  Grazers:             2544
+  Hunters:             0
+  Omnivores:           0
+  Infected:            2129
+
+Final trait averages:
+  Body size:           1.03
+  Speed:               1.51
+  Attack:              0.10
+  Armor:               0.15
+  Photosynthesis:      26%
+  Diet (consumers):    -0.96
+  Leaf area (plants):  1.62
+  Speed plants/eaters: 0.474 / 3.520 per tick
+  Light share (plants): 0.70
+  Ready plants/eaters: 0% / 1%
+  Disease resistance:  10%
+  Symbiosis rate:      +0.05
+  Symbiotic pairs:     55
+  Avg lifespan:        316 ticks
+
+Predation funnel:
+  Attack intents:      2374013
+  Targets considered:  1823083
+  Rejected (size):     79154
+  Rejected (damage):   1803248
+  Kills:               14265
+  Strikes (paid):      1066328 (48701.3 energy)
+  No plant in reach:   2193931
+  Grazes (eat/attack): 146305 / 0
+    eat bites by plants: 18680
+
+Consumer-prey gates (attacks with a consumer in reach):
+  band            intents  strikes  in reach    kill  plant  size-only  damage-only  both  mixed
+  diet >= 0         14635     2847      2478     452      3         22         1809   192      0
+  hunters           10225     1733      1553     367      3         22          984   177      0
+  founding hunt.     9574     1575      1402     367      3         22          862   148      0
+  Hunter intents by age (<100/<200/<300/<500/<1000/older):
+    all:         3044 / 2581 / 1862 / 1634 / 641 / 463
+    in reach:    288 / 399 / 232 / 170 / 267 / 197
+  Founding hunters that fired: 38 (first at mean age 7); with a consumer in reach: 35 (first at mean age 44)
+  Founding hunters that killed a consumer: 11
+
+Energy ledger:
+  Baseline energy:     23384.0
+  Final live energy:   104848.4
+  Cumulative flows:
+    + photosynthesis              1382273.3
+    + food                        5604242.9
+    + predation                      8719.7
+      grazing                      806676.7
+      symbiosis                      1597.9
+    - metabolism                  3865670.9
+    - movement                    1692351.3
+    - disease                      227304.5
+    - reproduction_spent          2230277.7
+    + reproduction_received       1784222.2
+    - death                        492632.9
+    - clamp                         79078.0
+    - digestion                    110678.4
+  Net of flows:        +81464.4
+  Largest |residual|:  0.000413 per tick (tolerance 0.1)
+  Final residual:      +0.000009
+  Cumulative residual: +0.010077
+  Ticks over tolerance: 0
+
+Wrote 166 snapshots to docs/audits/2026-09-23-pyramid-size-gate/seed3-run1.csv
+Headless run complete in 269.74s

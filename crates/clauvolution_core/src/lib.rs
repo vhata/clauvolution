@@ -3,6 +3,7 @@ use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 pub struct CorePlugin;
@@ -407,6 +408,114 @@ pub struct PredationStats {
     /// run; `PopulationHistory` diffs it into per-second values for the
     /// Graphs tab and the history CSV.
     pub feeding: FeedingCounts,
+    /// Gate outcomes for consumer attackers with `diet >= 0` (hunters
+    /// included). The hunter band is in `feeding.hunter_gates`, so it reaches
+    /// the history CSV; this wider band is a run total only.
+    pub diet_nonneg_gates: GateOutcomes,
+    /// Gate outcomes for founding hunters (generation 0, labelled hunter).
+    pub founder_hunter_gates: GateOutcomes,
+    /// Hunter attack intents by the attacker's age, in the buckets of
+    /// `AGE_BUCKETS`.
+    pub hunter_intent_ages: [u64; AGE_BUCKET_COUNT],
+    /// Hunter attacks with a consumer in reach, by the attacker's age.
+    pub hunter_reach_ages: [u64; AGE_BUCKET_COUNT],
+    /// Founding hunters that fired `attack` at least once, and the sum of
+    /// their ages at the first intent.
+    pub founder_hunters_fired: HashSet<Entity>,
+    pub founder_hunter_first_intent_age_sum: u64,
+    /// Founding hunters that fired with a consumer in reach at least once,
+    /// and the sum of their ages the first time.
+    pub founder_hunters_reached: HashSet<Entity>,
+    pub founder_hunter_first_reach_age_sum: u64,
+    /// Founding hunters that killed at least one consumer.
+    pub founder_hunters_killed: HashSet<Entity>,
+}
+
+/// Upper bounds (exclusive, in ticks of age) of the attacker-age buckets the
+/// hunter gate counters use; the last bucket is everything older.
+pub const AGE_BUCKETS: [u64; 5] = [100, 200, 300, 500, 1000];
+pub const AGE_BUCKET_COUNT: usize = AGE_BUCKETS.len() + 1;
+
+/// The bucket of `AGE_BUCKETS` an age falls in.
+pub fn age_bucket(age: u64) -> usize {
+    AGE_BUCKETS
+        .iter()
+        .position(|&upper| age < upper)
+        .unwrap_or(AGE_BUCKETS.len())
+}
+
+/// What happened to the attack intents of one band of attackers
+/// (`plans/2026-09-21-pyramid-top.md`, step 5). The partition that matters
+/// is over `consumer_in_reach`: attacks with at least one living,
+/// unclaimed non-photosynthesiser within attack range. Each such attack is
+/// counted in exactly one of the six outcome fields.
+#[derive(Clone, Copy, Default, Debug, PartialEq)]
+pub struct GateOutcomes {
+    /// `attack > 0.5` fired.
+    pub intents: u64,
+    /// Intents with any living organism within attack range (a paid strike).
+    pub strikes: u64,
+    /// Intents with at least one living, unclaimed consumer within range.
+    pub consumer_in_reach: u64,
+    /// The strike killed a consumer.
+    pub kills_consumer: u64,
+    /// A consumer passed both gates but a nearer plant was struck.
+    pub kills_plant_instead: u64,
+    /// No consumer passed both gates; at least one passed the damage gate
+    /// and none passed the size gate. Lifting the size gate alone kills.
+    pub rejected_size: u64,
+    /// No consumer passed the damage gate; at least one passed the size
+    /// gate. Lifting the damage gate alone kills.
+    pub rejected_damage: u64,
+    /// Every consumer in reach failed both gates.
+    pub rejected_both: u64,
+    /// No consumer passed both, but some passed each: different targets
+    /// failed different gates.
+    pub rejected_mixed: u64,
+}
+
+impl GateOutcomes {
+    /// Record one attack's outcome against the consumers in reach. `any_size`
+    /// / `any_damage` / `any_both` say whether some consumer passed the size
+    /// gate, the damage gate, or both; `struck_consumer` whether the strike
+    /// landed on a consumer.
+    pub fn record_consumer_attack(
+        &mut self,
+        any_size: bool,
+        any_damage: bool,
+        any_both: bool,
+        struck_consumer: bool,
+    ) {
+        self.consumer_in_reach += 1;
+        if any_both {
+            if struck_consumer {
+                self.kills_consumer += 1;
+            } else {
+                self.kills_plant_instead += 1;
+            }
+        } else {
+            match (any_size, any_damage) {
+                (false, true) => self.rejected_size += 1,
+                (true, false) => self.rejected_damage += 1,
+                (false, false) => self.rejected_both += 1,
+                (true, true) => self.rejected_mixed += 1,
+            }
+        }
+    }
+
+    pub fn minus(&self, other: &GateOutcomes) -> GateOutcomes {
+        GateOutcomes {
+            intents: self.intents - other.intents,
+            strikes: self.strikes - other.strikes,
+            consumer_in_reach: self.consumer_in_reach - other.consumer_in_reach,
+            kills_consumer: self.kills_consumer - other.kills_consumer,
+            kills_plant_instead: self.kills_plant_instead - other.kills_plant_instead,
+            rejected_size: self.rejected_size - other.rejected_size,
+            rejected_damage: self.rejected_damage - other.rejected_damage,
+            rejected_both: self.rejected_both - other.rejected_both,
+            rejected_mixed: self.rejected_mixed - other.rejected_mixed,
+        }
+    }
 }
 
 /// Trophic counters for the graze/attack split
@@ -446,6 +555,9 @@ pub struct FeedingCounts {
     /// Attack intents (`attack > 0.5`) with no living photosynthesiser
     /// within attack range, whether or not another attacker had claimed it.
     pub attacks_no_plant_in_reach: u64,
+    /// Gate outcomes for hunter attackers (`diet >= 1/3`, not a
+    /// photosynthesiser). See `GateOutcomes`.
+    pub hunter_gates: GateOutcomes,
 }
 
 impl FeedingCounts {
@@ -496,6 +608,7 @@ impl FeedingCounts {
             grazer_kills_consumer: self.grazer_kills_consumer - other.grazer_kills_consumer,
             attacks_no_plant_in_reach: self.attacks_no_plant_in_reach
                 - other.attacks_no_plant_in_reach,
+            hunter_gates: self.hunter_gates.minus(&other.hunter_gates),
         }
     }
 }
@@ -1422,6 +1535,7 @@ mod feeding_count_tests {
             grazer_kills: 2,
             grazer_kills_consumer: 2,
             attacks_no_plant_in_reach: 9,
+            ..Default::default()
         };
         let b = FeedingCounts {
             grazes_eat: 1,
@@ -1434,6 +1548,7 @@ mod feeding_count_tests {
             grazer_kills: 1,
             grazer_kills_consumer: 1,
             attacks_no_plant_in_reach: 4,
+            ..Default::default()
         };
         let d = a.minus(&b);
         assert_eq!(d.grazes_eat, 4);
@@ -1447,5 +1562,40 @@ mod feeding_count_tests {
         assert_eq!(d.kills_plant_by_consumer, 1);
         assert!((d.plant_kill_energy_consumer - 2.5).abs() < 1e-9);
         assert_eq!(a.grazes(), 12);
+    }
+
+    /// Each attack with a consumer in reach lands in exactly one outcome.
+    #[test]
+    fn gate_outcomes_partition_consumer_attacks() {
+        let mut g = GateOutcomes::default();
+        g.record_consumer_attack(true, true, true, true); // killed a consumer
+        g.record_consumer_attack(true, true, true, false); // struck a nearer plant
+        g.record_consumer_attack(false, true, false, false); // size gate
+        g.record_consumer_attack(true, false, false, false); // damage gate
+        g.record_consumer_attack(false, false, false, false); // both
+        g.record_consumer_attack(true, true, false, false); // mixed
+        assert_eq!(g.consumer_in_reach, 6);
+        assert_eq!(
+            (
+                g.kills_consumer,
+                g.kills_plant_instead,
+                g.rejected_size,
+                g.rejected_damage,
+                g.rejected_both,
+                g.rejected_mixed
+            ),
+            (1, 1, 1, 1, 1, 1)
+        );
+        assert_eq!(g.minus(&GateOutcomes::default()), g);
+    }
+
+    #[test]
+    fn age_buckets_are_half_open() {
+        assert_eq!(age_bucket(0), 0);
+        assert_eq!(age_bucket(99), 0);
+        assert_eq!(age_bucket(100), 1);
+        assert_eq!(age_bucket(999), 4);
+        assert_eq!(age_bucket(1000), 5);
+        assert_eq!(age_bucket(50_000), 5);
     }
 }
