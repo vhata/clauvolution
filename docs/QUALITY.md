@@ -32,8 +32,8 @@ Every check is a standalone shell script in `scripts/`, runnable on its own with
 
 | Script | What it runs | Pre-commit | Pre-push | CI on PR | CI on `main` |
 | --- | --- | --- | --- | --- | --- |
-| `scripts/fmt-check.sh` | `cargo fmt --all -- --check` | yes | yes | yes | yes |
-| `scripts/lint.sh` | `cargo clippy --workspace --all-targets -- -D warnings` | yes | yes | yes | yes |
+| `scripts/fmt-check.sh` | `cargo fmt --all -- --check` | yes | no | yes | yes |
+| `scripts/lint.sh` | `cargo clippy --workspace --all-targets -- -D warnings` | yes | no | yes | yes |
 | `scripts/test.sh` | `cargo test --workspace` | no | yes, skipped for docs-only pushes | yes | yes |
 | `scripts/pre-push-test.sh` | the pre-push wrapper: `scripts/test.sh` unless the push changes only docs | | | | |
 | `scripts/smoke.sh` | release build, then `--headless 500 --seed 42`, must exit 0 with a living population | no | no | yes | yes |
@@ -41,7 +41,7 @@ Every check is a standalone shell script in `scripts/`, runnable on its own with
 | `scripts/check.sh` | `fmt-check` + `lint` + `test` | | | | |
 | `scripts/setup.sh` | installs lefthook's hooks into the repository | | | | |
 
-"Yes" in a CI column means the job blocks the merge. Everything in the pre-commit and pre-push columns is a fast local mirror of the same gate, so a red CI run should be a surprise, not a discovery.
+"Yes" in a CI column means the job blocks the merge. Everything in the pre-commit and pre-push columns is a fast local mirror of the same gate, so a red CI run should be a surprise, not a discovery. Each local gate runs at one hook, not both: the format check and clippy already run on every commit, so a push normally carries only commits that already passed them, and repeating them at push time would add wait for little gain. A commit made with the hooks bypassed (`LEFTHOOK=0` or `--no-verify`) is caught by CI instead. The authoritative list of what runs where is `lefthook.yml`.
 
 Timings measured on the development machine with a warm cache, which decide what runs at commit time: the format check takes well under a second, and clippy after editing a root crate takes about one second. Both are under the two-second budget for a commit hook. A cold cache (after a toolchain change or `cargo clean`) takes minutes once; that is the price of the first commit after this lands.
 
