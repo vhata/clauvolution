@@ -33,9 +33,9 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 - [SIM] `system-ordering-convention` — **Decide one convention for simulation system ordering.** Some systems use explicit `.chain()` and others rely on default Bevy ordering within a tuple, so the intent behind any given ordering is unclear.
   - Starting point: Establish which form is deliberate, then apply it consistently and record the choice.
   - Source: docs/ROADMAP.md (Known tech debt), 2026-09-16
-- [BRAIN] `convergent-detection-noise` — **Assess convergent evolution detection cost and noise.** Detection scans every species on each classification tick, and early in a run the results may be noisy enough to be misleading.
-  - Starting point: Measure how often it fires in the first few thousand ticks before deciding between a cheaper scan, a warm-up delay, or leaving it alone.
-  - Source: CLAUDE.md (Known rough edges), 2026-09-16
+- [BRAIN] `species-id-reuse-after-extinction` — **Stop new species reusing the id of an extinct species.** `species_classification_system` sets `next_species_id` to one past the highest id among living organisms, so once the highest-numbered species dies out the next new species gets an id the phylo tree already holds; `PhyloTree::record_species` then returns early and the newcomer silently inherits the dead species' name, parent, strategy and birth tick, and `update_populations` brings the old node back to life.
+  - Starting point: Found by reading the code, not yet reproduced in a run. Keep a monotonic counter in a resource (and in the save) instead of deriving it per pass, or take the maximum over `PhyloTree::nodes`. Species ids steer same-species mating, so the fix changes simulation outcomes and needs a same-seed before-and-after. Lineage walks such as `detect_convergence` read the corrupted parent and strategy.
+  - Source: todo/convergent-detection-noise branch, 2026-09-23
 - [TOOLING] `script-tour-virtual-time-after-speed` — **Decide whether `--script` tour timings are virtual or wall-clock seconds.** `script_runner_system` keys `at_seconds` to `Time<Virtual>`, so now that GUI speed scales virtual time every trigger after a `set_speed` action fires `multiplier` times sooner in wall time. `tours/readme.json` at 8x evolves for roughly 330 ticks before its screenshots instead of several thousand.
   - Starting point: Either retune the bundled tours or key `at_seconds` to `Time<Real>` and let tours state the speed they want.
   - Source: review/headless-gui-parity branch, 2026-09-17
