@@ -786,12 +786,13 @@ struct SensedFood {
     index: u32,
 }
 
-/// Items binned by `SpatialHash` cell key into a dense grid over the
-/// occupied key range, rebuilt once per tick. Within a cell, items keep the
-/// order they were given in.
+/// Items binned by cell key (`floor(pos / cell_size)` per axis) into a
+/// dense grid over the occupied key range, rebuilt once per tick. Within a
+/// cell, items keep the order they were given in.
 ///
 /// Sensing uses two: organisms, filled cell by cell from the spatial hash
-/// so each cell keeps the hash's order, and food items from `FoodSnapshot`.
+/// with its keys and cell size, so each cell keeps the hash's order; and
+/// food items from `FoodSnapshot`, on `FOOD_CELL_SIZE` cells.
 /// Sensing used to call `SpatialHash::query_radius` per organism, which
 /// allocates and fills a `Vec`, resolve every hit through an ECS query, and
 /// walk the whole food snapshot. See DECISIONS.md, "Sensing reads per-tick
