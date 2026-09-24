@@ -203,7 +203,15 @@ pub struct MinimapData {
 
 #[derive(Component)]
 
-/// Shared mesh handles to avoid creating thousands of identical meshes
+/// Shared mesh and material handles, so thousands of sprites reference one
+/// asset each instead of creating identical meshes.
+///
+/// Render systems call `.clone()` on these handles once per spawned sprite.
+/// A strong `Handle<T>` is a reference-counted pointer to the asset's id, so
+/// each clone is an atomic count increment; the mesh or material itself is
+/// never copied, and every clone points at the same GPU asset. The cost that
+/// does scale with population is the per-organism `materials.add` in
+/// `sync_organism_transforms`, not these clones.
 #[derive(Resource, Default)]
 pub struct SharedMeshes {
     pub circle: Option<Handle<Mesh>>,
