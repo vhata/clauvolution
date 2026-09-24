@@ -687,6 +687,11 @@ pub struct BandEnergy {
     /// Bites of living plants through `eat`, and the energy kept.
     pub bites: u64,
     pub bite_energy: f64,
+    /// Plant tissue taken through food items and bites before digestion
+    /// (after the mouth bonus): with `food + bite_energy` it gives the
+    /// band's realised plant efficiency, and per organism-tick how much it
+    /// found to eat.
+    pub plant_gross: f64,
     /// Kills of consumers, and the energy kept from them.
     pub consumer_kills: u64,
     pub consumer_kill_energy: f64,
@@ -722,6 +727,7 @@ impl BandEnergy {
         self.food += other.food;
         self.bites += other.bites;
         self.bite_energy += other.bite_energy;
+        self.plant_gross += other.plant_gross;
         self.consumer_kills += other.consumer_kills;
         self.consumer_kill_energy += other.consumer_kill_energy;
         self.plant_kills += other.plant_kills;
@@ -738,6 +744,7 @@ impl BandEnergy {
             food: self.food - other.food,
             bites: self.bites - other.bites,
             bite_energy: self.bite_energy - other.bite_energy,
+            plant_gross: self.plant_gross - other.plant_gross,
             consumer_kills: self.consumer_kills - other.consumer_kills,
             consumer_kill_energy: self.consumer_kill_energy - other.consumer_kill_energy,
             plant_kills: self.plant_kills - other.plant_kills,

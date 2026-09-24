@@ -1377,6 +1377,7 @@ fn action_system(
                     if let Some(b) = band {
                         bands.energy[b].food_items += 1;
                         bands.energy[b].food += gained as f64;
+                        bands.energy[b].plant_gross += (food_energy * mouth_bonus) as f64;
                     }
                     eaten[index] = true;
                     eaten_food.push(food_entity);
@@ -1520,6 +1521,7 @@ fn grazing_system(
         if let Some(b) = diet_band(eater_genome) {
             bands.energy[b].bites += 1;
             bands.energy[b].bite_energy += kept as f64;
+            bands.energy[b].plant_gross += bite as f64;
         }
         let Ok((_, _, mut plant_energy, _, _, _, _, _)) = organisms.get_mut(plant) else {
             continue;

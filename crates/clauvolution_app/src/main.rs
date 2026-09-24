@@ -841,6 +841,9 @@ fn band_csv_header() -> String {
     for key in clauvolution_core::DIET_BAND_KEYS {
         for field in [
             "ticks",
+            "food_items",
+            "bite_count",
+            "plant_gross",
             "food",
             "bites",
             "kill_consumer",
@@ -889,7 +892,10 @@ fn band_csv_row(s: &clauvolution_core::PopSnapshot) -> String {
         let e = &b.energy[band];
         let d = &b.deaths[band];
         cols.push(e.organism_ticks.to_string());
+        cols.push(e.food_items.to_string());
+        cols.push(e.bites.to_string());
         for v in [
+            e.plant_gross,
             e.food,
             e.bite_energy,
             e.consumer_kill_energy,
@@ -1244,15 +1250,21 @@ fn print_band_row(
         }
     };
     eprintln!(
-        "    {:<13} {:>7.1} {:>8.3} {:>6.1} {:>6.1} {:>6.1} {:>6.1} {:>9.3} {:>7} {:>7} {:>6} {:>6} {:>6} {:>5} {:>9.0}",
+        "    {:<13} {:>7.1} {:>8.3} {:>9.3} {:>10.3} {:>5.2} {:>6.1} {:>6.1} {:>6.1} {:>6.1} {:>7} {:>7} {:>6} {:>6} {:>6} {:>5} {:>9.0}",
         label,
         energy.organism_ticks as f64 / ticks.max(1) as f64,
         per_tick(energy.income()),
+        per_tick(energy.cost()),
+        per_tick(energy.plant_gross),
+        if energy.plant_gross > 0.0 {
+            (energy.food + energy.bite_energy) / energy.plant_gross
+        } else {
+            0.0
+        },
         share(energy.food),
         share(energy.bite_energy),
         share(energy.consumer_kill_energy),
         share(energy.plant_kill_energy),
-        per_tick(energy.cost()),
         births,
         deaths.total(),
         deaths.count[DeathCause::Starvation as usize],
@@ -1265,7 +1277,7 @@ fn print_band_row(
 
 fn print_band_header() {
     eprintln!(
-        "    band            alive  in/tick  food%  bite% ckill% pkill% cost/tick  births  deaths  starv   pred    dis   old  mean age"
+        "    band            alive  in/tick cost/tick taken/tick   eff  food%  bite% ckill% pkill%  births  deaths  starv   pred    dis   old  mean age"
     );
 }
 
@@ -1273,9 +1285,11 @@ fn print_band_header() {
 /// step 1): a per-band block every `DIET_BAND_TIMELINE_STEP` ticks, the
 /// run totals by band and by label, mean age at death by cause, and the
 /// parent-to-child label matrix. "alive" is organism-ticks over the window's
-/// ticks; "in/tick" and "cost/tick" are per organism-tick; the percentages
-/// split income by source (food items, eat bites, consumer kills, plant
-/// kills).
+/// ticks; "in/tick" (energy kept) and "cost/tick" (metabolism, movement,
+/// strikes) are per organism-tick; "taken/tick" is plant tissue taken from
+/// food items and bites before digestion, per organism-tick, and "eff" what
+/// share of it was kept; the percentages split income by source (food
+/// items, eat bites, consumer kills, plant kills).
 fn print_diet_band_summary(
     run: &clauvolution_core::DietBandStats,
     predation: &clauvolution_core::PredationStats,
