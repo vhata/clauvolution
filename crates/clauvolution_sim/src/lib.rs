@@ -1163,6 +1163,13 @@ fn grazing_system(
     }
 }
 
+/// Energy one tick of a strike costs: `rate` per unit of strike force
+/// (`claw_power × body size`). A heavier strike costs more; an organism with
+/// no claws strikes for free, and cannot pass the damage gate either.
+pub fn strike_cost(attack_strength: f32, rate: f32) -> f32 {
+    (attack_strength * rate).max(0.0)
+}
+
 /// Predation: organisms can attack and eat each other. Every strike is a
 /// kill attempt, plant or animal, under the same size and damage gates;
 /// grazing is `eat`'s job (`grazing_system`).
@@ -1207,6 +1214,9 @@ fn predation_system(
     let mut kills: Vec<(Entity, Entity, f32, bool)> = Vec::new();
     let mut claimed_victims: HashSet<Entity> = HashSet::new();
     let mut candidates: Vec<StrikeCandidate> = Vec::new();
+    // (attacker, energy owed) for every attacker that struck at something
+    // this tick; charged after the kills are resolved.
+    let mut strike_costs: Vec<(Entity, f32)> = Vec::new();
 
     for (attacker_entity, attacker_pos, attack_str, attack_range, attacker_size) in &attackers {
         let nearby = spatial_hash.query_radius(*attacker_pos, *attack_range);
@@ -1214,6 +1224,8 @@ fn predation_system(
         // Instrument only: whether any living plant was within reach,
         // claimed or not. It does not affect which target is struck.
         let mut plant_in_reach = false;
+        // Whether anything alive was within reach: a strike, not a flail.
+        let mut anyone_in_reach = false;
 
         for &target_entity in &nearby {
             if target_entity == *attacker_entity {
@@ -1243,6 +1255,7 @@ fn predation_system(
                 }
                 let is_plant = target_genome.is_photosynthesiser();
                 plant_in_reach |= is_plant;
+                anyone_in_reach = true;
                 if claimed {
                     continue;
                 }
@@ -1278,6 +1291,12 @@ fn predation_system(
         // strikes the nearest. See DECISIONS.md.
         if !plant_in_reach {
             predation_stats.feeding.attacks_no_plant_in_reach += 1;
+        }
+        if anyone_in_reach {
+            strike_costs.push((
+                *attacker_entity,
+                strike_cost(*attack_str, config.strike_cost),
+            ));
         }
         if let Some(target) = nearest_target(&candidates) {
             kills.push((
@@ -1345,6 +1364,22 @@ fn predation_system(
             commands
                 .entity(victim)
                 .insert(Killed(DeathCause::Predation));
+        }
+    }
+
+    // A strike costs the attacker whether it landed, bounced or lost its
+    // target to another attacker; the cost does not read what the target
+    // was. An attacker killed this tick has already left the ledger, so it
+    // is not charged. Booked as movement: a strike is muscular work.
+    predation_stats.strikes += strike_costs.len() as u64;
+    for (attacker, cost) in strike_costs {
+        if cost <= 0.0 || claimed_victims.contains(&attacker) {
+            continue;
+        }
+        if let Ok((_, _, mut attacker_energy, _, _, _, _, _)) = organisms.get_mut(attacker) {
+            attacker_energy.0 -= cost;
+            ledger.tick.movement += cost as f64;
+            predation_stats.strike_energy += cost as f64;
         }
     }
 }
@@ -1755,6 +1790,7 @@ fn death_system(
             &EnergyFlows,
             Option<&Infection>,
             Option<&Killed>,
+            Option<(&Genome, &Generation)>,
         ),
         With<Organism>,
     >,
@@ -1762,7 +1798,7 @@ fn death_system(
     mut fitness: ResMut<FitnessTracker>,
     mut ledger: ResMut<EnergyLedger>,
 ) {
-    for (entity, energy, health, pos, age, flows, infection, killed) in &organisms {
+    for (entity, energy, health, pos, age, flows, infection, killed, lineage) in &organisms {
         if energy.0 <= 0.0 || health.0 <= 0.0 || killed.is_some() {
             // The despawn takes this organism's per-tick flow record with it
             // before ledger_system can sum it, so fold it in here, then book
@@ -1780,6 +1816,13 @@ fn death_system(
                 None => DeathCause::Starvation,
             };
             stats.deaths_by_cause[cause as usize] += 1;
+            if let Some((genome, generation)) = lineage {
+                if generation.0 == 0 && classify_strategy(genome) == SpeciesStrategy::Hunter {
+                    stats.founder_hunter_deaths += 1;
+                    stats.founder_hunter_age_sum += age.0;
+                    stats.founder_hunter_age_max = stats.founder_hunter_age_max.max(age.0);
+                }
+            }
 
             // Spawn death marker before despawning
             commands.spawn((
@@ -3597,12 +3640,13 @@ mod grazing_tests {
     use rand::{rngs::StdRng, SeedableRng};
 
     /// A world holding what `grazing_system` and `predation_system` read.
-    /// Bite reach is set to 3 × body size so the geometry below does not
-    /// move with the shipped default.
+    /// Bite reach is set to 3 × body size and strikes are free, so the
+    /// geometry and energies below do not move with the shipped defaults.
     fn feeding_world() -> World {
         let mut world = World::new();
         world.insert_resource(SimConfig {
             bite_reach: 3.0,
+            strike_cost: 0.0,
             ..SimConfig::default()
         });
         world.insert_resource(SpatialHash::new(32.0));
@@ -3974,5 +4018,79 @@ mod grazing_tests {
         assert_eq!(stats.feeding.kills_plant_by_consumer, 1);
         assert!((stats.feeding.plant_kill_energy_consumer - 8.0).abs() < 1e-4);
         assert_eq!(stats.feeding.grazes_attack, 0);
+    }
+
+    #[test]
+    fn strike_cost_scales_with_strike_force() {
+        assert!((strike_cost(2.0, 0.3) - 0.6).abs() < 1e-6);
+        assert_eq!(strike_cost(0.0, 0.3), 0.0);
+        assert_eq!(strike_cost(2.0, 0.0), 0.0);
+    }
+
+    /// A strike costs the attacker whether it lands or bounces; firing with
+    /// nobody in reach is free, and the cost is booked as movement.
+    #[test]
+    fn a_strike_costs_the_attacker_and_a_flail_does_not() {
+        let mut world = feeding_world();
+        world.resource_mut::<SimConfig>().strike_cost = 0.5;
+        // Lands: claws 1 × size 1 against an unarmoured consumer.
+        let killer = spawn(
+            &mut world,
+            Vec2::new(10.0, 10.0),
+            50.0,
+            genome(false, false, -1.0, 1.0),
+            1.0,
+            attacking(),
+        );
+        let victim = spawn(
+            &mut world,
+            Vec2::new(11.0, 10.0),
+            40.0,
+            genome(false, false, -1.0, 0.0),
+            1.0,
+            idle(),
+        );
+        // Bounces: too small to pass the size gate on its neighbour.
+        let bouncer = spawn(
+            &mut world,
+            Vec2::new(100.0, 100.0),
+            50.0,
+            genome(false, false, -1.0, 2.0),
+            0.5,
+            attacking(),
+        );
+        spawn(
+            &mut world,
+            Vec2::new(101.0, 100.0),
+            50.0,
+            genome(false, false, -1.0, 0.0),
+            1.0,
+            idle(),
+        );
+        // Flails: nobody within attack range.
+        let flailer = spawn(
+            &mut world,
+            Vec2::new(300.0, 300.0),
+            50.0,
+            genome(false, false, -1.0, 2.0),
+            1.0,
+            attacking(),
+        );
+
+        world.run_system_once(predation_system).unwrap();
+
+        assert!(world.get::<Killed>(victim).is_some());
+        // A tenth of 40 at animal efficiency 0 is nothing; the strike costs
+        // 0.5 × claws 1 × size 1.
+        assert!((energy(&world, killer) - 49.5).abs() < 1e-4);
+        // 0.5 × claws 2 × size 0.5.
+        assert!((energy(&world, bouncer) - 49.5).abs() < 1e-4);
+        assert_eq!(energy(&world, flailer), 50.0);
+        let stats = world.resource::<PredationStats>();
+        assert_eq!(stats.attacks_attempted, 3);
+        assert_eq!(stats.strikes, 2);
+        assert!((stats.strike_energy - 1.0).abs() < 1e-6);
+        let ledger = world.resource::<EnergyLedger>();
+        assert!((ledger.tick.movement - 1.0).abs() < 1e-6);
     }
 }
