@@ -35,9 +35,6 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 - [WORLD] `biome-threshold-retune` — **Revisit the biome thresholds now that moisture spans 0..1.** With `Tile::from_elevation_moisture` still at 0.25 and 0.6, Rock is rare to absent on low-lying seeds and Grassland roughly quadrupled on seed 42. Land fraction also varies about twofold between seeds (172k land tiles on seed 42, 90k on seed 3), which confounds plant-share comparisons.
   - Starting point: Part of the tuning pass after the 8-seed 15k-tick audit is re-run on the merged fixes. The world crate's unit test prints per-biome counts.
   - Source: review/moisture-range-normalisation branch, 2026-09-17
-- [PERF] `moisture-fix-tick-cost` — **Find out why the moisture fix doubled the per-tick cost.** `cargo run --release -- --headless 300 --seed 42` takes about 9 s at c8fac9d (spatial hash fix only) and about 20 s at 1ab42ab (moisture fix merged); at speed 1 it takes 21 s, so the sim is now CPU-bound below real time during the opening burst. Ticks 30 to 100 cost roughly 200 ms each before settling to about 20 ms.
-  - Starting point: A wetter world grows more vegetation and so more food entities. Every food entity used to be indexed in the spatial hash that every neighbour query walks; that is fixed (the hash indexes organisms only), so remeasure on the merged commit before looking further. Measure food counts and organism counts per tick on both commits before changing anything. Also check whether the opening-burst slow phase (present before the moisture fix too, at about 8 s for the first 100 ticks) is the same cause.
-  - Source: rebase of review/headless-gui-parity onto main, 2026-09-17
 - [SIM] `energy-clamp-waste` — **Decide what happens to income above `max_organism_energy`.** The energy ledger shows the 120-energy clamp destroying roughly as much energy as foragers eat: 7.40M destroyed against 7.62M eaten over 5000 ticks on seed 42, 6.15M against 2.86M on seed 1, where photosynthesis is the main income. A forager near the cap that eats a 25-energy item keeps almost none of it.
   - Starting point: Options are a higher or body-scaled cap, letting excess raise reproduction readiness instead of vanishing, or accepting the loss as satiety and saying so in DECISIONS. Belongs with the phase 1 tuning pass in `docs/design/simulation-rules.md`, where food items shrink to a supplement; the ledger's clamp flow is the measurement.
   - Source: roadmap/energy-ledger branch, 2026-09-18
@@ -84,6 +81,10 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 
 ### P3 Low
 
+- [PERF] `sensing-per-organism-cost` — **Find what makes sensing the dominant tick cost once the eat scan is fixed.** With the eat-scan fix applied (it landed in #50), `sensing_and_brain_system` was 41.6 of 56.5 CPU seconds over 1000 ticks on seed 42 and about 71 ms of CPU per tick at the 6000-organism ceiling; brain evaluation itself is a small part of that.
+  - Starting point: A `sample` profile of the prototype put the sensing closure's own time (the inlined nearest-food scan over the whole `FoodSnapshot` plus input assembly) at about 20% of busy samples, `all_org_data.get` lookups for neighbours at 19%, `memmove` at 15%, `SpatialHash::query_radius` at 11% and brain evaluation with its activation `HashMap` at about 7%. Candidates: bin food into a grid so the nearest-food scan visits nearby cells only (keep ties on the earlier snapshot entry so the run is unchanged), and cut the per-neighbour query lookups by copying what sensing needs into a snapshot, as `FoodSnapshot` does for food. The system is already parallel, so wall time gains depend on the worker count. Measure with the temporary per-system CPU timing described in the `todo/moisture-fix-tick-cost` pull request.
+  - Source: todo/moisture-fix-tick-cost branch, 2026-09-23
+  - Related: `split-sensing-and-brain-system`, `batch-spatial-hash-queries`
 - [RENDER] `gpu-instanced-rendering` — **Draw all organisms in one instanced draw call.** Each organism currently gets its own `ColorMaterial`, so the draw call count scales with population.
   - Starting point: Pack per-instance data into a single buffer. A feature bitmask per instance lets the shader scale absent parts to zero, which removes entity churn on LOD changes. Prove the bitmask approach on a subset before converting the renderer.
   - Source: docs/ROADMAP.md (Backlog), 2026-09-16
@@ -100,6 +101,7 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 ### P0 Critical
 
 ### P1 High
+
 
 ### P2 Normal
 
