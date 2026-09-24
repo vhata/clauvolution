@@ -1917,6 +1917,47 @@ fn ledger_system(
     }
 }
 
+/// The species an organism belongs to this pass, or `None` if it fits no
+/// existing species and must found a new one.
+///
+/// An organism with a current species keeps it while its distance to that
+/// species' representative is below `stay_threshold`, even when another
+/// species' representative is closer. Past that it joins the nearest other
+/// species within `join_threshold`. Before 2026-09-23 the current species was
+/// only preferred through its looser threshold, and the organism went to
+/// whichever eligible representative was nearest; with the distance ceiling
+/// between unrelated genomes near the join threshold, that moved about 45% of
+/// all organisms to a different species on every pass. See `docs/DECISIONS.md`,
+/// "Species classification".
+fn choose_species(
+    genome: &Genome,
+    current_species: u64,
+    species_reps: &[(u64, Genome)],
+    join_threshold: f32,
+    stay_threshold: f32,
+) -> Option<u64> {
+    if current_species > 0 {
+        if let Some((_, rep)) = species_reps.iter().find(|(id, _)| *id == current_species) {
+            if genome.compatibility_distance(rep) < stay_threshold {
+                return Some(current_species);
+            }
+        }
+    }
+    let mut best_species = None;
+    let mut best_dist = f32::MAX;
+    for (species_id, rep_genome) in species_reps {
+        if *species_id == current_species {
+            continue;
+        }
+        let dist = genome.compatibility_distance(rep_genome);
+        if dist < join_threshold && dist < best_dist {
+            best_dist = dist;
+            best_species = Some(*species_id);
+        }
+    }
+    best_species
+}
+
 fn species_classification_system(
     time: Res<Time>,
     mut timer: ResMut<SpeciesClassificationTimer>,
@@ -1963,26 +2004,20 @@ fn species_classification_system(
 
     let mut assignments: HashMap<Entity, u64> = HashMap::new();
 
+    // An organism stays in its current species while it is within the stay
+    // threshold of that species' representative; only past it does it look
+    // for another species (within the join threshold) or found a new one.
+    let join_threshold = config.species_compat_threshold;
+    let stay_threshold = join_threshold * SPECIES_HYSTERESIS_FACTOR;
+
     for (entity, genome, _old_species) in &org_data {
-        let mut best_species = None;
-        let mut best_dist = f32::MAX;
-
-        // Hysteresis: prefer current species — only leave if nothing fits within threshold
-        // but give current species a bonus (1.5x threshold to stay)
-        let stay_threshold = config.species_compat_threshold * SPECIES_HYSTERESIS_FACTOR;
-
-        for (species_id, rep_genome) in &species_reps {
-            let dist = genome.compatibility_distance(rep_genome);
-            let effective_threshold = if *species_id == *_old_species {
-                stay_threshold // easier to stay in current species
-            } else {
-                config.species_compat_threshold
-            };
-            if dist < effective_threshold && dist < best_dist {
-                best_dist = dist;
-                best_species = Some(*species_id);
-            }
-        }
+        let best_species = choose_species(
+            genome,
+            *_old_species,
+            &species_reps,
+            join_threshold,
+            stay_threshold,
+        );
 
         let assigned = if let Some(id) = best_species {
             id
@@ -3272,6 +3307,59 @@ mod species_classification_tests {
         let mut rng = StdRng::seed_from_u64(genome_seed);
         let genome = Genome::new_minimal(&mut innovation, &mut rng);
         world.spawn((Organism, genome, SpeciesId(species))).id()
+    }
+
+    fn minimal_genome(genome_seed: u64) -> Genome {
+        let mut innovation = InnovationCounter(0);
+        let mut rng = StdRng::seed_from_u64(genome_seed);
+        Genome::new_minimal(&mut innovation, &mut rng)
+    }
+
+    /// Thresholds that put `near` inside the join threshold and `own` inside
+    /// the stay threshold but outside the join threshold.
+    fn thresholds_between(near: f32, own: f32) -> (f32, f32) {
+        assert!(near < own, "test genomes must have the other rep nearer");
+        let join = (near + own) / 2.0;
+        (join, own + 0.01)
+    }
+
+    /// An organism within the stay threshold of its own species keeps it,
+    /// even when another species' representative is nearer and within the
+    /// join threshold.
+    #[test]
+    fn a_member_within_the_stay_threshold_keeps_its_species() {
+        let member = minimal_genome(10);
+        let own_rep = minimal_genome(11);
+        let own_dist = member.compatibility_distance(&own_rep);
+        let other_rep = (100..300)
+            .map(minimal_genome)
+            .find(|g| member.compatibility_distance(g) < own_dist)
+            .expect("some genome is nearer to the member than its own rep");
+        let other_dist = member.compatibility_distance(&other_rep);
+        let (join, stay) = thresholds_between(other_dist, own_dist);
+        let reps = vec![(1, own_rep), (2, other_rep)];
+
+        assert_eq!(choose_species(&member, 1, &reps, join, stay), Some(1));
+        // Past the stay threshold it moves to the nearer species instead.
+        assert_eq!(choose_species(&member, 1, &reps, join, own_dist), Some(2));
+    }
+
+    /// Past the stay threshold with nothing else within the join threshold,
+    /// the organism founds a new species; an unclassified organism (species
+    /// 0) joins the nearest species within the join threshold.
+    #[test]
+    fn leaving_and_unclassified_members_use_the_join_threshold() {
+        let member = minimal_genome(20);
+        let a = minimal_genome(21);
+        let b = minimal_genome(22);
+        let da = member.compatibility_distance(&a);
+        let db = member.compatibility_distance(&b);
+        let reps = vec![(1, a), (2, b)];
+        let lo = da.min(db);
+        assert_eq!(choose_species(&member, 1, &reps, lo * 0.5, lo * 0.5), None);
+        let nearest = if da <= db { 1 } else { 2 };
+        let join = da.max(db) + 0.01;
+        assert_eq!(choose_species(&member, 0, &reps, join, join), Some(nearest));
     }
 
     /// Species 2 was the highest id ever issued and has died out; species 1
