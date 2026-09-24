@@ -2573,7 +2573,6 @@ fn reproduction_system(
                 effective_mutation_rate,
                 config.mutation_strength,
             );
-
             // Instrument only: the child's band against this parent's
             // (`plans/2026-09-24-hunter-bridge.md`, step 1). Reads no RNG.
             let parent_label = strategy_label_index(genome);
