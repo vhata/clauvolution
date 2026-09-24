@@ -149,7 +149,3 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
   - Starting point: One shared mesh handle per segment type.
   - Source: CLAUDE.md (Known rough edges), 2026-09-16
   - Related: `gpu-instanced-rendering`
-- [SIM] `name-action-predation-reproduction-literals` — **Name the inline literals in `action_system`, `predation_system` and `reproduction_system`.** #39 named the disease and niche literals and deliberately left these three systems alone because grazing and attack were about to be redesigned; they still carry armour drag 0.3, speed 2.0, fin 0.3, limb 0.15, aquatic 0.5, mouth bonus 0.3, eat range 3.0, attack gate 0.5, attack range 4.0, defence 0.5, size gate 0.6, damage gate 0.1, reproduce gate 0.5, mate range 8.0, spawn offset 5.0 and the flash timers.
-  - Starting point: Do it as part of step 2 of `plans/2026-09-21-pyramid-top.md`, which touches the mouth bonus, eat range and the predation gates anyway, or immediately after it lands so the names match the new rules. Values unchanged; prove it with identical same-seed CSVs as #39 did.
-  - Source: #39 report, 2026-09-22
-  - Related: `sim-config-resource`

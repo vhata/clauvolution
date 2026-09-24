@@ -88,6 +88,95 @@ const NICHE_MOISTURE_DEPOSIT: f32 = 0.0005;
 const NICHE_NUTRIENT_DEPOSIT: f32 = 0.0001;
 
 // -----------------------------------------------------------------------------
+// Movement tuning constants
+//
+// Used by action_system. Speed is `speed_factor × BASE_MOVE_SPEED / √size`,
+// slowed by armour and photosynthetic drag; the energy a move costs is then
+// scaled by a terrain cost built from the constants below.
+// -----------------------------------------------------------------------------
+
+/// World units per tick an organism of body size 1.0 moves at
+/// `speed_factor` 1.0 and full brain output, before any drag.
+const BASE_MOVE_SPEED: f32 = 2.0;
+/// Armour drag coefficient: speed is multiplied by `1 / (1 + armour × drag)`.
+/// `photo_drag_factor` has the same shape for leaf area.
+const ARMOR_DRAG: f32 = 0.3;
+/// How far aquatic adaptation moves the terrain cost: water costs
+/// `1 - aquatic × weight` of its base, land `1 + aquatic × weight`. One
+/// weight for both, so adapting to water costs as much on land as it saves
+/// in it.
+const AQUATIC_MOVE_COST_WEIGHT: f32 = 0.5;
+/// Water move-cost reduction per unit of fin area.
+const FIN_MOVE_BONUS_PER_AREA: f32 = 0.3;
+/// Most of the water move cost fins can remove.
+const FIN_MOVE_BONUS_CAP: f32 = 0.5;
+/// Land move-cost reduction per limb.
+const LIMB_MOVE_BONUS_PER_LIMB: f32 = 0.15;
+/// Most of the land move cost limbs can remove.
+const LIMB_MOVE_BONUS_CAP: f32 = 0.4;
+/// Floor on the terrain cost multiplier, on water and land alike, so no
+/// combination of adaptations makes moving close to free.
+const TERRAIN_MOVE_COST_FLOOR: f32 = 0.5;
+
+// -----------------------------------------------------------------------------
+// Feeding and predation tuning constants
+//
+// Food-item eating lives in action_system and attacks in predation_system.
+// Plant bites in grazing_system read `SimConfig::bite_reach` and
+// `bite_fraction` instead; see DECISIONS.md, "Grazing through eat".
+// -----------------------------------------------------------------------------
+
+/// Reach, in multiples of body size, within which `eat` takes a food item.
+const FOOD_EAT_REACH: f32 = 3.0;
+/// The `attack` brain output must exceed this for the organism to strike.
+const ATTACK_INTENT_THRESHOLD: f32 = 0.5;
+/// Reach, in multiples of body size, within which an attacker can strike.
+const ATTACK_REACH: f32 = 4.0;
+/// Share of the target's defence (`armour × body size`) subtracted from the
+/// attacker's strike force (`claw power × body size`) to give the damage.
+const DEFENCE_WEIGHT: f32 = 0.5;
+/// Size gate: the attacker's body size must exceed the target's times this.
+/// Below 1.0, so an attacker can take prey somewhat larger than itself.
+const PREY_SIZE_RATIO: f32 = 0.6;
+/// Damage gate: the damage must exceed this for a strike to kill. A clawless
+/// attacker does no damage and never passes it.
+const MIN_KILL_DAMAGE: f32 = 0.1;
+
+// -----------------------------------------------------------------------------
+// Reproduction tuning constants
+//
+// Used by reproduction_system. `CHILD_ENERGY_FRACTION` and
+// `CEILING_RELEASE_FRACTION` sit beside the system.
+// -----------------------------------------------------------------------------
+
+/// The `reproduce` brain output must exceed this for the organism to want a
+/// child. A mate must pass the same gate.
+const REPRODUCE_INTENT_THRESHOLD: f32 = 0.5;
+/// Reproduction cost and threshold scale on body size by
+/// `REPRODUCTION_SIZE_SCALE_BASE + body_size × REPRODUCTION_SIZE_SCALE_PER_SIZE`,
+/// which is 1.0 at body size 1.0. This is the constant term.
+const REPRODUCTION_SIZE_SCALE_BASE: f32 = 0.5;
+/// The per-unit-of-body-size term of the reproduction size scale.
+const REPRODUCTION_SIZE_SCALE_PER_SIZE: f32 = 0.5;
+/// Reach, in multiples of body size, within which a parent looks for a mate.
+const MATE_SEARCH_REACH: f32 = 8.0;
+/// A child spawns at up to this many world units from its parent on each
+/// axis, drawn uniformly from `-offset..offset`.
+const CHILD_SPAWN_OFFSET: f32 = 5.0;
+
+// -----------------------------------------------------------------------------
+// Action flash constants
+//
+// `ActionFlash` is visual only: the render crate pulses an organism's sprite
+// while the timer runs. Nothing in the simulation reads it.
+// -----------------------------------------------------------------------------
+
+/// Seconds an action flash lasts after eating, grazing, a kill or a birth.
+const ACTION_FLASH_SECS: f32 = 0.3;
+/// Seconds taken off a running action flash each tick, about one 30 Hz tick.
+const ACTION_FLASH_DECAY_PER_TICK: f32 = 0.033;
+
+// -----------------------------------------------------------------------------
 // Bloom event tuning constants
 // -----------------------------------------------------------------------------
 
@@ -975,7 +1064,7 @@ fn action_system(
     ) in &mut organisms
     {
         // Tick down flash timer
-        flash.timer = (flash.timer - 0.033).max(0.0);
+        flash.timer = (flash.timer - ACTION_FLASH_DECAY_PER_TICK).max(0.0);
         if flash.timer <= 0.0 {
             flash.action = ActionType::None;
         }
@@ -985,12 +1074,13 @@ fn action_system(
 
         let move_dir = Vec2::new(output.move_x, output.move_y);
         // Armor slows you down — heavy organisms are slower
-        let armor_drag = 1.0 / (1.0 + genome.armor_value() * 0.3);
+        let armor_drag = 1.0 / (1.0 + genome.armor_value() * ARMOR_DRAG);
         // So does a light-catching surface: broad and flat, it is a sail.
         // Nothing forbids a photosynthesiser from moving; a leafy one is
         // slow and a small-leaved one is not. See DECISIONS.md.
         let photo_drag = photo_drag_factor(genome.total_photo_surface_area(), config.photo_drag);
-        let speed = genome.speed_factor * 2.0 / body_size.0.sqrt() * armor_drag * photo_drag;
+        let speed =
+            genome.speed_factor * BASE_MOVE_SPEED / body_size.0.sqrt() * armor_drag * photo_drag;
         let movement = move_dir * speed;
         // Recorded so the history can average movement by strategy.
         velocity.0 = movement;
@@ -998,15 +1088,21 @@ fn action_system(
         let tile = tile_map.tile_at_pos(pos.0);
 
         let aqua = genome.aquatic_adaptation;
-        let fin_bonus = genome.fin_area() * 0.3;
-        let limb_bonus = genome.limb_count() as f32 * 0.15;
+        let fin_bonus = genome.fin_area() * FIN_MOVE_BONUS_PER_AREA;
+        let limb_bonus = genome.limb_count() as f32 * LIMB_MOVE_BONUS_PER_LIMB;
 
         let terrain_cost = if tile.terrain.is_water() {
             let base = tile.terrain.water_move_cost();
-            (base * (1.0 - aqua * 0.5) * (1.0 - fin_bonus.min(0.5))).max(0.5)
+            (base
+                * (1.0 - aqua * AQUATIC_MOVE_COST_WEIGHT)
+                * (1.0 - fin_bonus.min(FIN_MOVE_BONUS_CAP)))
+            .max(TERRAIN_MOVE_COST_FLOOR)
         } else {
             let base = tile.terrain.land_move_cost();
-            (base * (1.0 + aqua * 0.5) * (1.0 - limb_bonus.min(0.4))).max(0.5)
+            (base
+                * (1.0 + aqua * AQUATIC_MOVE_COST_WEIGHT)
+                * (1.0 - limb_bonus.min(LIMB_MOVE_BONUS_CAP)))
+            .max(TERRAIN_MOVE_COST_FLOOR)
         };
 
         pos.0 += movement;
@@ -1022,7 +1118,7 @@ fn action_system(
         // grazing_system, which runs next and skips anyone fed here.
         if output.eat > 0.0 {
             let mouth_bonus = mouth_bonus(genome);
-            let eat_range = body_size.0 * 3.0;
+            let eat_range = body_size.0 * FOOD_EAT_REACH;
             for (index, &(food_entity, food_pos, food_energy)) in foods.iter().enumerate() {
                 if eaten[index] {
                     continue;
@@ -1041,7 +1137,7 @@ fn action_system(
                     eaten_food.push(food_entity);
                     ate_food.0.insert(entity);
                     flash.action = ActionType::Eating;
-                    flash.timer = 0.3;
+                    flash.timer = ACTION_FLASH_SECS;
                     break;
                 }
             }
@@ -1188,7 +1284,7 @@ fn grazing_system(
             ledger.tick.grazing += kept as f64;
             ledger.tick.digestion += wasted as f64;
             eater_flash.action = ActionType::Grazing;
-            eater_flash.timer = 0.3;
+            eater_flash.timer = ACTION_FLASH_SECS;
         }
     }
 }
@@ -1309,10 +1405,10 @@ fn predation_system(
     // Collect attack intents
     let attackers: Vec<(Entity, Vec2, f32, f32, f32, AttackerBand)> = organisms
         .iter()
-        .filter(|(_, _, _, _, _, _, _, output)| output.attack > 0.5)
+        .filter(|(_, _, _, _, _, _, _, output)| output.attack > ATTACK_INTENT_THRESHOLD)
         .map(|(e, pos, _, _, _, genome, body_size, _)| {
             let attack_str = genome.claw_power() * body_size.0;
-            let attack_range = body_size.0 * 4.0;
+            let attack_range = body_size.0 * ATTACK_REACH;
             let band = AttackerBand::of(genome, lineage.get(e).ok());
             (e, pos.0, attack_str, attack_range, body_size.0, band)
         })
@@ -1384,10 +1480,10 @@ fn predation_system(
                 predation_stats.targets_considered += 1;
 
                 let defense = target_genome.armor_value() * target_body_size.0;
-                let damage = (attack_str - defense * 0.5).max(0.0);
+                let damage = (attack_str - defense * DEFENCE_WEIGHT).max(0.0);
                 // A plant is prey like any other: the size gate applies.
-                let size_ok = *attacker_size > target_body_size.0 * 0.6;
-                let damage_ok = damage > 0.1;
+                let size_ok = *attacker_size > target_body_size.0 * PREY_SIZE_RATIO;
+                let damage_ok = damage > MIN_KILL_DAMAGE;
 
                 if !size_ok {
                     predation_stats.rejected_size_gate += 1;
@@ -1491,7 +1587,7 @@ fn predation_system(
             ) as f64;
             ledger.tick.predation += energy_gained as f64;
             killer_flash.action = ActionType::Attacking;
-            killer_flash.timer = 0.3;
+            killer_flash.timer = ACTION_FLASH_SECS;
         }
         if let Ok((_, _, mut victim_energy, mut victim_health, _, _, _, _)) =
             organisms.get_mut(victim)
@@ -2084,7 +2180,8 @@ fn reproduction_system(
     let wanting = organisms
         .iter()
         .filter(|(_, _, energy, _, _, output, body_size, _, _)| {
-            output.reproduce > 0.5 && energy.0 > reproduction_threshold(&config, body_size.0)
+            output.reproduce > REPRODUCE_INTENT_THRESHOLD
+                && energy.0 > reproduction_threshold(&config, body_size.0)
         })
         .count();
     let admit_probability = if wanting > slots {
@@ -2103,9 +2200,11 @@ fn reproduction_system(
             continue;
         }
         // Reproduction cost scales with body size — small organisms can't reproduce for free
-        let repro_cost = config.reproduction_energy_cost * (0.5 + body_size.0 * 0.5);
+        let repro_cost = config.reproduction_energy_cost
+            * (REPRODUCTION_SIZE_SCALE_BASE + body_size.0 * REPRODUCTION_SIZE_SCALE_PER_SIZE);
         let repro_threshold = reproduction_threshold(&config, body_size.0);
-        let wants_child = output.reproduce > 0.5 && energy.0 > repro_threshold;
+        let wants_child =
+            output.reproduce > REPRODUCE_INTENT_THRESHOLD && energy.0 > repro_threshold;
         if wants_child && admit_probability < 1.0 && rng.gen::<f32>() >= admit_probability {
             blocked_births += 1;
             continue;
@@ -2125,7 +2224,7 @@ fn reproduction_system(
             // also wants a child and has the energy for one. Its energy is
             // read as it stood at the start of the tick, before any parent
             // in this pass is charged.
-            let mate_range = body_size.0 * 8.0;
+            let mate_range = body_size.0 * MATE_SEARCH_REACH;
             let nearby = spatial_hash.query_radius(pos.0, mate_range);
             let mut mate_genome: Option<&Genome> = None;
 
@@ -2138,7 +2237,7 @@ fn reproduction_system(
                 else {
                     continue;
                 };
-                if mate_output.reproduce > 0.5
+                if mate_output.reproduce > REPRODUCE_INTENT_THRESHOLD
                     && mate_species.0 == species.0
                     && mate_energy.0 > config.reproduction_energy_threshold
                 {
@@ -2162,7 +2261,10 @@ fn reproduction_system(
                 config.mutation_strength,
             );
 
-            let offset = Vec2::new(rng.gen_range(-5.0..5.0), rng.gen_range(-5.0..5.0));
+            let offset = Vec2::new(
+                rng.gen_range(-CHILD_SPAWN_OFFSET..CHILD_SPAWN_OFFSET),
+                rng.gen_range(-CHILD_SPAWN_OFFSET..CHILD_SPAWN_OFFSET),
+            );
             let child_pos = Vec2::new(
                 (pos.0.x + offset.x).rem_euclid(config.world_width as f32),
                 (pos.0.y + offset.y).rem_euclid(config.world_height as f32),
@@ -2186,7 +2288,7 @@ fn reproduction_system(
         if let Ok((_, _, mut energy, mut flash, ..)) = organisms.get_mut(entity) {
             energy.0 -= repro_cost;
             flash.action = ActionType::Reproducing;
-            flash.timer = 0.3;
+            flash.timer = ACTION_FLASH_SECS;
         }
     }
 
@@ -2734,7 +2836,8 @@ const FOUNDER_ENERGY_FRACTION: f32 = 0.9;
 /// Energy an organism of `body_size` must exceed before `reproduction_system`
 /// lets it reproduce: the configured threshold scaled by `0.5 + body_size * 0.5`.
 pub fn reproduction_threshold(config: &SimConfig, body_size: f32) -> f32 {
-    config.reproduction_energy_threshold * (0.5 + body_size * 0.5)
+    config.reproduction_energy_threshold
+        * (REPRODUCTION_SIZE_SCALE_BASE + body_size * REPRODUCTION_SIZE_SCALE_PER_SIZE)
 }
 
 /// Split `total` founders across biomes in proportion to `areas` (tile counts,
