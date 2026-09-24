@@ -135,9 +135,6 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
   - Starting point: One shared mesh handle per segment type.
   - Source: CLAUDE.md (Known rough edges), 2026-09-16
   - Related: `gpu-instanced-rendering`
-- [PERSIST] `persist-terrain-state` — **Save terrain state instead of regenerating it from the seed.** Niche construction changes to vegetation density, moisture, and nutrients are silently lost on save and load, so a loaded world is not the world that was saved.
-  - Starting point: Decide whether to persist the full tilemap or only the fields organisms modify. `SaveState::terrain_seed` is required on load because the terrain is regenerated from it; once terrain is saved, revisit that (see "Save format: every field has a default unless the world cannot be rebuilt without it" in `docs/DECISIONS.md`).
-  - Source: CLAUDE.md (Known rough edges), 2026-09-16
 - [TOOLING] `unknown-flag-launches-gui` — **Refuse unknown CLI flags and answer `--help` instead of opening a window.** The argument parser in `clauvolution_app` looks up the flags it knows and ignores everything else, so a typo or `--help` launches the GUI as if no flags were given.
   - Starting point: Collect the known flag names in one place, print usage and exit non-zero for anything unrecognised, and treat `--help` as usage. The README's flag list is the source for the usage text; keep them from drifting (a test that every README flag is known would do). Found when a headless agent ran `--help` to check usage and got a window.
   - Source: todo/reproduction-linear-scans branch, 2026-09-22

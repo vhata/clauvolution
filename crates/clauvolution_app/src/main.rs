@@ -364,10 +364,13 @@ fn load_saved_world(
     innovation.0 = state.innovation_counter;
     config.terrain_seed = state.terrain_seed;
 
-    // Generate terrain from seed — same seed = same terrain
+    // Terrain type, elevation and light come from the seed; the fields that
+    // change at runtime (vegetation, moisture, nutrients, temperature) are
+    // then restored from the save when it carries them.
     let mut rng = rand::rngs::StdRng::seed_from_u64(config.terrain_seed);
-    let tile_map =
+    let mut tile_map =
         clauvolution_world::TileMap::generate(config.world_width, config.world_height, &mut rng);
+    let terrain_restored = save::restore_terrain(&mut tile_map, state.terrain.as_ref());
     commands.insert_resource(tile_map);
 
     // Reseed SimRng from the saved seed. (Mid-run save/load diverges from
@@ -385,6 +388,10 @@ fn load_saved_world(
     save::restore_phylo(&mut phylo, &state.phylo_nodes);
     save::restore_chronicle(&mut chronicle, &state.chronicle_entries);
     chronicle.log(tick.0, "World loaded from save".to_string());
+    if let Err(message) = terrain_restored {
+        eprintln!("Warning: {}", message);
+        chronicle.log(tick.0, message);
+    }
 }
 
 fn fresh_world(

@@ -5,6 +5,7 @@ use clauvolution_genome::*;
 use clauvolution_phylogeny::{
     ChronicleTarget, PhyloNode, PhyloTree, SpeciesStrategy, WorldChronicle,
 };
+use clauvolution_world::TileMap;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -48,13 +49,13 @@ impl std::error::Error for SaveError {
 /// Unlike `SaveGenome`, the fields fall into two deliberate groups. Fields
 /// without a `serde(default)` are the ones the world cannot be rebuilt
 /// without, and a file missing any of them is rejected: `tick` (every
-/// phylogeny and chronicle tick is relative to it), `terrain_seed` (the
-/// terrain is regenerated from it, so a guessed seed would put the
-/// population on a different map) and `organisms` (the world itself). Every
-/// other field has a neutral value and loads without it. A new field goes
-/// in one group or the other on purpose. See "Save format: every field has
-/// a default unless the world cannot be rebuilt without it" in
-/// `docs/DECISIONS.md`.
+/// phylogeny and chronicle tick is relative to it), `terrain_seed` (terrain
+/// type, elevation and light are regenerated from it, so a guessed seed
+/// would put the population on a different map) and `organisms` (the world
+/// itself). Every other field has a neutral value and loads without it,
+/// `terrain` included. A new field goes in one group or the other on
+/// purpose. See "Save format: every field has a default unless the world
+/// cannot be rebuilt without it" in `docs/DECISIONS.md`.
 #[derive(Serialize, Deserialize)]
 pub struct SaveState {
     pub tick: u64,
@@ -83,6 +84,154 @@ pub struct SaveState {
     /// Missing: an empty chronicle.
     #[serde(default)]
     pub chronicle_entries: Vec<SaveChronicleEntry>,
+    /// The tile fields that change at runtime. Missing (a save from before
+    /// terrain was persisted, or one whose record failed validation): the
+    /// terrain as regenerated from `terrain_seed`, with a warning, so
+    /// vegetation, moisture, nutrient and temperature changes since tick 0
+    /// are lost.
+    #[serde(default)]
+    pub terrain: Option<SaveTerrain>,
+}
+
+/// The tile fields that change after generation, one value per tile in
+/// `TileMap::tiles` order (row-major, `y * width + x`).
+///
+/// Terrain type, elevation and light level are never written after
+/// `TileMap::generate`, so they are regenerated from `terrain_seed` and not
+/// stored. The four fields here are written by `tile_dynamics_system`
+/// (vegetation growth), niche construction (vegetation, moisture,
+/// nutrients) and the ice age and volcano events (temperature, moisture,
+/// nutrients). Each is stored as base64 of the little-endian bytes of its
+/// `f32` values, which restores the exact bits in about half the space of a
+/// JSON number array. A new tile field that changes at runtime belongs
+/// here. See "Save format: terrain persists only the tile fields that
+/// change" in `docs/DECISIONS.md`.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct SaveTerrain {
+    pub width: u32,
+    pub height: u32,
+    #[serde(with = "f32_base64")]
+    pub temperature: Vec<f32>,
+    #[serde(with = "f32_base64")]
+    pub moisture: Vec<f32>,
+    #[serde(with = "f32_base64")]
+    pub nutrients: Vec<f32>,
+    #[serde(with = "f32_base64")]
+    pub vegetation_density: Vec<f32>,
+}
+
+impl SaveTerrain {
+    /// Capture the mutable tile fields of `map`.
+    pub fn from_tile_map(map: &TileMap) -> Self {
+        Self {
+            width: map.width,
+            height: map.height,
+            temperature: map.tiles.iter().map(|t| t.temperature).collect(),
+            moisture: map.tiles.iter().map(|t| t.moisture).collect(),
+            nutrients: map.tiles.iter().map(|t| t.nutrients).collect(),
+            vegetation_density: map.tiles.iter().map(|t| t.vegetation_density).collect(),
+        }
+    }
+
+    /// Why this record does not describe a map of its own dimensions, or
+    /// `None` when it does.
+    fn problem(&self) -> Option<String> {
+        let expected = self.width as usize * self.height as usize;
+        for (name, values) in self.fields() {
+            if values.len() != expected {
+                return Some(format!(
+                    "{} has {} values for a {}x{} map",
+                    name,
+                    values.len(),
+                    self.width,
+                    self.height
+                ));
+            }
+            if let Some(v) = values.iter().find(|v| !v.is_finite()) {
+                return Some(format!("{} holds a non-finite value ({})", name, v));
+            }
+        }
+        None
+    }
+
+    fn fields(&self) -> [(&'static str, &[f32]); 4] {
+        [
+            ("temperature", &self.temperature),
+            ("moisture", &self.moisture),
+            ("nutrients", &self.nutrients),
+            ("vegetation_density", &self.vegetation_density),
+        ]
+    }
+
+    /// Overwrite the mutable fields of `map`, which should be the terrain
+    /// regenerated from the save's seed. Leaves `map` untouched and returns
+    /// the reason when the record does not fit it.
+    pub fn apply_to(&self, map: &mut TileMap) -> Result<(), String> {
+        if (self.width, self.height) != (map.width, map.height) {
+            return Err(format!(
+                "saved terrain is {}x{} but the world is {}x{}",
+                self.width, self.height, map.width, map.height
+            ));
+        }
+        if let Some(problem) = self.problem() {
+            return Err(problem);
+        }
+        for (i, tile) in map.tiles.iter_mut().enumerate() {
+            tile.temperature = self.temperature[i];
+            tile.moisture = self.moisture[i];
+            tile.nutrients = self.nutrients[i];
+            tile.vegetation_density = self.vegetation_density[i];
+        }
+        Ok(())
+    }
+}
+
+/// Apply the saved terrain state to `map`, the terrain regenerated from the
+/// save's seed. When the save has no terrain state or it does not fit,
+/// leaves `map` as regenerated and returns a warning for the caller to put
+/// where the user will see it (headless runs have no log).
+pub fn restore_terrain(map: &mut TileMap, terrain: Option<&SaveTerrain>) -> Result<(), String> {
+    let reason = match terrain {
+        None => "the save has no usable terrain state".to_string(),
+        Some(t) => match t.apply_to(map) {
+            Ok(()) => return Ok(()),
+            Err(reason) => reason,
+        },
+    };
+    Err(format!(
+        "Terrain regenerated from the seed because {}; vegetation, moisture, nutrient and temperature changes since tick 0 are lost",
+        reason
+    ))
+}
+
+/// Serde adapter that stores a `Vec<f32>` as base64 of its little-endian
+/// bytes, so every value round-trips bit for bit.
+mod f32_base64 {
+    use base64::engine::general_purpose::STANDARD;
+    use base64::Engine;
+    use serde::de::Error;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(values: &[f32], s: S) -> Result<S::Ok, S::Error> {
+        let mut bytes = Vec::with_capacity(values.len() * 4);
+        for v in values {
+            bytes.extend_from_slice(&v.to_le_bytes());
+        }
+        s.serialize_str(&STANDARD.encode(bytes))
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<f32>, D::Error> {
+        let text = String::deserialize(d)?;
+        let bytes = STANDARD.decode(text).map_err(D::Error::custom)?;
+        if bytes.len() % 4 != 0 {
+            return Err(D::Error::custom(format!(
+                "{} bytes is not a whole number of f32 values",
+                bytes.len()
+            )));
+        }
+        let (chunks, _) = bytes.as_chunks::<4>();
+        Ok(chunks.iter().map(|c| f32::from_le_bytes(*c)).collect())
+    }
 }
 
 /// Lifetime counters. Every field defaults to zero.
@@ -422,6 +571,7 @@ pub fn save_world(
     food: &[(Vec2, f32)],
     phylo: &PhyloTree,
     chronicle: &WorldChronicle,
+    terrain: Option<&TileMap>,
 ) -> Result<(), SaveError> {
     let state = SaveState {
         tick: tick.0,
@@ -487,6 +637,7 @@ pub fn save_world(
                 target: e.target.map(SaveChronicleTarget::from_target),
             })
             .collect(),
+        terrain: terrain.map(SaveTerrain::from_tile_map),
     };
 
     let json = serde_json::to_string(&state).map_err(SaveError::Serialize)?;
@@ -531,6 +682,14 @@ pub fn load_world(path: &Path) -> Option<SaveState> {
 /// are removed. Non-fatal — the sim starts with the survivors.
 fn validate_save_state(state: &mut SaveState) {
     raise_innovation_counter(state);
+
+    if let Some(problem) = state.terrain.as_ref().and_then(SaveTerrain::problem) {
+        warn!(
+            "Save terrain state is unusable ({}); the terrain will be regenerated from the seed",
+            problem
+        );
+        state.terrain = None;
+    }
 
     let before = state.organisms.len();
     state
@@ -899,6 +1058,7 @@ mod tests {
             &[],
             &PhyloTree::default(),
             &WorldChronicle::default(),
+            None,
         )
     }
 
@@ -1104,6 +1264,7 @@ mod tests {
         assert!(state.food.is_empty());
         assert!(state.phylo_nodes.is_empty());
         assert!(state.chronicle_entries.is_empty());
+        assert!(state.terrain.is_none());
 
         assert_eq!(state.organisms.len(), 1, "the organism must not be dropped");
         let org = &state.organisms[0];
@@ -1156,6 +1317,144 @@ mod tests {
                 field
             );
         }
+    }
+
+    /// A small map generated from `seed`, as `load_saved_world` rebuilds it.
+    fn small_map(seed: u64) -> TileMap {
+        use rand::SeedableRng;
+        let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+        TileMap::generate(24, 16, &mut rng)
+    }
+
+    /// Every tile field, so a comparison covers the regenerated fields too.
+    fn tile_fields(map: &TileMap) -> Vec<(clauvolution_world::TerrainType, [u32; 6])> {
+        map.tiles
+            .iter()
+            .map(|t| {
+                (
+                    t.terrain,
+                    [
+                        t.elevation.to_bits(),
+                        t.temperature.to_bits(),
+                        t.moisture.to_bits(),
+                        t.light_level.to_bits(),
+                        t.nutrients.to_bits(),
+                        t.vegetation_density.to_bits(),
+                    ],
+                )
+            })
+            .collect()
+    }
+
+    /// Change the map the ways the sim does: an ice age everywhere, a
+    /// volcano's nutrient boost and niche construction on a few tiles, and
+    /// some vegetation growth, with values that are not round decimals.
+    fn modify_like_a_run(map: &mut TileMap) {
+        for tile in &mut map.tiles {
+            tile.temperature *= 0.5;
+            tile.moisture *= 0.7;
+        }
+        for i in (0..map.tiles.len()).step_by(7) {
+            let tile = &mut map.tiles[i];
+            tile.nutrients = (tile.nutrients + 0.5).min(1.0);
+            tile.vegetation_density = (tile.vegetation_density + 0.0123).min(1.0);
+            tile.moisture = (tile.moisture + 0.004_56).min(1.0);
+        }
+        for tile in &mut map.tiles {
+            tile.vegetation_density +=
+                (tile.nutrients * tile.moisture - tile.vegetation_density) * 0.001;
+        }
+    }
+
+    #[test]
+    fn modified_terrain_survives_a_save_and_load() {
+        let scratch = ScratchDir::new("terrain-round-trip");
+        let path = scratch.0.join("save.json");
+        let config = SimConfig {
+            terrain_seed: 42,
+            ..SimConfig::default()
+        };
+        let mut map = small_map(config.terrain_seed);
+        let regenerated = tile_fields(&map);
+        modify_like_a_run(&mut map);
+        let at_save = tile_fields(&map);
+        assert_ne!(at_save, regenerated, "the fixture must change the terrain");
+
+        save_world(
+            &path,
+            &TickCounter(7),
+            &Season::default(),
+            &SimStats::default(),
+            &InnovationCounter(100),
+            &config,
+            &[],
+            &[],
+            &PhyloTree::default(),
+            &WorldChronicle::default(),
+            Some(&map),
+        )
+        .expect("save");
+        let state = load_world(&path).expect("the written file loads");
+        let terrain = state.terrain.as_ref().expect("the save carries terrain");
+        assert_eq!(terrain, &SaveTerrain::from_tile_map(&map));
+
+        let mut loaded = small_map(state.terrain_seed);
+        restore_terrain(&mut loaded, state.terrain.as_ref()).expect("the terrain fits");
+        assert_eq!(tile_fields(&loaded), at_save);
+    }
+
+    /// Every save written before terrain was persisted has no `terrain`
+    /// field. It loads, and the terrain is the one regenerated from the seed.
+    #[test]
+    fn save_without_terrain_loads_with_regenerated_terrain() {
+        let value = complete_save_json();
+        assert!(value.get("terrain").is_none());
+        let state = load_json("no-terrain", &value).expect("a save without terrain loads");
+        assert!(state.terrain.is_none());
+        assert_eq!(state.organisms.len(), 1);
+
+        let mut map = small_map(state.terrain_seed);
+        let regenerated = tile_fields(&map);
+        let warning = restore_terrain(&mut map, state.terrain.as_ref())
+            .expect_err("a missing terrain is reported");
+        assert!(warning.contains("no usable terrain state"), "{warning}");
+        assert_eq!(tile_fields(&map), regenerated);
+    }
+
+    /// A terrain record that does not describe its own map is dropped at
+    /// load time; the rest of the save still loads.
+    #[test]
+    fn terrain_with_the_wrong_tile_count_is_dropped_but_the_save_loads() {
+        let mut terrain = SaveTerrain::from_tile_map(&small_map(42));
+        terrain.nutrients.pop();
+        let mut value = complete_save_json();
+        value["terrain"] = serde_json::to_value(&terrain).unwrap();
+        let state = load_json("short-terrain", &value).expect("the save still loads");
+        assert!(state.terrain.is_none());
+        assert_eq!(state.organisms.len(), 1);
+    }
+
+    #[test]
+    fn terrain_for_a_different_world_size_leaves_the_map_as_regenerated() {
+        let mut other = small_map(42);
+        modify_like_a_run(&mut other);
+        let terrain = SaveTerrain::from_tile_map(&other);
+
+        use rand::SeedableRng;
+        let mut rng = rand::rngs::StdRng::seed_from_u64(42);
+        let mut map = TileMap::generate(16, 24, &mut rng);
+        let regenerated = tile_fields(&map);
+        let err = terrain.apply_to(&mut map).expect_err("dimensions differ");
+        assert!(err.contains("24x16"), "{err}");
+        assert_eq!(tile_fields(&map), regenerated);
+    }
+
+    #[test]
+    fn terrain_fields_are_stored_as_base64_strings() {
+        let value = serde_json::to_value(SaveTerrain::from_tile_map(&small_map(1))).unwrap();
+        let encoded = value["vegetation_density"].as_str().expect("a string");
+        // 24 x 16 tiles, four bytes each, base64 without line breaks.
+        assert_eq!(encoded.len(), (24 * 16 * 4usize).div_ceil(3) * 4);
     }
 
     #[test]
