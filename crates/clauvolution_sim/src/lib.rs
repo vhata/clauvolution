@@ -258,6 +258,57 @@ fn credit_clamped(energy: &mut Energy, amount: f32, cap: f32) -> f32 {
     unclamped - clamped
 }
 
+/// Share of a meal a mouthed eater takes, food item or plant bite.
+const MOUTH_BONUS: f32 = 1.0;
+
+/// Share of a meal an eater without a mouth segment takes. The rest stays
+/// where it was: on the food item, which is consumed anyway, or in the
+/// plant, which keeps it.
+const MOUTHLESS_BONUS: f32 = 0.3;
+
+/// How much of a meal this eater's mouth takes: `MOUTH_BONUS` with a mouth
+/// segment, `MOUTHLESS_BONUS` without.
+pub fn mouth_bonus(genome: &Genome) -> f32 {
+    if genome.has_mouth() {
+        MOUTH_BONUS
+    } else {
+        MOUTHLESS_BONUS
+    }
+}
+
+/// The mouth bonus on a plant bite: `MOUTH_BONUS` with a mouth segment,
+/// `mouthless` (`SimConfig::mouthless_bite_bonus`) without.
+pub fn bite_mouth_bonus(genome: &Genome, mouthless: f32) -> f32 {
+    if genome.has_mouth() {
+        MOUTH_BONUS
+    } else {
+        mouthless
+    }
+}
+
+/// One bite of a living plant through `eat`: `bite_fraction` of what the
+/// plant holds, scaled by the eater's mouth. This is what the plant loses and
+/// what the eater then digests at its `plant_efficiency`.
+pub fn graze_bite(plant_energy: f32, bite_fraction: f32, mouth_bonus: f32) -> f32 {
+    plant_energy.max(0.0) * bite_fraction * mouth_bonus
+}
+
+/// The efficiency a killer digests its kill at. Digestion follows the
+/// tissue, not the act: a plant victim is plant tissue and is digested at
+/// `plant_efficiency`; an animal victim at `animal_efficiency` times the
+/// hunting multiplier (`SimConfig::animal_efficiency_multiplier`).
+pub fn kill_digestion_efficiency(
+    killer: &Genome,
+    victim_is_plant: bool,
+    animal_efficiency_multiplier: f32,
+) -> f32 {
+    if victim_is_plant {
+        killer.plant_efficiency()
+    } else {
+        killer.animal_efficiency() * animal_efficiency_multiplier
+    }
+}
+
 pub struct SimPlugin;
 
 /// The simulation tick: every `FixedUpdate` system that reads or writes
@@ -295,6 +346,7 @@ impl Plugin for SimPlugin {
                     update_food_snapshot,
                     sensing_and_brain_system,
                     action_system,
+                    grazing_system,
                     predation_system,
                     photosynthesis_system,
                     niche_construction_system,
@@ -337,6 +389,7 @@ impl Plugin for SimPlugin {
             TimerMode::Repeating,
         )))
         .init_resource::<CanopyGrid>()
+        .init_resource::<AteFoodThisTick>()
         .init_resource::<ConvergenceHighWater>();
     }
 }
@@ -366,6 +419,12 @@ impl CanopyGrid {
 
 #[derive(Resource)]
 struct ExtinctionCooldown(Timer);
+
+/// The organisms that ate a food item in this tick's `action_system`.
+/// `grazing_system` skips them: food items are free tissue and are eaten
+/// first, and an eater takes one meal per tick.
+#[derive(Resource, Default)]
+struct AteFoodThisTick(HashSet<Entity>);
 
 /// Highest independent-lineage count already chronicled per strategy.
 ///
@@ -850,6 +909,7 @@ fn action_system(
     tile_map: Res<TileMap>,
     mut organisms: Query<
         (
+            Entity,
             &mut Position,
             &mut Energy,
             &mut BrainMemory,
@@ -865,12 +925,15 @@ fn action_system(
     food_snapshot: Res<FoodSnapshot>,
     mut commands: Commands,
     mut ledger: ResMut<EnergyLedger>,
+    mut ate_food: ResMut<AteFoodThisTick>,
 ) {
     let foods = &food_snapshot.entries;
 
     let mut eaten_food: Vec<Entity> = Vec::new();
+    ate_food.0.clear();
 
     for (
+        entity,
         mut pos,
         mut energy,
         mut memory,
@@ -926,9 +989,10 @@ fn action_system(
         energy.0 -= move_cost;
         ledger.tick.movement += move_cost as f64;
 
-        // Eating food
+        // Eating food. A living plant is bitten through the same output in
+        // grazing_system, which runs next and skips anyone fed here.
         if output.eat > 0.0 {
-            let mouth_bonus = if genome.has_mouth() { 1.0 } else { 0.3 };
+            let mouth_bonus = mouth_bonus(genome);
             let eat_range = body_size.0 * 3.0;
             for &(food_entity, food_pos, food_energy) in foods {
                 if eaten_food.contains(&food_entity) {
@@ -945,6 +1009,7 @@ fn action_system(
                         credit_clamped(&mut energy, gained, config.max_organism_energy) as f64;
                     ledger.tick.food += gained as f64;
                     eaten_food.push(food_entity);
+                    ate_food.0.insert(entity);
                     flash.action = ActionType::Eating;
                     flash.timer = 0.3;
                     break;
@@ -958,21 +1023,21 @@ fn action_system(
     }
 }
 
-/// A neighbour that passed every predation gate for one attacker this tick.
+/// A neighbour that passed every gate for one attacker (or eater) this tick.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct StrikeCandidate {
     entity: Entity,
     /// Distance from the attacker.
     dist: f32,
-    /// A photosynthesiser: the strike is a graze rather than a kill.
+    /// A photosynthesiser: a kill of it is digested as plant tissue.
     is_plant: bool,
     /// The target's energy when it was gated.
     energy: f32,
 }
 
-/// The candidate an attacker strikes: the nearest one. Plants and non-plants
-/// compete on distance alone; the caller decides what the strike means. Ties
-/// go to the earlier candidate, so list order only matters between equals.
+/// The candidate an attacker strikes, or an eater bites: the nearest one.
+/// Plants and non-plants compete on distance alone. Ties go to the earlier
+/// candidate, so list order only matters between equals.
 fn nearest_target(candidates: &[StrikeCandidate]) -> Option<&StrikeCandidate> {
     candidates
         .iter()
@@ -982,7 +1047,125 @@ fn nearest_target(candidates: &[StrikeCandidate]) -> Option<&StrikeCandidate> {
         })
 }
 
-/// Predation: organisms can attack and eat each other
+/// Grazing: the `eat` output bites the nearest living photosynthesiser
+/// within `bite_reach × body size`. The bite is `graze_bite` (the plant's
+/// energy times `bite_fraction` times the eater's mouth bonus); the plant
+/// loses it and keeps its health, and the eater keeps it times its
+/// `plant_efficiency`. No claw or size gate: the mouth is the grazer's tool.
+/// An eater that ate a food item in `action_system` this tick does not also
+/// bite, and a plant takes one bite per tick, first eater wins, the rule
+/// kills use. See DECISIONS.md, "Grazing through eat".
+///
+/// A system of its own, between action and predation, rather than a branch
+/// of `action_system`: biting reads other organisms' energy and genome,
+/// which `action_system`'s one mutable query cannot do while iterating.
+fn grazing_system(
+    spatial_hash: Res<SpatialHash>,
+    config: Res<SimConfig>,
+    ate_food: Res<AteFoodThisTick>,
+    mut organisms: Query<
+        (
+            Entity,
+            &Position,
+            &mut Energy,
+            &Health,
+            &mut ActionFlash,
+            &Genome,
+            &BodySize,
+            &BrainOutput,
+        ),
+        With<Organism>,
+    >,
+    mut predation_stats: ResMut<PredationStats>,
+    mut ledger: ResMut<EnergyLedger>,
+) {
+    // (eater, position, reach, mouth bonus, eater is a plant)
+    let eaters: Vec<(Entity, Vec2, f32, f32, bool)> = organisms
+        .iter()
+        .filter(|(e, _, _, _, _, _, _, output)| output.eat > 0.0 && !ate_food.0.contains(e))
+        .map(|(e, pos, _, _, _, genome, body_size, _)| {
+            (
+                e,
+                pos.0,
+                body_size.0 * config.bite_reach,
+                bite_mouth_bonus(genome, config.mouthless_bite_bonus),
+                genome.is_photosynthesiser(),
+            )
+        })
+        .collect();
+
+    // (eater, plant, bite)
+    let mut bites: Vec<(Entity, Entity, f32)> = Vec::new();
+    let mut claimed_plants: HashSet<Entity> = HashSet::new();
+    let mut candidates: Vec<StrikeCandidate> = Vec::new();
+
+    for (eater, pos, reach, bonus, eater_is_plant) in &eaters {
+        candidates.clear();
+        for target in spatial_hash.query_radius(*pos, *reach) {
+            if target == *eater || claimed_plants.contains(&target) {
+                continue;
+            }
+            let Ok((_, target_pos, target_energy, target_health, _, target_genome, _, _)) =
+                organisms.get(target)
+            else {
+                continue;
+            };
+            if target_health.0 <= 0.0 || !target_genome.is_photosynthesiser() {
+                continue;
+            }
+            // The hash was built before action_system moved everyone, so
+            // re-check the real distance, as the food reach does.
+            let dist = (target_pos.0 - *pos).length();
+            if dist >= *reach {
+                continue;
+            }
+            candidates.push(StrikeCandidate {
+                entity: target,
+                dist,
+                is_plant: true,
+                energy: target_energy.0,
+            });
+        }
+        if let Some(plant) = nearest_target(&candidates) {
+            bites.push((
+                *eater,
+                plant.entity,
+                graze_bite(plant.energy, config.bite_fraction, *bonus),
+            ));
+            claimed_plants.insert(plant.entity);
+            predation_stats.feeding.grazes_eat += 1;
+            if *eater_is_plant {
+                predation_stats.feeding.grazes_eat_by_plant += 1;
+            }
+        }
+    }
+
+    for (eater, plant, bite) in bites {
+        let Ok((_, _, _, _, _, eater_genome, _, _)) = organisms.get(eater) else {
+            continue;
+        };
+        let (kept, wasted) = digest(bite, eater_genome.plant_efficiency());
+        let Ok((_, _, mut plant_energy, _, _, _, _, _)) = organisms.get_mut(plant) else {
+            continue;
+        };
+        // The plant keeps its health and is not marked Killed. If the bite
+        // empties it, death_system reads that as any other energy loss.
+        plant_energy.0 -= bite;
+        if let Ok((_, _, mut eater_energy, _, mut eater_flash, _, _, _)) = organisms.get_mut(eater)
+        {
+            ledger.tick.clamp +=
+                credit_clamped(&mut eater_energy, kept, config.max_organism_energy) as f64;
+            ledger.tick.grazing += kept as f64;
+            ledger.tick.digestion += wasted as f64;
+            eater_flash.action = ActionType::Grazing;
+            eater_flash.timer = 0.3;
+        }
+    }
+}
+
+/// Predation: organisms can attack and eat each other. Every strike is a
+/// kill attempt, plant or animal, under the same size and damage gates;
+/// grazing is `eat`'s job (`grazing_system`).
 fn predation_system(
     spatial_hash: Res<SpatialHash>,
     config: Res<SimConfig>,
@@ -1004,32 +1187,28 @@ fn predation_system(
     mut ledger: ResMut<EnergyLedger>,
 ) {
     // Collect attack intents
-    let attackers: Vec<(Entity, Vec2, f32, f32, f32, f32)> = organisms
+    let attackers: Vec<(Entity, Vec2, f32, f32, f32)> = organisms
         .iter()
         .filter(|(_, _, _, _, _, _, _, output)| output.attack > 0.5)
         .map(|(e, pos, _, _, _, genome, body_size, _)| {
             let attack_str = genome.claw_power() * body_size.0;
             let attack_range = body_size.0 * 4.0;
-            (e, pos.0, attack_str, attack_range, body_size.0, genome.diet)
+            (e, pos.0, attack_str, attack_range, body_size.0)
         })
         .collect();
     predation_stats.attacks_attempted += attackers.len() as u64;
 
-    // (killer, victim, victim_energy) — energy transfer computed at kill time.
-    // A victim is claimed at most once per tick: the first attacker to land a
-    // kill takes the energy transfer, and later attackers skip that target and
-    // keep scanning. Without this, several attackers could each be paid 10% of
-    // the same victim's energy and each count a kill. See DECISIONS.md.
-    let mut kills: Vec<(Entity, Entity, f32)> = Vec::new();
-    // (grazer, plant, bite) — an attack on a photosynthesiser is a graze. The
-    // same claim rule applies, so a plant takes one bite per tick.
-    let mut grazes: Vec<(Entity, Entity, f32)> = Vec::new();
+    // (killer, victim, victim_energy, victim_is_plant) — energy transfer
+    // computed at kill time. A victim is claimed at most once per tick: the
+    // first attacker to land a kill takes the energy transfer, and later
+    // attackers skip that target and keep scanning. Without this, several
+    // attackers could each be paid 10% of the same victim's energy and each
+    // count a kill. See DECISIONS.md.
+    let mut kills: Vec<(Entity, Entity, f32, bool)> = Vec::new();
     let mut claimed_victims: HashSet<Entity> = HashSet::new();
     let mut candidates: Vec<StrikeCandidate> = Vec::new();
 
-    for (attacker_entity, attacker_pos, attack_str, attack_range, attacker_size, attacker_diet) in
-        &attackers
-    {
+    for (attacker_entity, attacker_pos, attack_str, attack_range, attacker_size) in &attackers {
         let nearby = spatial_hash.query_radius(*attacker_pos, *attack_range);
         candidates.clear();
         // Instrument only: whether any living plant was within reach,
@@ -1072,9 +1251,8 @@ fn predation_system(
 
                 let defense = target_genome.armor_value() * target_body_size.0;
                 let damage = (attack_str - defense * 0.5).max(0.0);
-                // A graze passes only the damage gate: a small grazer can bite
-                // a large plant, and plant armour still defends against it.
-                let size_ok = is_plant || *attacker_size > target_body_size.0 * 0.6;
+                // A plant is prey like any other: the size gate applies.
+                let size_ok = *attacker_size > target_body_size.0 * 0.6;
                 let damage_ok = damage > 0.1;
 
                 if !size_ok {
@@ -1097,63 +1275,45 @@ fn predation_system(
 
         // The neighbour list is in hash bucket order, not distance order, so
         // the first passing neighbour is an arbitrary one. The attacker
-        // strikes the nearest: a grazer heading for a plant bites the plant,
-        // not a consumer that happens to sort first. See DECISIONS.md.
+        // strikes the nearest. See DECISIONS.md.
         if !plant_in_reach {
             predation_stats.feeding.attacks_no_plant_in_reach += 1;
         }
         if let Some(target) = nearest_target(&candidates) {
-            if target.is_plant {
-                let bite = target.energy.max(0.0) * config.bite_fraction;
-                grazes.push((*attacker_entity, target.entity, bite));
-            } else {
-                kills.push((*attacker_entity, target.entity, target.energy));
-                predation_stats
-                    .feeding
-                    .record_kill(*attacker_diet, target.is_plant);
-            }
+            kills.push((
+                *attacker_entity,
+                target.entity,
+                target.energy,
+                target.is_plant,
+            ));
             claimed_victims.insert(target.entity);
         }
     }
 
     predation_stats.kills += kills.len() as u64;
-    predation_stats.feeding.grazes_attack += grazes.len() as u64;
 
-    for (grazer, plant, bite) in grazes {
-        let Ok((_, _, _, _, _, grazer_genome, _, _)) = organisms.get(grazer) else {
-            continue;
-        };
-        let (kept, wasted) = digest(bite, grazer_genome.plant_efficiency());
-        let Ok((_, _, mut plant_energy, _, _, _, _, _)) = organisms.get_mut(plant) else {
-            continue;
-        };
-        // The bite leaves the plant whole or not; the plant keeps its health
-        // and is not marked Killed. If the bite empties it, death_system
-        // reads that as any other energy loss.
-        plant_energy.0 -= bite;
-        if let Ok((_, _, mut grazer_energy, _, mut grazer_flash, _, _, _)) =
-            organisms.get_mut(grazer)
-        {
-            ledger.tick.clamp +=
-                credit_clamped(&mut grazer_energy, kept, config.max_organism_energy) as f64;
-            ledger.tick.grazing += kept as f64;
-            ledger.tick.digestion += wasted as f64;
-            grazer_flash.action = ActionType::Grazing;
-            grazer_flash.timer = 0.3;
-        }
-    }
-
-    for (killer, victim, victim_energy_before) in kills {
+    for (killer, victim, victim_energy_before, victim_is_plant) in kills {
         let Ok((_, _, _, _, _, killer_genome, _, _)) = organisms.get(killer) else {
             continue;
         };
         // Energy pyramid: the killer is offered a fixed share of the prey's
-        // stored energy (most is lost as heat) and keeps what its diet lets
-        // it digest. The undigested share is booked to digestion and the
+        // stored energy (most is lost as heat) and keeps what it can digest
+        // of that tissue: plant at plant efficiency, animal at animal
+        // efficiency. The undigested share is booked to digestion and the
         // rest of the victim's energy to death.
         let (energy_gained, wasted) = digest(
             victim_energy_before * config.kill_transfer_fraction,
-            killer_genome.animal_efficiency() * config.animal_efficiency_multiplier,
+            kill_digestion_efficiency(
+                killer_genome,
+                victim_is_plant,
+                config.animal_efficiency_multiplier,
+            ),
+        );
+        predation_stats.feeding.record_kill(
+            killer_genome.diet,
+            killer_genome.is_photosynthesiser(),
+            victim_is_plant,
+            energy_gained,
         );
         if let Ok((_, _, mut killer_energy, _, mut killer_flash, _, _, _)) =
             organisms.get_mut(killer)
@@ -3117,10 +3277,10 @@ mod digestion_tests {
 
     #[test]
     fn bite_and_pyramid_shares_are_fractions_of_the_prey() {
-        // A bite is `bite_fraction` of what the plant holds, a kill offers
-        // `kill_transfer_fraction`; both are then digested.
+        // A bite is `bite_fraction` of what the plant holds (with a mouth),
+        // a kill offers `kill_transfer_fraction`; both are then digested.
         let plant_energy = 80.0;
-        let bite = plant_energy * SimConfig::default().bite_fraction;
+        let bite = graze_bite(plant_energy, SimConfig::default().bite_fraction, 1.0);
         let (kept, wasted) = digest(bite, 1.0);
         assert!((kept - bite).abs() < 1e-5 && wasted.abs() < 1e-5);
         assert!(bite > 0.0 && bite < plant_energy);
@@ -3426,5 +3586,393 @@ mod species_classification_tests {
         assert_eq!(newcomer.parent_id, Some(1));
         assert_eq!(newcomer.born_tick, 900);
         assert_eq!(newcomer.extinct_tick, None);
+    }
+}
+
+#[cfg(test)]
+mod grazing_tests {
+    use super::*;
+    use bevy::ecs::system::RunSystemOnce;
+    use clauvolution_genome::{BodySegmentGene, SegmentType, Symmetry};
+    use rand::{rngs::StdRng, SeedableRng};
+
+    /// A world holding what `grazing_system` and `predation_system` read.
+    /// Bite reach is set to 3 × body size so the geometry below does not
+    /// move with the shipped default.
+    fn feeding_world() -> World {
+        let mut world = World::new();
+        world.insert_resource(SimConfig {
+            bite_reach: 3.0,
+            ..SimConfig::default()
+        });
+        world.insert_resource(SpatialHash::new(32.0));
+        world.insert_resource(AteFoodThisTick::default());
+        world.insert_resource(PredationStats::default());
+        world.insert_resource(EnergyLedger::default());
+        world
+    }
+
+    fn segment(segment_type: SegmentType) -> BodySegmentGene {
+        BodySegmentGene {
+            segment_type,
+            size: 1.0,
+            attachment_angle: 0.0,
+            attachment_slot: 0,
+            symmetry: Symmetry::None,
+        }
+    }
+
+    /// A genome with only the parts under test: a torso, optionally a mouth
+    /// and a photo surface, the given diet and claw strength, no armour.
+    fn genome(plant: bool, mouth: bool, diet: f32, claws: f32) -> Genome {
+        let mut innovation = InnovationCounter(0);
+        let mut rng = StdRng::seed_from_u64(1);
+        let mut g = Genome::new_minimal(&mut innovation, &mut rng);
+        g.body_segments = vec![segment(SegmentType::Torso)];
+        if mouth {
+            g.body_segments.push(segment(SegmentType::Mouth));
+        }
+        if plant {
+            g.body_segments.push(segment(SegmentType::PhotoSurface));
+        }
+        g.photosynthesis_rate = if plant { 0.5 } else { 0.0 };
+        g.diet = diet;
+        g.attack_power = claws;
+        g.armor = 0.0;
+        g
+    }
+
+    fn spawn(
+        world: &mut World,
+        pos: Vec2,
+        energy: f32,
+        genome: Genome,
+        size: f32,
+        output: BrainOutput,
+    ) -> Entity {
+        let entity = world
+            .spawn((
+                Organism,
+                Position(pos),
+                Energy(energy),
+                Health(1.0),
+                ActionFlash::default(),
+                genome,
+                BodySize(size),
+                output,
+            ))
+            .id();
+        world.resource_mut::<SpatialHash>().insert(entity, pos);
+        entity
+    }
+
+    fn eating() -> BrainOutput {
+        BrainOutput {
+            eat: 1.0,
+            ..Default::default()
+        }
+    }
+
+    fn attacking() -> BrainOutput {
+        BrainOutput {
+            attack: 1.0,
+            ..Default::default()
+        }
+    }
+
+    fn idle() -> BrainOutput {
+        BrainOutput::default()
+    }
+
+    fn energy(world: &World, e: Entity) -> f32 {
+        world.get::<Energy>(e).unwrap().0
+    }
+
+    #[test]
+    fn graze_bite_scales_by_fraction_and_mouth() {
+        assert!((graze_bite(80.0, 0.3, MOUTH_BONUS) - 24.0).abs() < 1e-5);
+        assert!((graze_bite(80.0, 0.3, MOUTHLESS_BONUS) - 7.2).abs() < 1e-5);
+        assert_eq!(graze_bite(-5.0, 0.3, MOUTH_BONUS), 0.0);
+    }
+
+    #[test]
+    fn mouth_bonus_reads_the_mouth_segment() {
+        assert_eq!(mouth_bonus(&genome(false, true, 0.0, 0.0)), MOUTH_BONUS);
+        assert_eq!(
+            mouth_bonus(&genome(false, false, 0.0, 0.0)),
+            MOUTHLESS_BONUS
+        );
+    }
+
+    /// Digestion follows the tissue: a plant kill at plant efficiency, an
+    /// animal kill at animal efficiency times the hunting multiplier.
+    #[test]
+    fn kills_are_digested_by_tissue() {
+        let herbivore = genome(false, true, -1.0, 1.0);
+        let carnivore = genome(false, true, 1.0, 1.0);
+        assert_eq!(kill_digestion_efficiency(&herbivore, true, 1.0), 1.0);
+        assert_eq!(kill_digestion_efficiency(&herbivore, false, 1.0), 0.0);
+        assert_eq!(kill_digestion_efficiency(&carnivore, true, 1.0), 0.0);
+        assert_eq!(kill_digestion_efficiency(&carnivore, false, 1.0), 1.0);
+        // Switching hunting off leaves plant kills alone.
+        assert_eq!(kill_digestion_efficiency(&herbivore, true, 0.0), 1.0);
+        assert_eq!(kill_digestion_efficiency(&carnivore, false, 0.0), 0.0);
+    }
+
+    /// `eat` bites the nearest living plant, with no claws: the plant loses
+    /// the bite and lives, the eater keeps it at its plant efficiency.
+    #[test]
+    fn eat_bites_the_nearest_plant() {
+        let mut world = feeding_world();
+        let eater = spawn(
+            &mut world,
+            Vec2::new(10.0, 10.0),
+            50.0,
+            genome(false, true, -1.0, 0.0),
+            1.0,
+            eating(),
+        );
+        let far = spawn(
+            &mut world,
+            Vec2::new(12.0, 10.0),
+            100.0,
+            genome(true, false, 0.0, 0.0),
+            1.0,
+            idle(),
+        );
+        let near = spawn(
+            &mut world,
+            Vec2::new(11.0, 10.0),
+            80.0,
+            genome(true, false, 0.0, 0.0),
+            1.0,
+            idle(),
+        );
+
+        world.run_system_once(grazing_system).unwrap();
+
+        assert!((energy(&world, near) - 56.0).abs() < 1e-4);
+        assert_eq!(energy(&world, far), 100.0);
+        assert!((energy(&world, eater) - 74.0).abs() < 1e-4);
+        assert_eq!(world.get::<Health>(near).unwrap().0, 1.0);
+        assert!(world.get::<ActionFlash>(eater).unwrap().action == ActionType::Grazing);
+        let stats = world.resource::<PredationStats>();
+        assert_eq!(stats.feeding.grazes_eat, 1);
+        assert_eq!(stats.feeding.grazes_eat_by_plant, 0);
+        assert_eq!(stats.feeding.grazes_attack, 0);
+        let ledger = world.resource::<EnergyLedger>();
+        assert!((ledger.tick.grazing - 24.0).abs() < 1e-4);
+        assert!(ledger.tick.digestion.abs() < 1e-6);
+    }
+
+    /// Without a mouth the bite is smaller, and a generalist keeps a quarter
+    /// of it; the plant loses the bite and the rest is digestion loss.
+    #[test]
+    fn a_mouthless_generalist_takes_a_small_bite_and_keeps_a_quarter() {
+        let mut world = feeding_world();
+        let eater = spawn(
+            &mut world,
+            Vec2::new(10.0, 10.0),
+            50.0,
+            genome(false, false, 0.0, 0.0),
+            1.0,
+            eating(),
+        );
+        let plant = spawn(
+            &mut world,
+            Vec2::new(11.0, 10.0),
+            80.0,
+            genome(true, false, 0.0, 0.0),
+            1.0,
+            idle(),
+        );
+
+        world.run_system_once(grazing_system).unwrap();
+
+        assert!((energy(&world, plant) - 72.8).abs() < 1e-4);
+        assert!((energy(&world, eater) - 51.8).abs() < 1e-4);
+        let ledger = world.resource::<EnergyLedger>();
+        assert!((ledger.tick.grazing - 1.8).abs() < 1e-4);
+        assert!((ledger.tick.digestion - 5.4).abs() < 1e-4);
+    }
+
+    /// A plant takes one bite per tick; the eater that loses the race bites
+    /// the next plant it can reach instead.
+    #[test]
+    fn a_plant_takes_one_bite_per_tick() {
+        let mut world = feeding_world();
+        let a = spawn(
+            &mut world,
+            Vec2::new(10.0, 10.0),
+            50.0,
+            genome(false, true, -1.0, 0.0),
+            1.0,
+            eating(),
+        );
+        let b = spawn(
+            &mut world,
+            Vec2::new(10.0, 10.5),
+            50.0,
+            genome(false, true, -1.0, 0.0),
+            1.0,
+            eating(),
+        );
+        let shared = spawn(
+            &mut world,
+            Vec2::new(11.0, 10.0),
+            100.0,
+            genome(true, false, 0.0, 0.0),
+            1.0,
+            idle(),
+        );
+        let second = spawn(
+            &mut world,
+            Vec2::new(12.0, 10.5),
+            100.0,
+            genome(true, false, 0.0, 0.0),
+            1.0,
+            idle(),
+        );
+
+        world.run_system_once(grazing_system).unwrap();
+
+        assert!((energy(&world, shared) - 70.0).abs() < 1e-4);
+        assert!((energy(&world, second) - 70.0).abs() < 1e-4);
+        assert!((energy(&world, a) - 80.0).abs() < 1e-4);
+        assert!((energy(&world, b) - 80.0).abs() < 1e-4);
+        assert_eq!(world.resource::<PredationStats>().feeding.grazes_eat, 2);
+    }
+
+    /// No bite out of reach, of a consumer, without the eat output, or when
+    /// the eater already had a food item this tick.
+    #[test]
+    fn no_bite_without_a_plant_in_reach_or_after_a_food_item() {
+        let mut world = feeding_world();
+        // Reach is 3 × body size: 3.5 away is out of it.
+        let out_of_reach = spawn(
+            &mut world,
+            Vec2::new(10.0, 10.0),
+            50.0,
+            genome(false, true, -1.0, 0.0),
+            1.0,
+            eating(),
+        );
+        let far_plant = spawn(
+            &mut world,
+            Vec2::new(13.5, 10.0),
+            100.0,
+            genome(true, false, 0.0, 0.0),
+            1.0,
+            idle(),
+        );
+        // A consumer next to another consumer bites nothing.
+        let beside_consumer = spawn(
+            &mut world,
+            Vec2::new(100.0, 100.0),
+            50.0,
+            genome(false, true, -1.0, 0.0),
+            1.0,
+            eating(),
+        );
+        let consumer = spawn(
+            &mut world,
+            Vec2::new(101.0, 100.0),
+            50.0,
+            genome(false, true, 0.0, 0.0),
+            1.0,
+            idle(),
+        );
+        // An idle organism and one fed on a food item leave the plant alone.
+        let not_eating = spawn(
+            &mut world,
+            Vec2::new(200.0, 200.0),
+            50.0,
+            genome(false, true, -1.0, 0.0),
+            1.0,
+            idle(),
+        );
+        let fed = spawn(
+            &mut world,
+            Vec2::new(200.0, 201.0),
+            50.0,
+            genome(false, true, -1.0, 0.0),
+            1.0,
+            eating(),
+        );
+        let plant = spawn(
+            &mut world,
+            Vec2::new(201.0, 200.0),
+            100.0,
+            genome(true, false, 0.0, 0.0),
+            1.0,
+            idle(),
+        );
+        world.resource_mut::<AteFoodThisTick>().0.insert(fed);
+
+        world.run_system_once(grazing_system).unwrap();
+
+        for e in [out_of_reach, beside_consumer, consumer, not_eating, fed] {
+            assert_eq!(energy(&world, e), 50.0);
+        }
+        assert_eq!(energy(&world, far_plant), 100.0);
+        assert_eq!(energy(&world, plant), 100.0);
+        assert_eq!(world.resource::<PredationStats>().feeding.grazes_eat, 0);
+    }
+
+    /// An attack on a plant is a kill attempt: it must pass the size gate,
+    /// and a kill is digested as plant tissue.
+    #[test]
+    fn attacking_a_plant_is_a_kill_attempt() {
+        let mut world = feeding_world();
+        let small = spawn(
+            &mut world,
+            Vec2::new(10.0, 10.0),
+            50.0,
+            genome(false, false, -1.0, 2.0),
+            0.5,
+            attacking(),
+        );
+        let big_plant = spawn(
+            &mut world,
+            Vec2::new(11.0, 10.0),
+            100.0,
+            genome(true, false, 0.0, 0.0),
+            1.0,
+            idle(),
+        );
+        let killer = spawn(
+            &mut world,
+            Vec2::new(100.0, 100.0),
+            50.0,
+            genome(false, false, -1.0, 1.0),
+            1.0,
+            attacking(),
+        );
+        let plant = spawn(
+            &mut world,
+            Vec2::new(101.0, 100.0),
+            80.0,
+            genome(true, false, 0.0, 0.0),
+            1.0,
+            idle(),
+        );
+
+        world.run_system_once(predation_system).unwrap();
+
+        // Size gate: 0.5 is not above 0.6 of 1.0.
+        assert_eq!(energy(&world, big_plant), 100.0);
+        assert_eq!(energy(&world, small), 50.0);
+        assert!(world.get::<Killed>(big_plant).is_none());
+        // The kill: a tenth of the plant, digested at plant efficiency 1.0.
+        assert!(world.get::<Killed>(plant).is_some());
+        assert_eq!(energy(&world, plant), 0.0);
+        assert!((energy(&world, killer) - 58.0).abs() < 1e-4);
+        let stats = world.resource::<PredationStats>();
+        assert_eq!(stats.kills, 1);
+        assert_eq!(stats.rejected_size_gate, 1);
+        assert_eq!(stats.feeding.kills_plant, 1);
+        assert_eq!(stats.feeding.kills_plant_by_consumer, 1);
+        assert!((stats.feeding.plant_kill_energy_consumer - 8.0).abs() < 1e-4);
+        assert_eq!(stats.feeding.grazes_attack, 0);
     }
 }

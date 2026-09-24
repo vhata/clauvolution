@@ -721,7 +721,8 @@ fn dump_history_csv(
          flow_reproduction_received,flow_death,flow_clamp,flow_digestion,\
          ledger_max_residual,ledger_cumulative_residual,\
          grazes_eat,grazes_attack,kills_consumer,kills_plant,grazer_kills,grazer_kills_consumer,\
-         attacks_no_plant_in_reach"
+         attacks_no_plant_in_reach,grazes_eat_by_plant,kills_plant_by_consumer,\
+         plant_kill_energy_consumer"
     )?;
     for s in &history.snapshots {
         let fl = &s.energy_flows;
@@ -729,7 +730,7 @@ fn dump_history_csv(
             f,
             "{},{:.1},{},{},{},{},{},{},{},{},{:.2},{:.3},{:.3},{:.3},{:.3},{:.3},{:+.3},{:.3},{:.4},{:.4},{:.3},{:.3},{:.3},{:.3},{:.3},{},{},{},{},{},{},\
              {:.2},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.6},{:.6},\
-             {},{},{},{},{},{},{}",
+             {},{},{},{},{},{},{},{},{},{:.3}",
             s.tick,
             s.tick as f64 / 30.0,
             s.organisms,
@@ -784,6 +785,9 @@ fn dump_history_csv(
             s.feeding.grazer_kills,
             s.feeding.grazer_kills_consumer,
             s.feeding.attacks_no_plant_in_reach,
+            s.feeding.grazes_eat_by_plant,
+            s.feeding.kills_plant_by_consumer,
+            s.feeding.plant_kill_energy_consumer,
         )?;
     }
     Ok(())
@@ -814,6 +818,8 @@ fn set_headless_speed(speed: Res<HeadlessSpeed>, mut sim_speed: ResMut<SimSpeed>
 struct ConfigOverrides {
     species_threshold: Option<f32>,
     bite_fraction: Option<f32>,
+    bite_reach: Option<f32>,
+    mouthless_bite: Option<f32>,
     kill_transfer: Option<f32>,
     photo_drag: Option<f32>,
     leaf_capacity: Option<f32>,
@@ -835,6 +841,8 @@ impl ConfigOverrides {
         Self {
             species_threshold: flag(args, "--species-threshold"),
             bite_fraction: flag(args, "--bite-fraction"),
+            bite_reach: flag(args, "--bite-reach"),
+            mouthless_bite: flag(args, "--mouthless-bite"),
             kill_transfer: flag(args, "--kill-transfer"),
             photo_drag: flag(args, "--photo-drag"),
             leaf_capacity: flag(args, "--leaf-capacity"),
@@ -863,6 +871,12 @@ fn apply_config_overrides(overrides: Res<ConfigOverrides>, mut config: ResMut<Si
         &mut config.bite_fraction,
         overrides.bite_fraction,
         "bite_fraction",
+    );
+    set(&mut config.bite_reach, overrides.bite_reach, "bite_reach");
+    set(
+        &mut config.mouthless_bite_bonus,
+        overrides.mouthless_bite,
+        "mouthless_bite_bonus",
     );
     set(
         &mut config.kill_transfer_fraction,
@@ -1031,6 +1045,10 @@ fn print_headless_summary(
         "    by grazers (diet < 0):       {} ({} of consumers)",
         feeding.grazer_kills, feeding.grazer_kills_consumer
     );
+    eprintln!(
+        "    plants killed by consumers:  {} (kept {:.1} energy)",
+        feeding.kills_plant_by_consumer, feeding.plant_kill_energy_consumer
+    );
     eprintln!("  by Old age:            {}", stats.deaths_by_cause[2]);
     eprintln!("  by Disease:            {}", stats.deaths_by_cause[3]);
     eprintln!("  by Event:              {}", stats.deaths_by_cause[4]);
@@ -1089,6 +1107,10 @@ fn print_headless_summary(
     eprintln!(
         "  Grazes (eat/attack): {} / {}",
         predation.feeding.grazes_eat, predation.feeding.grazes_attack
+    );
+    eprintln!(
+        "    eat bites by plants: {}",
+        predation.feeding.grazes_eat_by_plant
     );
     eprintln!();
     // Cumulative flows are magnitudes; the sign column says which way each

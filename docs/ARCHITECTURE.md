@@ -44,8 +44,9 @@ food_regeneration_system      ← spawn food toward the seasonal density ceiling
 update_spatial_hash           ← rebuild the spatial hash from every organism Position; food is not indexed (defined in world, scheduled here)
 update_food_snapshot          ← collect (entity, position, energy) of all food into FoodSnapshot
 sensing_and_brain_system      ← for each organism: gather inputs, evaluate brain, write outputs (par_iter_mut)
-action_system                 ← execute brain outputs (move, eat, signal, update memory)
-predation_system              ← attack intents → damage → kills (energy pyramid: 10%); victim gets `Killed(Predation)`
+action_system                 ← execute brain outputs (move, eat food items, signal, update memory)
+grazing_system                ← `eat` bites the nearest living plant in reach (skipping anyone fed on a food item this tick); one bite per plant per tick
+predation_system              ← attack intents → size and damage gates → kills of plants or animals (energy pyramid: 10%, digested by tissue); victim gets `Killed(Predation)`
 photosynthesis_system         ← sun energy for plants, factoring plant density competition (second pass par_iter_mut)
 niche_construction_system     ← organisms modify the tiles they occupy
 disease_transmission_system   ← background infections + proximity spread
@@ -83,7 +84,7 @@ update_minimap                ← repaint the minimap image every 0.5s
 - **World mutations go through an event only when the request originates outside the tick.** `WorldEventRequest` is the sim's only Bevy event, and it exists for mutations the simulation did not decide on itself: a hotkey (`keyboard_to_events_system`), a UI button (`clauvolution_ui`), or the run's driver (the headless runner sends `Save` at the end of a `--save-as` run). Its emitters and both consumers (`mass_extinction_input_system`, `save_system`) run in `Update`, so a request lands between ticks and never inside the `SimTick` chain. Everything the simulation causes on its own writes state directly with `Commands` and `ResMut` from inside `FixedUpdate`: `food_regeneration_system` spawns food, `action_system` despawns eaten food, `reproduction_system` spawns children, `death_system` despawns the dead and spawns their `DeathMarker`, `niche_construction_system` edits tiles. Startup and save-load (`spawn_initial_population`, `spawn_initial_food`, `spawn_saved_*`) also spawn directly; they run once, outside the tick, but are still not requests. Adding a new externally triggered effect (a scheduled catastrophe, a REST endpoint) means adding a `WorldEventRequest` variant and another emitter, not another consumer. Adding a new emergent dynamic means a system in the `SimTick` chain that mutates directly; do not route it through the event. The tradeoff behind the single channel is in "Unified event bus" in `DECISIONS.md`.
 - **Shared mesh handles.** `SharedMeshes` resource holds one circle/food-circle/material handles reused across 2000+ organisms instead of creating unique meshes.
 - **Per-organism scratch for parallel systems.** `photosynthesis_system` and `metabolism_system` run under `par_iter_mut` and cannot write the shared `EnergyLedger` resource, so each organism carries an `EnergyFlows` component that the owning iteration writes; `ledger_system` sums and zeroes those records serially. Serial systems write the resource directly. The same rule applies to any future parallel system that moves energy.
-- **Spatial hash for neighbour queries.** Rebuilt once per fixed tick at the head of the `FixedUpdate` chain, used by sensing, predation, disease transmission, symbiosis tracking and mate search. The readers re-check real distance after the lookup, so entities that moved within the tick (after `action_system`) are missed rather than falsely matched.
+- **Spatial hash for neighbour queries.** Rebuilt once per fixed tick at the head of the `FixedUpdate` chain, used by sensing, grazing, predation, disease transmission, symbiosis tracking and mate search. The readers re-check real distance after the lookup, so entities that moved within the tick (after `action_system`) are missed rather than falsely matched.
 - **try_despawn everywhere.** `commands.entity(e).try_despawn()` and `.try_despawn_recursive()` avoid B0003 errors when two systems both try to despawn the same entity in one frame.
 - **Frustum culling off-screen.** Organisms and food outside the camera viewport get `Visibility::Hidden` — GPU skips them. Margin-padded to prevent pop-in at edges.
 - **egui input gating.** `UiInputState` resource tracks whether egui is capturing mouse/keyboard; the camera and click-select systems skip their handlers when true, so scrolling a panel doesn't also zoom the world.
@@ -119,7 +120,7 @@ Genome (genetic code)
 Brain (runnable neural net)
   ↓ sensing_and_brain_system
 BrainOutput (per-tick decisions)
-  ↓ action_system + predation_system + ...
+  ↓ action_system + grazing_system + predation_system + ...
 World state updates (position, energy, health)
   ↓ render systems
 Pixels on screen
