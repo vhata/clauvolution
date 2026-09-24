@@ -1029,7 +1029,7 @@ fn sensing_and_brain_system(
             inputs[25] = nearest_eater_size_ratio.min(2.0) / 2.0;
         }
 
-        let (brain_out, trace) = brain.evaluate_trace(&inputs);
+        let brain_out = brain.evaluate_into(&inputs, &mut activations.values);
         output.move_x = brain_out[0];
         output.move_y = brain_out[1];
         output.eat = brain_out[2];
@@ -1037,7 +1037,6 @@ fn sensing_and_brain_system(
         output.attack = brain_out[4];
         output.signal = brain_out[5];
         output.memory_out = [brain_out[6], brain_out[7], brain_out[8]];
-        activations.values = trace;
     });
 }
 

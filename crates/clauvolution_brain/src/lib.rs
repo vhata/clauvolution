@@ -12,20 +12,44 @@ impl Plugin for BrainPlugin {
 
 /// A compiled neural network ready for evaluation.
 /// Built from the genome's neuron and connection genes.
+///
+/// Every neuron id the network mentions gets a slot, and evaluation runs
+/// over a flat `f32` array indexed by slot. Evaluation used to key a fresh
+/// `HashMap<u64, f32>` by neuron id on every call, which was most of its
+/// cost; the arithmetic is unchanged (same neurons in the same order, each
+/// sum starting from the bias and adding incoming connections in genome
+/// order), so the outputs are bit-identical. A slot that is never written
+/// reads 0.0, as a missing map entry did. See DECISIONS.md, "Brains
+/// evaluate over slots, not a map".
 #[derive(Component, Clone, Debug)]
 pub struct Brain {
-    /// Neuron IDs in topological order (inputs first, then hidden, then outputs)
-    eval_order: Vec<u64>,
-    /// Activation function per neuron
-    activations: HashMap<u64, ActivationFn>,
-    /// Bias per neuron
-    biases: HashMap<u64, f32>,
-    /// Connections grouped by target neuron: target -> [(source, weight)]
-    incoming: HashMap<u64, Vec<(u64, f32)>>,
+    /// Neuron id for each slot, in slot order.
+    slot_ids: Vec<u64>,
+    /// `(neuron id, slot)` sorted by id, for `activation`.
+    slot_by_id: Vec<(u64, u32)>,
+    /// The slot each entry of `input_ids` writes.
+    input_slots: Vec<u32>,
+    /// Non-input neurons in evaluation (topological) order.
+    steps: Vec<Step>,
+    /// Incoming `(source slot, weight)` pairs, grouped per step.
+    sources: Vec<(u32, f32)>,
+    /// The slot each entry of `output_ids` reads.
+    output_slots: Vec<u32>,
     /// Output neuron IDs in order
     output_ids: Vec<u64>,
     /// Input neuron IDs in order
     input_ids: Vec<u64>,
+}
+
+/// One non-input neuron's evaluation.
+#[derive(Clone, Debug)]
+struct Step {
+    slot: u32,
+    bias: f32,
+    activation: ActivationFn,
+    /// Range of `Brain::sources` feeding this neuron.
+    sources_start: u32,
+    sources_end: u32,
 }
 
 impl Brain {
@@ -63,11 +87,53 @@ impl Brain {
         input_ids.sort();
         output_ids.sort();
 
+        // Assign slots in first-mention order.
+        let mut slot_of: HashMap<u64, u32> = HashMap::new();
+        let mut slot_ids: Vec<u64> = Vec::new();
+        let mut slot = |id: u64| -> u32 {
+            *slot_of.entry(id).or_insert_with(|| {
+                slot_ids.push(id);
+                (slot_ids.len() - 1) as u32
+            })
+        };
+
+        let input_slots: Vec<u32> = input_ids.iter().map(|&id| slot(id)).collect();
+        let mut steps = Vec::new();
+        let mut sources = Vec::new();
+        for &id in &eval_order {
+            // Inputs are set directly, not evaluated.
+            if input_ids.contains(&id) {
+                continue;
+            }
+            let sources_start = sources.len() as u32;
+            if let Some(conns) = incoming.get(&id) {
+                for &(from_id, weight) in conns {
+                    sources.push((slot(from_id), weight));
+                }
+            }
+            steps.push(Step {
+                slot: slot(id),
+                bias: biases.get(&id).copied().unwrap_or(0.0),
+                activation: activations
+                    .get(&id)
+                    .copied()
+                    .unwrap_or(ActivationFn::Sigmoid),
+                sources_start,
+                sources_end: sources.len() as u32,
+            });
+        }
+        let output_slots: Vec<u32> = output_ids.iter().map(|&id| slot(id)).collect();
+
+        let mut slot_by_id: Vec<(u64, u32)> = slot_of.into_iter().collect();
+        slot_by_id.sort_unstable();
+
         Brain {
-            eval_order,
-            activations,
-            biases,
-            incoming,
+            slot_ids,
+            slot_by_id,
+            input_slots,
+            steps,
+            sources,
+            output_slots,
             output_ids,
             input_ids,
         }
@@ -75,61 +141,54 @@ impl Brain {
 
     /// Evaluate the network given input values. Returns output values.
     pub fn evaluate(&self, inputs: &[f32; NUM_INPUTS]) -> [f32; NUM_OUTPUTS] {
-        self.evaluate_trace(inputs).0
+        self.evaluate_into(inputs, &mut Vec::new())
     }
 
-    /// Evaluate and return both the outputs and the full per-neuron activation
-    /// map. The activation map is what the brain-activation heatmap renders —
-    /// every neuron ID → its last firing value.
-    pub fn evaluate_trace(
+    /// Evaluate and leave every neuron's value in `values`, indexed by slot.
+    /// The buffer is resized to fit and reused across calls, so a caller
+    /// that keeps it (as `BrainActivations` does) allocates once. The values
+    /// are what the brain-activation heatmap renders; read one with
+    /// `activation`.
+    pub fn evaluate_into(
         &self,
         inputs: &[f32; NUM_INPUTS],
-    ) -> ([f32; NUM_OUTPUTS], HashMap<u64, f32>) {
-        let mut values: HashMap<u64, f32> = HashMap::new();
+        values: &mut Vec<f32>,
+    ) -> [f32; NUM_OUTPUTS] {
+        values.clear();
+        values.resize(self.slot_ids.len(), 0.0);
 
-        // Set input values
-        for (i, &id) in self.input_ids.iter().enumerate() {
-            if i < inputs.len() {
-                values.insert(id, inputs[i]);
-            } else {
-                values.insert(id, 0.0);
-            }
+        for (i, &slot) in self.input_slots.iter().enumerate() {
+            values[slot as usize] = if i < inputs.len() { inputs[i] } else { 0.0 };
         }
 
-        // Evaluate in topological order
-        for &id in &self.eval_order {
-            // Skip inputs, they're already set
-            if self.input_ids.contains(&id) {
-                continue;
+        for step in &self.steps {
+            let mut sum = step.bias;
+            for &(from, weight) in
+                &self.sources[step.sources_start as usize..step.sources_end as usize]
+            {
+                sum += values[from as usize] * weight;
             }
-
-            let bias = self.biases.get(&id).copied().unwrap_or(0.0);
-            let mut sum = bias;
-
-            if let Some(conns) = self.incoming.get(&id) {
-                for &(from_id, weight) in conns {
-                    let from_val = values.get(&from_id).copied().unwrap_or(0.0);
-                    sum += from_val * weight;
-                }
-            }
-
-            let activation = self
-                .activations
-                .get(&id)
-                .copied()
-                .unwrap_or(ActivationFn::Sigmoid);
-            values.insert(id, activation.apply(sum));
+            values[step.slot as usize] = step.activation.apply(sum);
         }
 
-        // Collect outputs
         let mut outputs = [0.0f32; NUM_OUTPUTS];
-        for (i, &id) in self.output_ids.iter().enumerate() {
+        for (i, &slot) in self.output_slots.iter().enumerate() {
             if i < NUM_OUTPUTS {
-                outputs[i] = values.get(&id).copied().unwrap_or(0.0);
+                outputs[i] = values[slot as usize];
             }
         }
+        outputs
+    }
 
-        (outputs, values)
+    /// Neuron `id`'s value in a buffer `evaluate_into` filled for this
+    /// brain; 0.0 for an id the brain does not have or a buffer too short.
+    pub fn activation(&self, values: &[f32], id: u64) -> f32 {
+        self.slot_by_id
+            .binary_search_by_key(&id, |&(neuron, _)| neuron)
+            .ok()
+            .and_then(|i| values.get(self.slot_by_id[i].1 as usize))
+            .copied()
+            .unwrap_or(0.0)
     }
 
     /// Sorted input neuron IDs (used by UI to align labels with indices)
@@ -243,6 +302,132 @@ mod tests {
             genome.mutate(&mut innovation, &mut rng, 0.5, 0.5);
         }
         genome
+    }
+
+    /// The evaluator `Brain` replaced, kept verbatim as the reference: a
+    /// fresh `HashMap` keyed by neuron id on every call.
+    fn reference_evaluate(
+        genome: &Genome,
+        inputs: &[f32; NUM_INPUTS],
+    ) -> ([f32; NUM_OUTPUTS], HashMap<u64, f32>) {
+        let mut activations = HashMap::new();
+        let mut biases = HashMap::new();
+        let mut incoming: HashMap<u64, Vec<(u64, f32)>> = HashMap::new();
+        let mut input_ids = Vec::new();
+        let mut output_ids = Vec::new();
+        for neuron in &genome.neurons {
+            activations.insert(neuron.id, neuron.activation);
+            biases.insert(neuron.id, neuron.bias);
+            match neuron.neuron_type {
+                NeuronType::Input => input_ids.push(neuron.id),
+                NeuronType::Output => output_ids.push(neuron.id),
+                NeuronType::Hidden => {}
+            }
+        }
+        for conn in &genome.connections {
+            if conn.enabled {
+                incoming
+                    .entry(conn.to)
+                    .or_default()
+                    .push((conn.from, conn.weight));
+            }
+        }
+        let eval_order = topological_sort(&genome.neurons, &genome.connections);
+        input_ids.sort();
+        output_ids.sort();
+
+        let mut values: HashMap<u64, f32> = HashMap::new();
+        for (i, &id) in input_ids.iter().enumerate() {
+            if i < inputs.len() {
+                values.insert(id, inputs[i]);
+            } else {
+                values.insert(id, 0.0);
+            }
+        }
+        for &id in &eval_order {
+            if input_ids.contains(&id) {
+                continue;
+            }
+            let bias = biases.get(&id).copied().unwrap_or(0.0);
+            let mut sum = bias;
+            if let Some(conns) = incoming.get(&id) {
+                for &(from_id, weight) in conns {
+                    let from_val = values.get(&from_id).copied().unwrap_or(0.0);
+                    sum += from_val * weight;
+                }
+            }
+            let activation = activations
+                .get(&id)
+                .copied()
+                .unwrap_or(ActivationFn::Sigmoid);
+            values.insert(id, activation.apply(sum));
+        }
+        let mut outputs = [0.0f32; NUM_OUTPUTS];
+        for (i, &id) in output_ids.iter().enumerate() {
+            if i < NUM_OUTPUTS {
+                outputs[i] = values.get(&id).copied().unwrap_or(0.0);
+            }
+        }
+        (outputs, values)
+    }
+
+    #[test]
+    fn slot_evaluation_matches_the_map_evaluator_bit_for_bit() {
+        let mut innovation = InnovationCounter(0);
+        let mut rng = StdRng::seed_from_u64(7);
+        let mut values = Vec::new();
+        let mut with_hidden = 0;
+        for genome_index in 0..40 {
+            let mut genome = Genome::new_minimal(&mut innovation, &mut rng);
+            for _ in 0..(genome_index * 3) {
+                genome.mutate(&mut innovation, &mut rng, 0.5, 0.5);
+            }
+            if genome
+                .neurons
+                .iter()
+                .any(|n| n.neuron_type == NeuronType::Hidden)
+            {
+                with_hidden += 1;
+            }
+            // A connection from a neuron the genome does not list reads 0.
+            genome.connections.push(ConnectionGene {
+                innovation: innovation.next(),
+                from: 1_000_000,
+                to: NUM_INPUTS as u64,
+                weight: 1.5,
+                enabled: true,
+            });
+            let brain = Brain::from_genome(&genome);
+            for _ in 0..20 {
+                let mut inputs = [0.0f32; NUM_INPUTS];
+                for value in inputs.iter_mut() {
+                    *value = rng.gen_range(-2.0..2.0);
+                }
+                let (expected, trace) = reference_evaluate(&genome, &inputs);
+                let got = brain.evaluate_into(&inputs, &mut values);
+                assert_eq!(
+                    expected.map(f32::to_bits),
+                    got.map(f32::to_bits),
+                    "genome {genome_index}: outputs differ"
+                );
+                for neuron in &genome.neurons {
+                    let want = trace.get(&neuron.id).copied().unwrap_or(0.0);
+                    assert_eq!(
+                        want.to_bits(),
+                        brain.activation(&values, neuron.id).to_bits(),
+                        "genome {genome_index}: neuron {} activation differs",
+                        neuron.id
+                    );
+                }
+            }
+        }
+        assert!(
+            with_hidden > 20,
+            "the fixture should exercise hidden neurons, got {with_hidden} of 40"
+        );
+        let brain = Brain::from_genome(&Genome::new_minimal(&mut innovation, &mut rng));
+        assert_eq!(brain.activation(&values, u64::MAX), 0.0);
+        assert_eq!(brain.activation(&[], 0), 0.0);
     }
 
     #[test]
