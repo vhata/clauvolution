@@ -1450,13 +1450,14 @@ fn predation_system(
         let Ok((_, _, _, _, _, killer_genome, _, _)) = organisms.get(killer) else {
             continue;
         };
-        // Energy pyramid: the killer is offered a fixed share of the prey's
-        // stored energy (most is lost as heat) and keeps what it can digest
+        // Energy pyramid: the killer is offered a share of the prey's stored
+        // energy, set by the prey's tissue (`SimConfig::kill_share`; most is
+        // lost as heat), and keeps what it can digest
         // of that tissue: plant at plant efficiency, animal at animal
         // efficiency. The undigested share is booked to digestion and the
         // rest of the victim's energy to death.
         let (energy_gained, wasted) = digest(
-            victim_energy_before * config.kill_transfer_fraction,
+            victim_energy_before * config.kill_share(victim_is_plant),
             kill_digestion_efficiency(
                 killer_genome,
                 victim_is_plant,
@@ -1469,6 +1470,10 @@ fn predation_system(
             victim_is_plant,
             energy_gained,
         );
+        if victim_is_plant && classify_strategy(killer_genome) == SpeciesStrategy::Hunter {
+            predation_stats.hunter_plant_kills += 1;
+            predation_stats.hunter_plant_kill_energy += energy_gained as f64;
+        }
         if let Ok((_, _, mut killer_energy, _, mut killer_flash, _, _, _)) =
             organisms.get_mut(killer)
         {
@@ -2547,6 +2552,9 @@ fn record_population_history(
     let mut sum_light_share = 0.0f32;
     let mut ready_plants = 0u32;
     let mut ready_eaters = 0u32;
+    // Grazer traits for the headless summary's grazer timeline.
+    let mut sum_grazer_body = 0.0f32;
+    let mut sum_grazer_armor = 0.0f32;
 
     // For counting mutual symbiotic pairs we need to look each partner up.
     // Build a small map once, then walk the ones that claim a link.
@@ -2567,7 +2575,11 @@ fn record_population_history(
         }
         match strategy {
             SpeciesStrategy::Photosynthesizer => plants += 1,
-            SpeciesStrategy::Grazer => grazers += 1,
+            SpeciesStrategy::Grazer => {
+                grazers += 1;
+                sum_grazer_body += genome.body_size;
+                sum_grazer_armor += genome.armor_value();
+            }
             SpeciesStrategy::Hunter => hunters += 1,
             SpeciesStrategy::Omnivore => omnivores += 1,
         }
@@ -2646,6 +2658,8 @@ fn record_population_history(
             ready_share_eaters: ready_eaters as f32 / eaters.max(1) as f32,
             symbiotic_pairs,
             avg_symbiosis_rate: sum_symbiosis / div,
+            avg_grazer_body_size: sum_grazer_body / grazers.max(1) as f32,
+            avg_grazer_armor: sum_grazer_armor / grazers.max(1) as f32,
         },
     );
 }
@@ -3456,16 +3470,14 @@ mod digestion_tests {
     #[test]
     fn bite_and_pyramid_shares_are_fractions_of_the_prey() {
         // A bite is `bite_fraction` of what the plant holds (with a mouth),
-        // a kill offers `kill_transfer_fraction`; both are then digested.
+        // a kill offers `kill_share` of the victim's tissue; both are then
+        // digested.
         let plant_energy = 80.0;
         let bite = graze_bite(plant_energy, SimConfig::default().bite_fraction, 1.0);
         let (kept, wasted) = digest(bite, 1.0);
         assert!((kept - bite).abs() < 1e-5 && wasted.abs() < 1e-5);
         assert!(bite > 0.0 && bite < plant_energy);
-        let (kept, wasted) = digest(
-            plant_energy * SimConfig::default().kill_transfer_fraction,
-            0.25,
-        );
+        let (kept, wasted) = digest(plant_energy * SimConfig::default().kill_share(true), 0.25);
         assert!((kept - 2.0).abs() < 1e-5 && (wasted - 6.0).abs() < 1e-5);
     }
 }
