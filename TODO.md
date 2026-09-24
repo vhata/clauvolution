@@ -87,10 +87,10 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 
 ### P3 Low
 
-- [PERF] `sensing-per-organism-cost` — **Find what makes sensing the dominant tick cost once the eat scan is fixed.** With the `eat-scan-eaten-lookup` prototype applied, `sensing_and_brain_system` was 41.6 of 56.5 CPU seconds over 1000 ticks on seed 42 and about 71 ms of CPU per tick at the 6000-organism ceiling; brain evaluation itself is a small part of that.
+- [PERF] `sensing-per-organism-cost` — **Find what makes sensing the dominant tick cost once the eat scan is fixed.** With the eat-scan fix applied (it landed in #50), `sensing_and_brain_system` was 41.6 of 56.5 CPU seconds over 1000 ticks on seed 42 and about 71 ms of CPU per tick at the 6000-organism ceiling; brain evaluation itself is a small part of that.
   - Starting point: A `sample` profile of the prototype put the sensing closure's own time (the inlined nearest-food scan over the whole `FoodSnapshot` plus input assembly) at about 20% of busy samples, `all_org_data.get` lookups for neighbours at 19%, `memmove` at 15%, `SpatialHash::query_radius` at 11% and brain evaluation with its activation `HashMap` at about 7%. Candidates: bin food into a grid so the nearest-food scan visits nearby cells only (keep ties on the earlier snapshot entry so the run is unchanged), and cut the per-neighbour query lookups by copying what sensing needs into a snapshot, as `FoodSnapshot` does for food. The system is already parallel, so wall time gains depend on the worker count. Measure with the temporary per-system CPU timing described in the `todo/moisture-fix-tick-cost` pull request.
   - Source: todo/moisture-fix-tick-cost branch, 2026-09-23
-  - Related: `eat-scan-eaten-lookup`, `split-sensing-and-brain-system`, `batch-spatial-hash-queries`
+  - Related: `split-sensing-and-brain-system`, `batch-spatial-hash-queries`
 - [RENDER] `gpu-instanced-rendering` — **Draw all organisms in one instanced draw call.** Each organism currently gets its own `ColorMaterial`, so the draw call count scales with population.
   - Starting point: Pack per-instance data into a single buffer. A feature bitmask per instance lets the shader scale absent parts to zero, which removes entity churn on LOD changes. Prove the bitmask approach on a subset before converting the renderer.
   - Source: docs/ROADMAP.md (Backlog), 2026-09-16
@@ -108,11 +108,6 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 
 ### P1 High
 
-- [PERF] `eat-scan-eaten-lookup` — **Stop the food-eating loop in `action_system` rescanning the eaten list.** The eat branch walks the whole `FoodSnapshot` for every organism whose `eat` output fires and calls `eaten_food.contains()` (a linear scan of this tick's eaten items) on every food item, so its cost is eaters × food × eaten; it was 46 of 101 CPU seconds in a 1000-tick seed 42 run and about 85% of each tick during the opening burst.
-  - Starting point: Keep `eaten_food` for the despawn order and add a `Vec<bool>` indexed by snapshot position (`vec![false; foods.len()]`), set when an item is eaten and checked instead of `contains`; iterate with `enumerate()`. Which food an organism eats (the first uneaten item in snapshot order within `body_size × 3.0`) is unchanged. Prototyped on `todo/moisture-fix-tick-cost` and discarded because `action_system` was being rewritten for grazing through `eat`: same-seed `--dump-history` CSVs byte-identical over 1000 ticks, action CPU 46.3 s to 2.8 s, whole-run CPU 101 s to 56 s, instructions retired 1379G to 654G. Land it with or right after step 2 of `plans/2026-09-21-pyramid-top.md`, which rewrites the eat branch; if that step adds a per-tick claimed-plant list, give it the same indexed lookup. Prove neutrality with identical same-seed CSVs.
-  - Source: todo/moisture-fix-tick-cost branch, 2026-09-23
-  - Remaining from: `moisture-fix-tick-cost`
-  - Related: `sensing-per-organism-cost`
 
 ### P2 Normal
 
