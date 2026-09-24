@@ -1,6 +1,6 @@
 # Plan: the top of the pyramid, so that attack means attack and a hunter can live
 
-**Status:** planned 2026-09-21. Not started.
+**Status:** done 2026-09-24. All six steps ran; no hunter level formed. Outcome in `docs/design/simulation-rules.md` ("Pyramid-top outcome" under "Phase 1 outcome") and `docs/audits/2026-09-24-pyramid-step6/`; the remaining work is `hunter-emergence` in `TODO.md`.
 **Scope:** the two design questions phase 1 left open, `graze-attack-output-split` and `hunter-emergence` in `TODO.md`, taken in that order because the second cannot be measured while the first is confounding it. Not phase 2 of `docs/design/simulation-rules.md`; see "Decisions taken while planning" for the one phase 2 question settled here so it stops gating.
 
 ## Why
