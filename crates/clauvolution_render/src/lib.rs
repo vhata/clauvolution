@@ -600,17 +600,14 @@ fn sync_food_transforms(
 #[derive(Component)]
 pub struct DeathMarkerSprite;
 
-/// Spawn visuals for new death markers, fade and despawn existing ones
+/// Spawn visuals for new death markers and animate existing ones. The sim's
+/// `death_marker_expiry_system` counts the timer down and despawns them.
 fn update_death_markers(
     mut commands: Commands,
-    time: Res<Time>,
     shared_meshes: Res<SharedMeshes>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     new_markers: Query<(Entity, &Position, &DeathMarker), Without<DeathMarkerSprite>>,
-    mut existing_markers: Query<
-        (Entity, &mut DeathMarker, &mut Transform),
-        With<DeathMarkerSprite>,
-    >,
+    mut existing_markers: Query<(&DeathMarker, &mut Transform), With<DeathMarkerSprite>>,
 ) {
     let Some(mesh) = &shared_meshes.circle else {
         return;
@@ -632,16 +629,9 @@ fn update_death_markers(
         ));
     }
 
-    // Fade and despawn existing markers
-    let dt = time.delta_secs();
-    for (entity, mut marker, mut transform) in &mut existing_markers {
-        marker.timer -= dt;
-        if marker.timer <= 0.0 {
-            commands.entity(entity).try_despawn();
-            continue;
-        }
-        // Expand and fade out
-        let progress = 1.0 - marker.timer / 0.5;
+    // Expand existing markers as their timer runs down
+    for (marker, mut transform) in &mut existing_markers {
+        let progress = 1.0 - marker.timer / DEATH_MARKER_SECS;
         transform.scale = Vec3::splat(2.0 + progress * 3.0);
     }
 }

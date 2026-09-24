@@ -358,6 +358,7 @@ impl Plugin for SimPlugin {
                     symbiosis_tracking_system,
                     symbiosis_transfer_system,
                     metabolism_system,
+                    death_marker_expiry_system,
                     death_system,
                     reproduction_system,
                     ledger_system,
@@ -603,7 +604,7 @@ fn mass_extinction_input_system(
             if rng.gen::<f32>() < 0.7 {
                 commands.spawn((
                     DeathMarker {
-                        timer: 0.5,
+                        timer: DEATH_MARKER_SECS,
                         was_predated: false,
                     },
                     Position(pos.0),
@@ -655,7 +656,7 @@ fn mass_extinction_input_system(
             if dist < radius {
                 commands.spawn((
                     DeathMarker {
-                        timer: 0.5,
+                        timer: DEATH_MARKER_SECS,
                         was_predated: false,
                     },
                     Position(pos.0),
@@ -1918,6 +1919,25 @@ fn metabolism_system(
     );
 }
 
+/// Count every `DeathMarker` down by one fixed timestep and despawn the
+/// expired ones. Runs in the sim so headless runs, which have no render
+/// crate, do not accumulate a marker per death for the rest of the run.
+/// Scheduled before `death_system`, so a marker spawned this tick is first
+/// aged on the next one and lives `DEATH_MARKER_SECS` of virtual time.
+fn death_marker_expiry_system(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut markers: Query<(Entity, &mut DeathMarker)>,
+) {
+    let dt = time.delta_secs();
+    for (entity, mut marker) in &mut markers {
+        marker.timer -= dt;
+        if marker.timer <= 0.0 {
+            commands.entity(entity).despawn();
+        }
+    }
+}
+
 fn death_system(
     mut commands: Commands,
     organisms: Query<
@@ -1967,7 +1987,7 @@ fn death_system(
             // Spawn death marker before despawning
             commands.spawn((
                 DeathMarker {
-                    timer: 0.5,
+                    timer: DEATH_MARKER_SECS,
                     was_predated: cause == DeathCause::Predation,
                 },
                 Position(pos.0),
@@ -4335,5 +4355,43 @@ mod grazing_tests {
         // no Age and read 0), so everything lands in the first age bucket.
         assert_eq!(stats.hunter_reach_ages[0], 4);
         assert_eq!(stats.hunter_intent_ages[0], 5);
+    }
+}
+
+#[cfg(test)]
+mod death_marker_tests {
+    use super::*;
+    use bevy::ecs::system::RunSystemOnce;
+
+    fn markers(world: &mut World) -> usize {
+        world.query::<&DeathMarker>().iter(world).count()
+    }
+
+    #[test]
+    fn markers_expire_after_their_lifetime_without_a_renderer() {
+        let mut world = World::new();
+        world.insert_resource(Time::<()>::default());
+        world.spawn((
+            DeathMarker {
+                timer: DEATH_MARKER_SECS,
+                was_predated: false,
+            },
+            Position(Vec2::ZERO),
+        ));
+        let step = std::time::Duration::from_secs_f64(1.0 / 30.0);
+        let lifetime_ticks = (DEATH_MARKER_SECS * 30.0).round() as usize;
+
+        for _ in 0..lifetime_ticks - 1 {
+            world.resource_mut::<Time>().advance_by(step);
+            world.run_system_once(death_marker_expiry_system).unwrap();
+        }
+        assert_eq!(markers(&mut world), 1, "marker expired early");
+
+        for _ in 0..2 {
+            world.resource_mut::<Time>().advance_by(step);
+            world.run_system_once(death_marker_expiry_system).unwrap();
+        }
+        assert_eq!(markers(&mut world), 0, "marker outlived its lifetime");
+        assert_eq!(world.entities().len(), 0);
     }
 }

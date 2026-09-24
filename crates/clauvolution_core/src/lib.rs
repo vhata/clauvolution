@@ -1152,9 +1152,16 @@ pub struct GroupSize(pub u32);
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Killed(pub DeathCause);
 
-/// Brief visual marker spawned where an organism dies
+/// Seconds of virtual time a `DeathMarker` lives before the sim despawns it.
+pub const DEATH_MARKER_SECS: f32 = 0.5;
+
+/// Brief visual marker spawned where an organism dies. The sim owns its
+/// lifetime (`death_marker_expiry_system` counts `timer` down each tick and
+/// despawns it at zero) so markers expire in headless runs too; the render
+/// crate only reads `timer` to animate the fade.
 #[derive(Component)]
 pub struct DeathMarker {
+    /// Seconds left before expiry, starting at `DEATH_MARKER_SECS`.
     pub timer: f32,
     pub was_predated: bool, // true = killed by predator, false = starvation/old age/disease/event
 }
