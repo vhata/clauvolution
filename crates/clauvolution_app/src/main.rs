@@ -1053,6 +1053,15 @@ fn headless_tick_counter(
 /// Ticks between rows of the headless summary's grazer timeline.
 const GRAZER_TIMELINE_STEP: u64 = 500;
 
+/// The first row boundary after `first_tick`, the first snapshot's tick. A
+/// run from tick 0 gets its first row at `GRAZER_TIMELINE_STEP`, as before.
+/// A run loaded from a save starts at the save's tick, so a fixed first
+/// boundary would already have passed and the first row would cover a single
+/// snapshot; this puts it at the next multiple of the step instead.
+fn first_timeline_boundary(first_tick: u64) -> u64 {
+    (first_tick / GRAZER_TIMELINE_STEP + 1) * GRAZER_TIMELINE_STEP
+}
+
 /// Grazer size, armour and eat grazing through the run, one row per
 /// `GRAZER_TIMELINE_STEP` ticks. Eat reach is `bite_reach × body size`, so
 /// the size column is also the grazers' mean reach in units of `bite_reach`.
@@ -1072,7 +1081,7 @@ fn print_grazer_timeline(
     eprintln!(
         "   tick  plants  grazers  hunters  grazer size  grazer armour  eat grazes  per grazer-s"
     );
-    let mut next = GRAZER_TIMELINE_STEP;
+    let mut next = first_timeline_boundary(history.snapshots[0].tick);
     let mut grazes = 0u64;
     let mut grazer_seconds = 0u64;
     let last = history.snapshots.len() - 1;
@@ -1309,6 +1318,16 @@ fn print_headless_summary(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn grazer_timeline_first_row_starts_from_the_first_snapshot() {
+        // A run from tick 0: the first row lands at the first step, as before.
+        assert_eq!(first_timeline_boundary(30), GRAZER_TIMELINE_STEP);
+        // A run loaded at tick 3010 must not treat 500 as its first boundary.
+        assert_eq!(first_timeline_boundary(3041), 3500);
+        // A first snapshot exactly on a boundary starts the next interval.
+        assert_eq!(first_timeline_boundary(1000), 1500);
+    }
 
     #[test]
     fn seed_with_accepts_repeats_and_several_paths_per_flag() {
