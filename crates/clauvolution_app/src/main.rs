@@ -738,7 +738,8 @@ fn dump_history_csv(
          attacks_no_plant_in_reach,grazes_eat_by_plant,kills_plant_by_consumer,\
          plant_kill_energy_consumer,\
          hunter_intents,hunter_strikes,hunter_consumer_in_reach,hunter_kills_consumer,\
-         hunter_rejected_size,hunter_rejected_damage,hunter_rejected_both"
+         hunter_rejected_size,hunter_rejected_damage,hunter_rejected_both,{}",
+        band_csv_header()
     )?;
     for s in &history.snapshots {
         let fl = &s.energy_flows;
@@ -746,7 +747,7 @@ fn dump_history_csv(
             f,
             "{},{:.1},{},{},{},{},{},{},{},{},{:.2},{:.3},{:.3},{:.3},{:.3},{:.3},{:+.3},{:.3},{:.4},{:.4},{:.3},{:.3},{:.3},{:.3},{:.3},{},{},{},{},{},{},\
              {:.2},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.6},{:.6},\
-             {},{},{},{},{},{},{},{},{},{:.3},{},{},{},{},{},{},{}",
+             {},{},{},{},{},{},{},{},{},{:.3},{},{},{},{},{},{},{},{}",
             s.tick,
             s.tick as f64 / 30.0,
             s.organisms,
@@ -811,9 +812,113 @@ fn dump_history_csv(
             s.feeding.hunter_gates.rejected_size,
             s.feeding.hunter_gates.rejected_damage,
             s.feeding.hunter_gates.rejected_both,
+            band_csv_row(s),
         )?;
     }
     Ok(())
+}
+
+/// Trailing history columns for the hunter-bridge instruments
+/// (`plans/2026-09-24-hunter-bridge.md`, step 1): omnivore gate outcomes,
+/// then per diet band (`DIET_BAND_KEYS`) organism-ticks, energy kept by
+/// source, costs paid, births, deaths by the main causes and the summed age
+/// at death, then the off-diagonal cells of the parent-to-child label
+/// matrix. Appended after every older column so that cutting them off
+/// leaves the history exactly as it was.
+fn band_csv_header() -> String {
+    let mut cols: Vec<String> = [
+        "omnivore_intents",
+        "omnivore_strikes",
+        "omnivore_consumer_in_reach",
+        "omnivore_kills_consumer",
+        "omnivore_rejected_size",
+        "omnivore_rejected_damage",
+        "omnivore_rejected_both",
+    ]
+    .iter()
+    .map(|c| c.to_string())
+    .collect();
+    for key in clauvolution_core::DIET_BAND_KEYS {
+        for field in [
+            "ticks",
+            "food",
+            "bites",
+            "kill_consumer",
+            "kill_plant",
+            "metabolism",
+            "movement",
+            "strike",
+            "births",
+            "deaths",
+            "deaths_starvation",
+            "deaths_predation",
+            "deaths_disease",
+            "death_age_sum",
+        ] {
+            cols.push(format!("{key}_{field}"));
+        }
+    }
+    let labels = clauvolution_core::STRATEGY_LABEL_KEYS;
+    for (from, from_key) in labels.iter().enumerate() {
+        for (to, to_key) in labels.iter().enumerate() {
+            if from != to {
+                cols.push(format!("cross_{from_key}_{to_key}"));
+            }
+        }
+    }
+    cols.join(",")
+}
+
+fn band_csv_row(s: &clauvolution_core::PopSnapshot) -> String {
+    use clauvolution_core::DeathCause;
+    let g = &s.feeding.omnivore_gates;
+    let mut cols: Vec<String> = [
+        g.intents,
+        g.strikes,
+        g.consumer_in_reach,
+        g.kills_consumer,
+        g.rejected_size,
+        g.rejected_damage,
+        g.rejected_both,
+    ]
+    .iter()
+    .map(|n| n.to_string())
+    .collect();
+    let b = &s.bands;
+    for band in 0..clauvolution_core::DIET_BAND_COUNT {
+        let e = &b.energy[band];
+        let d = &b.deaths[band];
+        cols.push(e.organism_ticks.to_string());
+        for v in [
+            e.food,
+            e.bite_energy,
+            e.consumer_kill_energy,
+            e.plant_kill_energy,
+            e.metabolism,
+            e.movement,
+            e.strike,
+        ] {
+            cols.push(format!("{v:.3}"));
+        }
+        cols.push(b.births[band].to_string());
+        cols.push(d.total().to_string());
+        for cause in [
+            DeathCause::Starvation,
+            DeathCause::Predation,
+            DeathCause::Disease,
+        ] {
+            cols.push(d.count[cause as usize].to_string());
+        }
+        cols.push(d.age_sum.iter().sum::<u64>().to_string());
+    }
+    for (from, row) in b.label_transitions.iter().enumerate() {
+        for (to, n) in row.iter().enumerate() {
+            if from != to {
+                cols.push(n.to_string());
+            }
+        }
+    }
+    cols.join(",")
 }
 
 #[derive(Resource)]
@@ -977,6 +1082,7 @@ fn headless_tick_counter(
     tick: Res<clauvolution_core::TickCounter>,
     stats: Res<clauvolution_core::SimStats>,
     predation: Res<clauvolution_core::PredationStats>,
+    bands: Res<clauvolution_core::DietBandStats>,
     history: Res<clauvolution_core::PopulationHistory>,
     ledger: Res<clauvolution_core::EnergyLedger>,
     config: Res<clauvolution_core::SimConfig>,
@@ -1010,6 +1116,7 @@ fn headless_tick_counter(
                 &config,
                 founders.as_deref(),
             );
+            print_diet_band_summary(&bands, &predation, &history);
             if let Some(dp) = &dump_path {
                 match dump_history_csv(&dp.0, &history) {
                     Ok(_) => eprintln!("Wrote {} snapshots to {}", history.snapshots.len(), dp.0),
@@ -1107,6 +1214,194 @@ fn print_grazer_timeline(
             grazer_seconds = 0;
         }
     }
+}
+
+/// Ticks between blocks of the headless summary's diet-band timeline.
+const DIET_BAND_TIMELINE_STEP: u64 = 500;
+
+/// Consumer strategy labels in the order `DietBandStats::label_energy`
+/// returns them.
+const CONSUMER_LABELS: [&str; 3] = ["grazers", "omnivores", "hunters"];
+
+/// One row of the diet-band tables: mean alive, energy kept per
+/// organism-tick and its split by source, cost per organism-tick, births,
+/// deaths by cause and mean age at death.
+fn print_band_row(
+    label: &str,
+    energy: &clauvolution_core::BandEnergy,
+    deaths: &clauvolution_core::BandDeaths,
+    births: u64,
+    ticks: u64,
+) {
+    use clauvolution_core::DeathCause;
+    let per_tick = |v: f64| v / energy.organism_ticks.max(1) as f64;
+    let share = |v: f64| {
+        let income = energy.income();
+        if income > 0.0 {
+            100.0 * v / income
+        } else {
+            0.0
+        }
+    };
+    eprintln!(
+        "    {:<13} {:>7.1} {:>8.3} {:>6.1} {:>6.1} {:>6.1} {:>6.1} {:>9.3} {:>7} {:>7} {:>6} {:>6} {:>6} {:>5} {:>9.0}",
+        label,
+        energy.organism_ticks as f64 / ticks.max(1) as f64,
+        per_tick(energy.income()),
+        share(energy.food),
+        share(energy.bite_energy),
+        share(energy.consumer_kill_energy),
+        share(energy.plant_kill_energy),
+        per_tick(energy.cost()),
+        births,
+        deaths.total(),
+        deaths.count[DeathCause::Starvation as usize],
+        deaths.count[DeathCause::Predation as usize],
+        deaths.count[DeathCause::Disease as usize],
+        deaths.count[DeathCause::OldAge as usize],
+        deaths.mean_age(),
+    );
+}
+
+fn print_band_header() {
+    eprintln!(
+        "    band            alive  in/tick  food%  bite% ckill% pkill% cost/tick  births  deaths  starv   pred    dis   old  mean age"
+    );
+}
+
+/// The hunter-bridge instruments (`plans/2026-09-24-hunter-bridge.md`,
+/// step 1): a per-band block every `DIET_BAND_TIMELINE_STEP` ticks, the
+/// run totals by band and by label, mean age at death by cause, and the
+/// parent-to-child label matrix. "alive" is organism-ticks over the window's
+/// ticks; "in/tick" and "cost/tick" are per organism-tick; the percentages
+/// split income by source (food items, eat bites, consumer kills, plant
+/// kills).
+fn print_diet_band_summary(
+    run: &clauvolution_core::DietBandStats,
+    predation: &clauvolution_core::PredationStats,
+    history: &clauvolution_core::PopulationHistory,
+) {
+    use clauvolution_core::{DeathCause, DietBandStats, DIET_BAND_LABELS, STRATEGY_LABEL_KEYS};
+    if history.snapshots.is_empty() {
+        return;
+    }
+    eprintln!("Diet-band timeline (every {DIET_BAND_TIMELINE_STEP} ticks; consumers in halves of each strategy label):");
+    let mut window = DietBandStats::default();
+    let mut window_start = 0u64;
+    let mut next = DIET_BAND_TIMELINE_STEP;
+    let last = history.snapshots.len() - 1;
+    for (i, s) in history.snapshots.iter().enumerate() {
+        window.add(&s.bands);
+        if s.tick >= next || i == last {
+            let ticks = s.tick - window_start;
+            eprintln!(
+                "  to tick {} (crossings {}; omnivore -> grazer {}, omnivore -> hunter {}, grazer -> omnivore {}, hunter -> omnivore {})",
+                s.tick,
+                window.crossings(),
+                window.label_transitions[2][1],
+                window.label_transitions[2][3],
+                window.label_transitions[1][2],
+                window.label_transitions[3][2],
+            );
+            print_band_header();
+            for (band, label) in DIET_BAND_LABELS.iter().enumerate() {
+                let e = &window.energy[band];
+                let d = &window.deaths[band];
+                if e.organism_ticks == 0 && d.total() == 0 && window.births[band] == 0 {
+                    continue;
+                }
+                print_band_row(label, e, d, window.births[band], ticks);
+            }
+            while next <= s.tick {
+                next += DIET_BAND_TIMELINE_STEP;
+            }
+            window_start = s.tick;
+            window = DietBandStats::default();
+        }
+    }
+
+    let run_ticks = history.snapshots[last].tick;
+    eprintln!();
+    eprintln!("Diet bands, whole run:");
+    print_band_header();
+    for (band, label) in DIET_BAND_LABELS.iter().enumerate() {
+        print_band_row(
+            label,
+            &run.energy[band],
+            &run.deaths[band],
+            run.births[band],
+            run_ticks,
+        );
+    }
+    let label_energy = run.label_energy();
+    let label_deaths = run.label_deaths();
+    for (i, name) in CONSUMER_LABELS.iter().enumerate() {
+        let births = run.births[2 * i] + run.births[2 * i + 1];
+        print_band_row(name, &label_energy[i], &label_deaths[i], births, run_ticks);
+    }
+    eprintln!("  Energy kept / paid by label (whole run):");
+    eprintln!(
+        "    label           food items      eat bites  consumer kills   plant kills     metabolism     movement     strikes"
+    );
+    for (i, name) in CONSUMER_LABELS.iter().enumerate() {
+        let e = &label_energy[i];
+        eprintln!(
+            "    {:<10} {:>15.1} {:>14.1} {:>15.1} {:>13.1} {:>14.1} {:>12.1} {:>11.1}",
+            name,
+            e.food,
+            e.bite_energy,
+            e.consumer_kill_energy,
+            e.plant_kill_energy,
+            e.metabolism,
+            e.movement,
+            e.strike
+        );
+    }
+    eprintln!("  Mean age at death by cause (starvation / predation / disease / old age):");
+    for (i, name) in CONSUMER_LABELS.iter().enumerate() {
+        let d = &label_deaths[i];
+        eprintln!(
+            "    {:<10} {:.0} / {:.0} / {:.0} / {:.0}",
+            name,
+            d.mean_age_of(DeathCause::Starvation),
+            d.mean_age_of(DeathCause::Predation),
+            d.mean_age_of(DeathCause::Disease),
+            d.mean_age_of(DeathCause::OldAge),
+        );
+    }
+    eprintln!("  Births by the reproducing parent's label (rows) and the child's (columns):");
+    eprint!("    {:<10}", "");
+    for key in STRATEGY_LABEL_KEYS {
+        eprint!(" {key:>9}");
+    }
+    eprintln!();
+    for (from, row) in run.label_transitions.iter().enumerate() {
+        eprint!("    {:<10}", STRATEGY_LABEL_KEYS[from]);
+        for n in row {
+            eprint!(" {n:>9}");
+        }
+        eprintln!();
+    }
+    eprintln!(
+        "  Crossings: {} of {} births; {} births had a mate of another label",
+        run.crossings(),
+        run.label_transitions.iter().flatten().sum::<u64>(),
+        run.mixed_label_matings
+    );
+    let g = &predation.feeding.omnivore_gates;
+    eprintln!(
+        "  Omnivore attacks: {} intents, {} strikes, {} with a consumer in reach: {} kills, {} plant instead, {} size-only, {} damage-only, {} both, {} mixed",
+        g.intents,
+        g.strikes,
+        g.consumer_in_reach,
+        g.kills_consumer,
+        g.kills_plant_instead,
+        g.rejected_size,
+        g.rejected_damage,
+        g.rejected_both,
+        g.rejected_mixed
+    );
+    eprintln!();
 }
 
 fn print_headless_summary(

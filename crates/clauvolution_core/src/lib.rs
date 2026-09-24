@@ -23,6 +23,7 @@ impl Plugin for CorePlugin {
             .insert_resource(SimConfig::default())
             .insert_resource(SimStats::default())
             .insert_resource(PredationStats::default())
+            .insert_resource(DietBandStats::default())
             .insert_resource(TickCounter(0))
             .insert_resource(SimSpeed::default())
             .insert_resource(SpeciesColors::default())
@@ -584,6 +585,9 @@ pub struct FeedingCounts {
     /// Gate outcomes for hunter attackers (`diet >= 1/3`, not a
     /// photosynthesiser). See `GateOutcomes`.
     pub hunter_gates: GateOutcomes,
+    /// Gate outcomes for omnivore attackers (`-1/3 < diet < 1/3`, not a
+    /// photosynthesiser; `plans/2026-09-24-hunter-bridge.md`, step 1).
+    pub omnivore_gates: GateOutcomes,
 }
 
 impl FeedingCounts {
@@ -635,7 +639,255 @@ impl FeedingCounts {
             attacks_no_plant_in_reach: self.attacks_no_plant_in_reach
                 - other.attacks_no_plant_in_reach,
             hunter_gates: self.hunter_gates.minus(&other.hunter_gates),
+            omnivore_gates: self.omnivore_gates.minus(&other.omnivore_gates),
         }
+    }
+}
+
+/// Number of diet bands the hunter-bridge instruments count consumers in.
+pub const DIET_BAND_COUNT: usize = 6;
+
+/// The diet bands of `plans/2026-09-24-hunter-bridge.md`, step 1: the three
+/// consumer strategy labels (grazer `diet <= -1/3`, omnivore, hunter
+/// `diet >= 1/3`), each split in half at -2/3, 0 and +2/3, so bands `2k` and
+/// `2k + 1` together are label `k` and the plant-leaning and animal-leaning
+/// halves of the omnivore label are told apart. Photosynthesisers are in no
+/// band. `clauvolution_sim::diet_band` assigns them.
+pub const DIET_BAND_LABELS: [&str; DIET_BAND_COUNT] = [
+    "grazer <-2/3",
+    "grazer >=-2/3",
+    "omniv. <0",
+    "omniv. >=0",
+    "hunter <2/3",
+    "hunter >=2/3",
+];
+
+/// Short names for the diet bands, for CSV column names.
+pub const DIET_BAND_KEYS: [&str; DIET_BAND_COUNT] = ["g1", "g2", "o1", "o2", "h1", "h2"];
+
+/// The four strategy labels in the order the band-crossing matrix uses:
+/// plant, grazer, omnivore, hunter.
+pub const STRATEGY_LABEL_COUNT: usize = 4;
+pub const STRATEGY_LABEL_KEYS: [&str; STRATEGY_LABEL_COUNT] =
+    ["plant", "grazer", "omnivore", "hunter"];
+
+/// Energy one diet band kept and paid. Income is what the eater kept after
+/// digestion (before the `max_organism_energy` clamp, as the ledger's
+/// `food`, `grazing` and `predation` flows book it); costs are what the
+/// ledger books as `metabolism` and `movement`, with the strike share of
+/// movement split out.
+#[derive(Clone, Copy, Default, Debug, PartialEq)]
+pub struct BandEnergy {
+    /// Ticks in which a member of the band paid metabolism: organism-ticks,
+    /// the denominator for per-capita figures.
+    pub organism_ticks: u64,
+    /// Food items eaten, and the energy kept from them.
+    pub food_items: u64,
+    pub food: f64,
+    /// Bites of living plants through `eat`, and the energy kept.
+    pub bites: u64,
+    pub bite_energy: f64,
+    /// Kills of consumers, and the energy kept from them.
+    pub consumer_kills: u64,
+    pub consumer_kill_energy: f64,
+    /// Kills of photosynthesisers, and the energy kept from them.
+    pub plant_kills: u64,
+    pub plant_kill_energy: f64,
+    pub metabolism: f64,
+    /// Movement cost paid in `action_system`, strikes excluded.
+    pub movement: f64,
+    /// Strike cost paid in `predation_system`.
+    pub strike: f64,
+}
+
+impl BandEnergy {
+    /// Energy kept from every source.
+    pub fn income(&self) -> f64 {
+        self.food + self.bite_energy + self.consumer_kill_energy + self.plant_kill_energy
+    }
+
+    /// Energy kept from plant tissue: food items, bites and plant kills.
+    pub fn plant_income(&self) -> f64 {
+        self.food + self.bite_energy + self.plant_kill_energy
+    }
+
+    /// Metabolism, movement and strikes.
+    pub fn cost(&self) -> f64 {
+        self.metabolism + self.movement + self.strike
+    }
+
+    pub fn add(&mut self, other: &BandEnergy) {
+        self.organism_ticks += other.organism_ticks;
+        self.food_items += other.food_items;
+        self.food += other.food;
+        self.bites += other.bites;
+        self.bite_energy += other.bite_energy;
+        self.consumer_kills += other.consumer_kills;
+        self.consumer_kill_energy += other.consumer_kill_energy;
+        self.plant_kills += other.plant_kills;
+        self.plant_kill_energy += other.plant_kill_energy;
+        self.metabolism += other.metabolism;
+        self.movement += other.movement;
+        self.strike += other.strike;
+    }
+
+    pub fn minus(&self, other: &BandEnergy) -> BandEnergy {
+        BandEnergy {
+            organism_ticks: self.organism_ticks - other.organism_ticks,
+            food_items: self.food_items - other.food_items,
+            food: self.food - other.food,
+            bites: self.bites - other.bites,
+            bite_energy: self.bite_energy - other.bite_energy,
+            consumer_kills: self.consumer_kills - other.consumer_kills,
+            consumer_kill_energy: self.consumer_kill_energy - other.consumer_kill_energy,
+            plant_kills: self.plant_kills - other.plant_kills,
+            plant_kill_energy: self.plant_kill_energy - other.plant_kill_energy,
+            metabolism: self.metabolism - other.metabolism,
+            movement: self.movement - other.movement,
+            strike: self.strike - other.strike,
+        }
+    }
+}
+
+/// Deaths in one diet band by cause (indexed by `DeathCause as usize`), and
+/// the sum of the ages at death, for mean age by cause.
+#[derive(Clone, Copy, Default, Debug, PartialEq)]
+pub struct BandDeaths {
+    pub count: [u64; DEATH_CAUSE_COUNT],
+    pub age_sum: [u64; DEATH_CAUSE_COUNT],
+}
+
+impl BandDeaths {
+    pub fn record(&mut self, cause: DeathCause, age: u64) {
+        self.count[cause as usize] += 1;
+        self.age_sum[cause as usize] += age;
+    }
+
+    pub fn total(&self) -> u64 {
+        self.count.iter().sum()
+    }
+
+    /// Mean age at death over every cause, 0 when none died.
+    pub fn mean_age(&self) -> f64 {
+        let n = self.total();
+        if n == 0 {
+            0.0
+        } else {
+            self.age_sum.iter().sum::<u64>() as f64 / n as f64
+        }
+    }
+
+    /// Mean age at death of one cause, 0 when none died of it.
+    pub fn mean_age_of(&self, cause: DeathCause) -> f64 {
+        let i = cause as usize;
+        if self.count[i] == 0 {
+            0.0
+        } else {
+            self.age_sum[i] as f64 / self.count[i] as f64
+        }
+    }
+
+    pub fn add(&mut self, other: &BandDeaths) {
+        for i in 0..DEATH_CAUSE_COUNT {
+            self.count[i] += other.count[i];
+            self.age_sum[i] += other.age_sum[i];
+        }
+    }
+
+    pub fn minus(&self, other: &BandDeaths) -> BandDeaths {
+        let mut d = *self;
+        for i in 0..DEATH_CAUSE_COUNT {
+            d.count[i] -= other.count[i];
+            d.age_sum[i] -= other.age_sum[i];
+        }
+        d
+    }
+}
+
+/// The hunter-bridge instruments (`plans/2026-09-24-hunter-bridge.md`,
+/// step 1): where consumers in each diet band get their energy, what they
+/// pay, how they die, and whether their children stay in their parent's
+/// strategy label. Counted over the whole run; `PopulationHistory` diffs it
+/// into a per-second `PopSnapshot::bands`. Counting only: nothing in the
+/// simulation reads it. See `DIET_BAND_LABELS` for the bands.
+#[derive(Resource, Clone, Copy, Default, Debug, PartialEq)]
+pub struct DietBandStats {
+    pub energy: [BandEnergy; DIET_BAND_COUNT],
+    pub deaths: [BandDeaths; DIET_BAND_COUNT],
+    /// Births by the band of the parent that reproduced (the one whose
+    /// species, generation and position the child takes; a mate only
+    /// contributes genes through crossover).
+    pub births: [u64; DIET_BAND_COUNT],
+    /// Births by that parent's strategy label (row) and the child's label
+    /// after crossover and mutation (column), in `STRATEGY_LABEL_KEYS`
+    /// order. Off-diagonal cells are band crossings.
+    pub label_transitions: [[u64; STRATEGY_LABEL_COUNT]; STRATEGY_LABEL_COUNT],
+    /// Births with a mate whose label differs from the reproducing parent's:
+    /// how often the parent convention above could have counted differently.
+    pub mixed_label_matings: u64,
+}
+
+impl DietBandStats {
+    /// Label-level totals: the two bands of each consumer label summed, in
+    /// grazer, omnivore, hunter order.
+    pub fn label_energy(&self) -> [BandEnergy; 3] {
+        let mut out = [BandEnergy::default(); 3];
+        for (band, e) in self.energy.iter().enumerate() {
+            out[band / 2].add(e);
+        }
+        out
+    }
+
+    pub fn label_deaths(&self) -> [BandDeaths; 3] {
+        let mut out = [BandDeaths::default(); 3];
+        for (band, d) in self.deaths.iter().enumerate() {
+            out[band / 2].add(d);
+        }
+        out
+    }
+
+    /// Births whose child landed in a different label from its parent.
+    pub fn crossings(&self) -> u64 {
+        let mut n = 0;
+        for (from, row) in self.label_transitions.iter().enumerate() {
+            for (to, count) in row.iter().enumerate() {
+                if from != to {
+                    n += count;
+                }
+            }
+        }
+        n
+    }
+
+    /// Field-wise sum, for rolling per-second snapshots up into windows.
+    pub fn add(&mut self, other: &DietBandStats) {
+        for band in 0..DIET_BAND_COUNT {
+            self.energy[band].add(&other.energy[band]);
+            self.deaths[band].add(&other.deaths[band]);
+            self.births[band] += other.births[band];
+        }
+        for from in 0..STRATEGY_LABEL_COUNT {
+            for to in 0..STRATEGY_LABEL_COUNT {
+                self.label_transitions[from][to] += other.label_transitions[from][to];
+            }
+        }
+        self.mixed_label_matings += other.mixed_label_matings;
+    }
+
+    pub fn minus(&self, other: &DietBandStats) -> DietBandStats {
+        let mut d = *self;
+        for band in 0..DIET_BAND_COUNT {
+            d.energy[band] = self.energy[band].minus(&other.energy[band]);
+            d.deaths[band] = self.deaths[band].minus(&other.deaths[band]);
+            d.births[band] -= other.births[band];
+        }
+        for from in 0..STRATEGY_LABEL_COUNT {
+            for to in 0..STRATEGY_LABEL_COUNT {
+                d.label_transitions[from][to] -= other.label_transitions[from][to];
+            }
+        }
+        d.mixed_label_matings -= other.mixed_label_matings;
+        d
     }
 }
 
@@ -783,6 +1035,9 @@ pub struct PopSnapshot {
     /// history CSV.
     pub avg_grazer_body_size: f32,
     pub avg_grazer_armor: f32,
+    /// Diet-band energy, deaths, births and crossings during this one-second
+    /// interval. See `DietBandStats`.
+    pub bands: DietBandStats,
 }
 
 /// Tracks organism lifespans for fitness measurement
@@ -805,6 +1060,7 @@ pub struct PopulationHistory {
     prev_deaths_by_cause: [u64; DEATH_CAUSE_COUNT],
     prev_flows: EnergyFlows,
     prev_feeding: FeedingCounts,
+    prev_bands: DietBandStats,
 }
 
 impl Default for PopulationHistory {
@@ -818,6 +1074,7 @@ impl Default for PopulationHistory {
             prev_deaths_by_cause: [0; DEATH_CAUSE_COUNT],
             prev_flows: EnergyFlows::default(),
             prev_feeding: FeedingCounts::default(),
+            prev_bands: DietBandStats::default(),
         }
     }
 }
@@ -828,6 +1085,7 @@ impl PopulationHistory {
         &mut self,
         stats: &SimStats,
         predation: &PredationStats,
+        bands: &DietBandStats,
         ledger: &mut EnergyLedger,
         snapshot: PopSnapshotInput,
     ) {
@@ -851,6 +1109,9 @@ impl PopulationHistory {
 
         let feeding = predation.feeding.minus(&self.prev_feeding);
         self.prev_feeding = predation.feeding;
+
+        let band_interval = bands.minus(&self.prev_bands);
+        self.prev_bands = *bands;
 
         self.snapshots.push(PopSnapshot {
             tick: snapshot.tick,
@@ -893,6 +1154,7 @@ impl PopulationHistory {
             feeding,
             avg_grazer_body_size: snapshot.avg_grazer_body_size,
             avg_grazer_armor: snapshot.avg_grazer_armor,
+            bands: band_interval,
         });
 
         if self.snapshots.len() > self.max_entries {
@@ -1654,6 +1916,41 @@ mod feeding_count_tests {
             (1, 1, 1, 1, 1, 1)
         );
         assert_eq!(g.minus(&GateOutcomes::default()), g);
+    }
+
+    /// Label totals sum each label's two bands; crossings are the
+    /// off-diagonal births; interval values are per field.
+    #[test]
+    fn diet_band_stats_roll_up_and_diff() {
+        let mut a = DietBandStats::default();
+        a.energy[2].food = 3.0;
+        a.energy[3].bite_energy = 2.0;
+        a.energy[3].consumer_kill_energy = 1.0;
+        a.energy[3].metabolism = 4.0;
+        a.deaths[2].record(DeathCause::Predation, 100);
+        a.deaths[3].record(DeathCause::Starvation, 300);
+        a.label_transitions[2][2] = 5;
+        a.label_transitions[2][1] = 2;
+        a.label_transitions[2][3] = 1;
+        let omni = a.label_energy()[1];
+        assert!((omni.income() - 6.0).abs() < 1e-9);
+        assert!((omni.plant_income() - 5.0).abs() < 1e-9);
+        assert!((omni.cost() - 4.0).abs() < 1e-9);
+        let deaths = a.label_deaths()[1];
+        assert_eq!(deaths.total(), 2);
+        assert!((deaths.mean_age() - 200.0).abs() < 1e-9);
+        assert!((deaths.mean_age_of(DeathCause::Predation) - 100.0).abs() < 1e-9);
+        assert_eq!(a.crossings(), 3);
+
+        let mut b = a;
+        b.energy[2].food += 1.5;
+        b.deaths[2].record(DeathCause::Disease, 50);
+        b.label_transitions[2][1] += 4;
+        let d = b.minus(&a);
+        assert!((d.energy[2].food - 1.5).abs() < 1e-9);
+        assert_eq!(d.deaths[2].count[DeathCause::Disease as usize], 1);
+        assert_eq!(d.deaths[2].total(), 1);
+        assert_eq!(d.crossings(), 4);
     }
 
     #[test]
