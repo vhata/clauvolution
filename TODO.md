@@ -91,10 +91,6 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 
 ### P3 Low
 
-- [PERF] `sensing-per-organism-cost` — **Find what makes sensing the dominant tick cost once the eat scan is fixed.** With the eat-scan fix applied (it landed in #50), `sensing_and_brain_system` was 41.6 of 56.5 CPU seconds over 1000 ticks on seed 42 and about 71 ms of CPU per tick at the 6000-organism ceiling; brain evaluation itself is a small part of that.
-  - Starting point: A `sample` profile of the prototype put the sensing closure's own time (the inlined nearest-food scan over the whole `FoodSnapshot` plus input assembly) at about 20% of busy samples, `all_org_data.get` lookups for neighbours at 19%, `memmove` at 15%, `SpatialHash::query_radius` at 11% and brain evaluation with its activation `HashMap` at about 7%. Candidates: bin food into a grid so the nearest-food scan visits nearby cells only (keep ties on the earlier snapshot entry so the run is unchanged), and cut the per-neighbour query lookups by copying what sensing needs into a snapshot, as `FoodSnapshot` does for food. The system is already parallel, so wall time gains depend on the worker count. Measure with the temporary per-system CPU timing described in the `todo/moisture-fix-tick-cost` pull request.
-  - Source: todo/moisture-fix-tick-cost branch, 2026-09-23
-  - Related: `split-sensing-and-brain-system`, `batch-spatial-hash-queries`
 - [RENDER] `gpu-instanced-rendering` — **Draw all organisms in one instanced draw call.** Each organism currently gets its own `ColorMaterial`, so the draw call count scales with population.
   - Starting point: Pack per-instance data into a single buffer. A feature bitmask per instance lets the shader scale absent parts to zero, which removes entity churn on LOD changes. Prove the bitmask approach on a subset before converting the renderer.
   - Source: docs/ROADMAP.md (Backlog), 2026-09-16
@@ -122,7 +118,7 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
   - Source: docs/ROADMAP.md (Backlog), 2026-09-16
   - Related: `gpu-brain-compute-shader`, `split-sensing-and-brain-system`
 - [PERF] `batch-spatial-hash-queries` — **Cache or batch the per-tick spatial hash queries.** Roughly 2000 radius queries run every tick, each one independent of the others.
-  - Starting point: Look for queries that can share a single pass or reuse the previous tick's result.
+  - Starting point: Look for queries that can share a single pass or reuse the previous tick's result. Since sensing moved to per-tick grids (DECISIONS.md, "Sensing reads per-tick grids, not the ECS"), `query_radius` calls from grazing, symbiosis tracking and disease transmission are the largest remaining neighbour cost in a `sample` profile at `--headless 2000 --seed 42`; the `CellGrid` in the sim crate is one way to share a copy between them.
   - Source: docs/ROADMAP.md (Backlog), 2026-09-16
 
 ### Unprioritized
