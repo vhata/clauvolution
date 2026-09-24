@@ -73,6 +73,14 @@ impl TerrainType {
     }
 }
 
+/// One cell of the world map.
+///
+/// Saves store only the fields that change after `TileMap::generate`; the
+/// rest are regenerated from the terrain seed on load. A new field has to be
+/// classified in `SaveTerrain::from_tile_map` (`clauvolution_sim::save`),
+/// whose exhaustive destructuring of `Tile` fails to compile until it is. If
+/// anything writes the field at runtime, add it to `SaveTerrain` and
+/// `SaveTerrain::apply_to` as well, or it is lost on save and load.
 #[derive(Clone, Debug)]
 pub struct Tile {
     pub terrain: TerrainType,

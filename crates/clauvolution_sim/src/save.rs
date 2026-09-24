@@ -5,7 +5,7 @@ use clauvolution_genome::*;
 use clauvolution_phylogeny::{
     ChronicleTarget, PhyloNode, PhyloTree, SpeciesStrategy, WorldChronicle,
 };
-use clauvolution_world::TileMap;
+use clauvolution_world::{Tile, TileMap};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -104,7 +104,9 @@ pub struct SaveState {
 /// nutrients). Each is stored as base64 of the little-endian bytes of its
 /// `f32` values, which restores the exact bits in about half the space of a
 /// JSON number array. A new tile field that changes at runtime belongs
-/// here. See "Save format: terrain persists only the tile fields that
+/// here; `from_tile_map` destructures `Tile` exhaustively, so adding a
+/// field does not compile until it is classified as stored or regenerated.
+/// See "Save format: terrain persists only the tile fields that
 /// change" in `docs/DECISIONS.md`.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct SaveTerrain {
@@ -122,15 +124,40 @@ pub struct SaveTerrain {
 
 impl SaveTerrain {
     /// Capture the mutable tile fields of `map`.
+    ///
+    /// The destructuring below names every `Tile` field and has no `..`, so
+    /// adding a field to `Tile` stops this from compiling until the new
+    /// field is classified: stored here (and restored in `apply_to`) if
+    /// anything writes it after generation, or bound to `_` if
+    /// `TileMap::generate` alone determines it.
     pub fn from_tile_map(map: &TileMap) -> Self {
-        Self {
+        let n = map.tiles.len();
+        let mut terrain = Self {
             width: map.width,
             height: map.height,
-            temperature: map.tiles.iter().map(|t| t.temperature).collect(),
-            moisture: map.tiles.iter().map(|t| t.moisture).collect(),
-            nutrients: map.tiles.iter().map(|t| t.nutrients).collect(),
-            vegetation_density: map.tiles.iter().map(|t| t.vegetation_density).collect(),
+            temperature: Vec::with_capacity(n),
+            moisture: Vec::with_capacity(n),
+            nutrients: Vec::with_capacity(n),
+            vegetation_density: Vec::with_capacity(n),
+        };
+        for tile in &map.tiles {
+            let Tile {
+                // Regenerated from `terrain_seed`; never written at runtime.
+                terrain: _,
+                elevation: _,
+                light_level: _,
+                // Written at runtime; stored.
+                temperature,
+                moisture,
+                nutrients,
+                vegetation_density,
+            } = *tile;
+            terrain.temperature.push(temperature);
+            terrain.moisture.push(moisture);
+            terrain.nutrients.push(nutrients);
+            terrain.vegetation_density.push(vegetation_density);
         }
+        terrain
     }
 
     /// Why this record does not describe a map of its own dimensions, or

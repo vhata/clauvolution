@@ -29,9 +29,6 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
   - Source: fix/crossover-parent-doc branch, 2026-09-24
   - Related: `species-distance-unrelated-ceiling`
 
-- [PERSIST] `save-terrain-field-coverage` — **Nothing forces a newly runtime-mutated tile field into `SaveTerrain`.** A field that starts changing at runtime is silently lost on save and load, which is the bug `persist-terrain-state` fixed for the four fields that change today.
-  - Starting point: A test that mutates every `Tile` field the sim writes and round-trips the map, or a comment at the `Tile` definition naming `SaveTerrain`. See the "terrain persists only the tile fields that change" DECISIONS entry on `todo/persist-terrain-state`.
-  - Source: todo/persist-terrain-state branch, 2026-09-23
 - [BRAIN] `species-count-above-tuned-band` — **Species counts at 15k ticks ran 40 to 74, above the 10 to 30 band the compatibility threshold was tuned for.** The panel and phylogeny get harder to read as the count grows, and the tuning sweep was run under classification rules that have since changed.
   - Starting point: Re-measure after `todo/speciation-stalls-after-founding` lands, since the stay-threshold fix changes both churn and speciation rates; the 8-seed counts are in `docs/audits/2026-09-23-pyramid-reread/`.
   - Source: roadmap/pyramid-reread branch, 2026-09-23
