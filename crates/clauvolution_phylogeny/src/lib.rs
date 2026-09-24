@@ -454,6 +454,14 @@ pub fn classify_strategy(genome: &clauvolution_genome::Genome) -> SpeciesStrateg
     }
 }
 
+/// The name a species gets when there is nothing to build a real name from:
+/// no traits when it is recorded, or no name in the save it was loaded from.
+/// It is two words, so it never matches a generated three-word name, and a
+/// child of such a species gets a fresh generated name.
+pub fn placeholder_species_name(species_id: u64) -> String {
+    format!("Species {}", species_id)
+}
+
 /// The full phylogenetic tree
 #[derive(Resource, Default)]
 pub struct PhyloTree {
@@ -478,7 +486,7 @@ impl PhyloTree {
 
         let name = match traits {
             Some(t) => self.unused_name(t, species_id, parent_id),
-            None => format!("Species {}", species_id),
+            None => placeholder_species_name(species_id),
         };
 
         let node = PhyloNode {

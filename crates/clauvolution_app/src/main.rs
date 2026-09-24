@@ -396,7 +396,7 @@ fn load_saved_world(
     // the first tick does not compare against an empty world.
     let total_energy = save::spawn_saved_organisms(&mut commands, &state.organisms);
     ledger.reset_baseline(total_energy);
-    save::spawn_saved_food(&mut commands, &state.food);
+    save::spawn_saved_food(&mut commands, &state.food, config.food_energy_value);
 
     // Restore phylo tree and chronicle
     save::restore_phylo(&mut phylo, &state.phylo_nodes);
