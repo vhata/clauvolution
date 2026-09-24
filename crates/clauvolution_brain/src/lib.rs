@@ -195,3 +195,97 @@ fn topological_sort(neurons: &[NeuronGene], connections: &[ConnectionGene]) -> V
 
     order
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clauvolution_genome::InnovationCounter;
+    use rand::rngs::StdRng;
+    use rand::{Rng, SeedableRng};
+
+    const LEGACY_INPUTS: usize = 22;
+
+    /// A genome in the 22-input layout that preceded the nearest-eater
+    /// inputs, grown by ordinary mutation so it carries hidden neurons and
+    /// whatever recurrent links mutation produces.
+    fn evolved_legacy_genome(seed: u64) -> Genome {
+        let mut innovation = InnovationCounter(0);
+        let mut rng = StdRng::seed_from_u64(seed);
+        let mut genome = Genome::new_minimal(&mut innovation, &mut rng);
+        genome.neurons.clear();
+        genome.connections.clear();
+        for id in 0..LEGACY_INPUTS as u64 {
+            genome.neurons.push(NeuronGene {
+                id,
+                neuron_type: NeuronType::Input,
+                activation: ActivationFn::Sigmoid,
+                bias: 0.0,
+            });
+        }
+        for i in 0..NUM_OUTPUTS {
+            genome.neurons.push(NeuronGene {
+                id: (LEGACY_INPUTS + i) as u64,
+                neuron_type: NeuronType::Output,
+                activation: ActivationFn::Tanh,
+                bias: rng.gen_range(-0.5..0.5),
+            });
+        }
+        for _ in 0..8 {
+            genome.connections.push(ConnectionGene {
+                innovation: innovation.next(),
+                from: rng.gen_range(0..LEGACY_INPUTS) as u64,
+                to: (LEGACY_INPUTS + rng.gen_range(0..NUM_OUTPUTS)) as u64,
+                weight: rng.gen_range(-2.0..2.0),
+                enabled: true,
+            });
+        }
+        for _ in 0..60 {
+            genome.mutate(&mut innovation, &mut rng, 0.5, 0.5);
+        }
+        genome
+    }
+
+    #[test]
+    fn migrated_legacy_brain_gives_the_same_outputs_for_the_old_inputs() {
+        let mut seeds_with_hidden = 0;
+        for seed in 0..20 {
+            let legacy = evolved_legacy_genome(seed);
+            let hidden = legacy
+                .neurons
+                .iter()
+                .filter(|n| n.neuron_type == NeuronType::Hidden)
+                .count();
+            if hidden > 0 {
+                seeds_with_hidden += 1;
+            }
+            let mut migrated = legacy.clone();
+            assert!(migrated.migrate_input_layout());
+
+            let old_brain = Brain::from_genome(&legacy);
+            let new_brain = Brain::from_genome(&migrated);
+            assert_eq!(old_brain.input_ids().len(), LEGACY_INPUTS);
+            assert_eq!(new_brain.input_ids().len(), NUM_INPUTS);
+
+            let mut rng = StdRng::seed_from_u64(1000 + seed);
+            for _ in 0..50 {
+                // The old brain reads only the first 22 slots. The migrated
+                // one also reads the new slots, which must make no
+                // difference because nothing is wired to them.
+                let mut inputs = [0.0f32; NUM_INPUTS];
+                for value in inputs.iter_mut() {
+                    *value = rng.gen_range(-1.0..1.0);
+                }
+                let old_out = old_brain.evaluate(&inputs);
+                let new_out = new_brain.evaluate(&inputs);
+                assert_eq!(
+                    old_out, new_out,
+                    "seed {seed} ({hidden} hidden neurons): outputs differ after migration"
+                );
+            }
+        }
+        assert!(
+            seeds_with_hidden > 10,
+            "the fixture should exercise hidden neurons, got {seeds_with_hidden} of 20"
+        );
+    }
+}
