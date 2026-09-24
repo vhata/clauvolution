@@ -23,10 +23,6 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 
 ### Unprioritized
 
-- [PERSIST] `save-struct-default-consistency` — **Extend the save-format default rule to the other `Save*` structs.** `SaveGenome` now loads with any field missing, but `SaveOrganism` (`signal`, `memory`) and `SaveState` (`season_tick`, `phylo_nodes`, `chronicle_entries`) still fail the whole file when a field added after the save was written is absent.
-  - Starting point: The same container-level `#[serde(default)]` plus a `Default` impl per struct; decide whether `SaveState` fields such as `terrain_seed` have a sensible default or whether their absence should still reject the file. See "Save format: every genome field has a default" in `docs/DECISIONS.md`.
-  - Source: todo/genome-serde-default-consistency branch, 2026-09-21
-  - Related: `persist-terrain-state`
 - [RENDER] `render-handle-clone-clarity` — **Clarify frequent mesh and material handle cloning in the render systems.** The clones are cheap because handles are Arc-like, but the pattern reads as expensive and obscures that.
   - Starting point: Decide whether a comment, a helper, or no change at all is the right answer before touching code.
   - Source: docs/ROADMAP.md (Known tech debt), 2026-09-16
@@ -140,7 +136,7 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
   - Source: CLAUDE.md (Known rough edges), 2026-09-16
   - Related: `gpu-instanced-rendering`
 - [PERSIST] `persist-terrain-state` — **Save terrain state instead of regenerating it from the seed.** Niche construction changes to vegetation density, moisture, and nutrients are silently lost on save and load, so a loaded world is not the world that was saved.
-  - Starting point: Decide whether to persist the full tilemap or only the fields organisms modify.
+  - Starting point: Decide whether to persist the full tilemap or only the fields organisms modify. `SaveState::terrain_seed` is required on load because the terrain is regenerated from it; once terrain is saved, revisit that (see "Save format: every field has a default unless the world cannot be rebuilt without it" in `docs/DECISIONS.md`).
   - Source: CLAUDE.md (Known rough edges), 2026-09-16
 - [TOOLING] `unknown-flag-launches-gui` — **Refuse unknown CLI flags and answer `--help` instead of opening a window.** The argument parser in `clauvolution_app` looks up the flags it knows and ignores everything else, so a typo or `--help` launches the GUI as if no flags were given.
   - Starting point: Collect the known flag names in one place, print usage and exit non-zero for anything unrecognised, and treat `--help` as usage. The README's flag list is the source for the usage text; keep them from drifting (a test that every README flag is known would do). Found when a headless agent ran `--help` to check usage and got a window.

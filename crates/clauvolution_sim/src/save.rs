@@ -43,38 +43,92 @@ impl std::error::Error for SaveError {
     }
 }
 
+/// The whole world as it is written to a save file.
+///
+/// Unlike `SaveGenome`, the fields fall into two deliberate groups. Fields
+/// without a `serde(default)` are the ones the world cannot be rebuilt
+/// without, and a file missing any of them is rejected: `tick` (every
+/// phylogeny and chronicle tick is relative to it), `terrain_seed` (the
+/// terrain is regenerated from it, so a guessed seed would put the
+/// population on a different map) and `organisms` (the world itself). Every
+/// other field has a neutral value and loads without it. A new field goes
+/// in one group or the other on purpose. See "Save format: every field has
+/// a default unless the world cannot be rebuilt without it" in
+/// `docs/DECISIONS.md`.
 #[derive(Serialize, Deserialize)]
 pub struct SaveState {
     pub tick: u64,
+    /// Missing: the start of the seasonal cycle.
+    #[serde(default)]
     pub season_tick: u64,
     pub terrain_seed: u64,
+    /// Missing: every counter at zero. They feed the stats display only.
+    #[serde(default)]
     pub stats: SaveStats,
     pub organisms: Vec<SaveOrganism>,
+    /// Missing: no food. `food_regeneration_system` refills toward
+    /// `max_food_density` from the first tick.
+    #[serde(default)]
     pub food: Vec<SaveFood>,
+    /// Missing: zero. `validate_save_state` then raises it above every
+    /// innovation number in the loaded genomes, so new connections never
+    /// reuse one.
+    #[serde(default)]
     pub innovation_counter: u64,
+    /// Missing: an empty tree. Lookups by species id already tolerate a
+    /// species with no node, and classification records new species as
+    /// they appear.
+    #[serde(default)]
     pub phylo_nodes: Vec<SavePhyloNode>,
+    /// Missing: an empty chronicle.
+    #[serde(default)]
     pub chronicle_entries: Vec<SaveChronicleEntry>,
 }
 
-#[derive(Serialize, Deserialize)]
+/// Lifetime counters. Every field defaults to zero.
+#[derive(Serialize, Deserialize, Default, Debug, PartialEq)]
+#[serde(default)]
 pub struct SaveStats {
     pub total_births: u64,
     pub total_deaths: u64,
     pub max_generation: u32,
 }
 
+/// One organism as it is written to a save file.
+///
+/// Position, energy and genome are required: an organism has no neutral
+/// place to stand, its energy is the ledger's starting balance, and without
+/// a genome there is nothing to spawn. The rest is state an organism can
+/// start over with, and a missing field takes the value a founder spawns
+/// with.
 #[derive(Serialize, Deserialize)]
 pub struct SaveOrganism {
     pub x: f32,
     pub y: f32,
     pub energy: f32,
+    /// Missing: full health.
+    #[serde(default = "full_health")]
     pub health: f32,
+    #[serde(default)]
     pub age: u64,
+    #[serde(default)]
     pub generation: u32,
+    /// Missing: 0, the unclassified id every founder spawns with. The next
+    /// classification pass assigns a real species.
+    #[serde(default)]
     pub species_id: u64,
+    /// Missing: silent.
+    #[serde(default)]
     pub signal: f32,
+    /// Missing: cleared brain memory.
+    #[serde(default)]
     pub memory: [f32; 3],
     pub genome: SaveGenome,
+}
+
+/// The health a founder spawns with, used when a saved organism has none.
+fn full_health() -> f32 {
+    1.0
 }
 
 /// The genome as it is written to a save file.
@@ -476,6 +530,8 @@ pub fn load_world(path: &Path) -> Option<SaveState> {
 /// Drop any organisms that fail basic sanity checks; log a count if any
 /// are removed. Non-fatal — the sim starts with the survivors.
 fn validate_save_state(state: &mut SaveState) {
+    raise_innovation_counter(state);
+
     let before = state.organisms.len();
     state
         .organisms
@@ -498,6 +554,32 @@ fn validate_save_state(state: &mut SaveState) {
             warn!("Save organism y was non-finite ({}); snapping to 0", org.y);
             org.y = 0.0;
         }
+    }
+}
+
+/// Keep the innovation counter above every innovation number already in the
+/// loaded genomes. A save missing `innovation_counter` loads it as zero, and
+/// handing out numbers the population already carries would make unrelated
+/// connections look homologous to crossover and to the species distance. A
+/// save written by `save_world` already satisfies this and is unchanged.
+fn raise_innovation_counter(state: &mut SaveState) {
+    let Some(highest) = state
+        .organisms
+        .iter()
+        .flat_map(|org| org.genome.connections.iter())
+        .map(|c| c.innovation)
+        .max()
+    else {
+        return;
+    };
+    if state.innovation_counter <= highest {
+        warn!(
+            "Save innovation counter {} is not above the highest innovation in its genomes ({}); raising it to {}",
+            state.innovation_counter,
+            highest,
+            highest + 1
+        );
+        state.innovation_counter = highest + 1;
     }
 }
 
@@ -927,6 +1009,153 @@ mod tests {
         assert_eq!(g.armor, d.armor);
         assert_eq!(g.disease_resistance, d.disease_resistance);
         assert_eq!(g.diet, d.diet);
+    }
+
+    /// A complete save with one spawnable organism whose single connection
+    /// carries innovation 7, as a JSON value so tests can remove fields.
+    fn complete_save_json() -> serde_json::Value {
+        serde_json::json!({
+            "tick": 500, "season_tick": 120, "terrain_seed": 42,
+            "stats": {"total_births": 9, "total_deaths": 4, "max_generation": 3},
+            "organisms": [{
+                "x": 1.0, "y": 2.0, "energy": 50.0, "health": 0.4, "age": 80,
+                "generation": 3, "species_id": 5, "signal": 0.6, "memory": [0.1, 0.2, 0.3],
+                "genome": {
+                    "neurons": [
+                        {"id": 0, "neuron_type": 0, "activation": 0, "bias": 0.0},
+                        {"id": 1, "neuron_type": 2, "activation": 1, "bias": 0.0}
+                    ],
+                    "connections": [
+                        {"innovation": 7, "from": 0, "to": 1, "weight": 0.5, "enabled": true}
+                    ],
+                    "body_segments": [{"segment_type": 0, "size": 1.0,
+                        "attachment_angle": 0.0, "attachment_slot": 0, "symmetry": 1}]
+                }
+            }],
+            "food": [{"x": 3.0, "y": 4.0, "energy": 10.0}],
+            "innovation_counter": 100,
+            "phylo_nodes": [{"species_id": 5, "parent_id": null, "born_tick": 10,
+                "extinct_tick": null, "peak_population": 12, "strategy": 2, "name": "Test"}],
+            "chronicle_entries": [{"tick": 10, "text": "A species appeared"}]
+        })
+    }
+
+    fn load_json(tag: &str, value: &serde_json::Value) -> Option<SaveState> {
+        let scratch = ScratchDir::new(tag);
+        let path = scratch.0.join("save.json");
+        std::fs::write(&path, serde_json::to_vec(value).unwrap()).unwrap();
+        load_world(&path)
+    }
+
+    fn remove_field(value: &mut serde_json::Value, field: &str) {
+        value
+            .as_object_mut()
+            .unwrap()
+            .remove(field)
+            .unwrap_or_else(|| panic!("fixture has no field {}", field));
+    }
+
+    #[test]
+    fn complete_save_fixture_loads_unchanged() {
+        let state = load_json("complete", &complete_save_json()).expect("the fixture loads");
+        assert_eq!(state.tick, 500);
+        assert_eq!(state.season_tick, 120);
+        assert_eq!(state.innovation_counter, 100);
+        assert_eq!(state.organisms[0].species_id, 5);
+        assert_eq!(state.food.len(), 1);
+        assert_eq!(state.phylo_nodes.len(), 1);
+        assert_eq!(state.chronicle_entries.len(), 1);
+    }
+
+    /// A save carrying only the fields the world cannot be rebuilt without
+    /// loads, keeps its organism, and fills everything else with the values
+    /// documented on `SaveState` and `SaveOrganism`.
+    #[test]
+    fn save_with_only_required_fields_loads_with_defaults() {
+        let mut value = complete_save_json();
+        for field in [
+            "season_tick",
+            "stats",
+            "food",
+            "innovation_counter",
+            "phylo_nodes",
+            "chronicle_entries",
+        ] {
+            remove_field(&mut value, field);
+        }
+        let organism = &mut value["organisms"][0];
+        for field in [
+            "health",
+            "age",
+            "generation",
+            "species_id",
+            "signal",
+            "memory",
+        ] {
+            remove_field(organism, field);
+        }
+
+        let state =
+            load_json("required-only", &value).expect("a save missing optional fields loads");
+        assert_eq!(state.tick, 500);
+        assert_eq!(state.terrain_seed, 42);
+        assert_eq!(state.season_tick, 0);
+        assert_eq!(state.stats, SaveStats::default());
+        assert!(state.food.is_empty());
+        assert!(state.phylo_nodes.is_empty());
+        assert!(state.chronicle_entries.is_empty());
+
+        assert_eq!(state.organisms.len(), 1, "the organism must not be dropped");
+        let org = &state.organisms[0];
+        assert_eq!((org.x, org.y, org.energy), (1.0, 2.0, 50.0));
+        assert_eq!(org.health, full_health());
+        assert_eq!(org.age, 0);
+        assert_eq!(org.generation, 0);
+        assert_eq!(org.species_id, 0);
+        assert_eq!(org.signal, 0.0);
+        assert_eq!(org.memory, [0.0; 3]);
+    }
+
+    /// With the counter missing it loads as zero, below the innovation the
+    /// organism already carries; validation must lift it clear.
+    #[test]
+    fn missing_innovation_counter_is_raised_above_loaded_genomes() {
+        let mut value = complete_save_json();
+        remove_field(&mut value, "innovation_counter");
+        let state = load_json("innovation", &value).expect("loads");
+        assert_eq!(state.innovation_counter, 8);
+    }
+
+    #[test]
+    fn missing_innovation_counter_with_no_connections_stays_zero() {
+        let mut value = complete_save_json();
+        remove_field(&mut value, "innovation_counter");
+        value["organisms"] = serde_json::json!([]);
+        let state = load_json("innovation-empty", &value).expect("loads");
+        assert_eq!(state.innovation_counter, 0);
+    }
+
+    /// The fields with no neutral value still reject the whole file.
+    #[test]
+    fn save_missing_a_required_field_is_rejected() {
+        for field in ["tick", "terrain_seed", "organisms"] {
+            let mut value = complete_save_json();
+            remove_field(&mut value, field);
+            assert!(
+                load_json(&format!("missing-{}", field), &value).is_none(),
+                "a save without `{}` must not load",
+                field
+            );
+        }
+        for field in ["x", "y", "energy", "genome"] {
+            let mut value = complete_save_json();
+            remove_field(&mut value["organisms"][0], field);
+            assert!(
+                load_json(&format!("missing-organism-{}", field), &value).is_none(),
+                "a save with an organism without `{}` must not load",
+                field
+            );
+        }
     }
 
     #[test]
