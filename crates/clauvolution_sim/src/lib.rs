@@ -385,16 +385,18 @@ pub fn graze_bite(plant_energy: f32, bite_fraction: f32, mouth_bonus: f32) -> f3
 /// The efficiency a killer digests its kill at. Digestion follows the
 /// tissue, not the act: a plant victim is plant tissue and is digested at
 /// `plant_efficiency`; an animal victim at `animal_efficiency` times the
-/// hunting multiplier (`SimConfig::animal_efficiency_multiplier`).
+/// hunting multiplier (`SimConfig::animal_efficiency_multiplier`). Both
+/// efficiencies use the curve's exponent (`SimConfig::diet_efficiency_exponent`).
 pub fn kill_digestion_efficiency(
     killer: &Genome,
     victim_is_plant: bool,
-    animal_efficiency_multiplier: f32,
+    config: &SimConfig,
 ) -> f32 {
+    let exponent = config.diet_efficiency_exponent;
     if victim_is_plant {
-        killer.plant_efficiency()
+        killer.plant_efficiency(exponent)
     } else {
-        killer.animal_efficiency() * animal_efficiency_multiplier
+        killer.animal_efficiency(exponent) * config.animal_efficiency_multiplier
     }
 }
 
@@ -1369,8 +1371,10 @@ fn action_system(
                     // Food items are plant tissue. The undigested share is not
                     // organism energy (nor is the part a weak mouth leaves), so
                     // only what the eater keeps enters the ledger.
-                    let (gained, _wasted) =
-                        digest(food_energy * mouth_bonus, genome.plant_efficiency());
+                    let (gained, _wasted) = digest(
+                        food_energy * mouth_bonus,
+                        genome.plant_efficiency(config.diet_efficiency_exponent),
+                    );
                     ledger.tick.clamp +=
                         credit_clamped(&mut energy, gained, config.max_organism_energy) as f64;
                     ledger.tick.food += gained as f64;
@@ -1517,7 +1521,10 @@ fn grazing_system(
         let Ok((_, _, _, _, _, eater_genome, _, _)) = organisms.get(eater) else {
             continue;
         };
-        let (kept, wasted) = digest(bite, eater_genome.plant_efficiency());
+        let (kept, wasted) = digest(
+            bite,
+            eater_genome.plant_efficiency(config.diet_efficiency_exponent),
+        );
         if let Some(b) = diet_band(eater_genome) {
             bands.energy[b].bites += 1;
             bands.energy[b].bite_energy += kept as f64;
@@ -1849,11 +1856,7 @@ fn predation_system(
         // rest of the victim's energy to death.
         let (energy_gained, wasted) = digest(
             victim_energy_before * config.kill_share(victim_is_plant),
-            kill_digestion_efficiency(
-                killer_genome,
-                victim_is_plant,
-                config.animal_efficiency_multiplier,
-            ),
+            kill_digestion_efficiency(killer_genome, victim_is_plant, &config),
         );
         predation_stats.feeding.record_kill(
             killer_genome.diet,
@@ -4403,13 +4406,33 @@ mod grazing_tests {
     fn kills_are_digested_by_tissue() {
         let herbivore = genome(false, true, -1.0, 1.0);
         let carnivore = genome(false, true, 1.0, 1.0);
-        assert_eq!(kill_digestion_efficiency(&herbivore, true, 1.0), 1.0);
-        assert_eq!(kill_digestion_efficiency(&herbivore, false, 1.0), 0.0);
-        assert_eq!(kill_digestion_efficiency(&carnivore, true, 1.0), 0.0);
-        assert_eq!(kill_digestion_efficiency(&carnivore, false, 1.0), 1.0);
+        let config = SimConfig::default();
+        assert_eq!(kill_digestion_efficiency(&herbivore, true, &config), 1.0);
+        assert_eq!(kill_digestion_efficiency(&herbivore, false, &config), 0.0);
+        assert_eq!(kill_digestion_efficiency(&carnivore, true, &config), 0.0);
+        assert_eq!(kill_digestion_efficiency(&carnivore, false, &config), 1.0);
         // Switching hunting off leaves plant kills alone.
-        assert_eq!(kill_digestion_efficiency(&herbivore, true, 0.0), 1.0);
-        assert_eq!(kill_digestion_efficiency(&carnivore, false, 0.0), 0.0);
+        let no_hunting = SimConfig {
+            animal_efficiency_multiplier: 0.0,
+            ..SimConfig::default()
+        };
+        assert_eq!(
+            kill_digestion_efficiency(&herbivore, true, &no_hunting),
+            1.0
+        );
+        assert_eq!(
+            kill_digestion_efficiency(&carnivore, false, &no_hunting),
+            0.0
+        );
+        // The exponent reaches kills too: a generalist at exponent 1 digests
+        // half of either tissue.
+        let generalist = genome(false, true, 0.0, 1.0);
+        let linear = SimConfig {
+            diet_efficiency_exponent: 1.0,
+            ..SimConfig::default()
+        };
+        assert_eq!(kill_digestion_efficiency(&generalist, true, &linear), 0.5);
+        assert_eq!(kill_digestion_efficiency(&generalist, false, &linear), 0.5);
     }
 
     /// `eat` bites the nearest living plant, with no claws: the plant loses

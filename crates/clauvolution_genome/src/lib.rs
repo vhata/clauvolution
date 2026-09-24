@@ -377,6 +377,19 @@ pub struct Genome {
     pub diet: f32,
 }
 
+/// One side of the digestion curve: `share^exponent`, for a share of the
+/// diet axis in 0..1. At the default exponent 2.0 this multiplies rather
+/// than calling `powf`, whose result differs from `share * share` in the
+/// last bit for some inputs; the multiply keeps default runs byte-identical
+/// to the runs from before the exponent became a knob.
+fn digestion_curve(share: f32, exponent: f32) -> f32 {
+    if exponent == 2.0 {
+        share * share
+    } else {
+        share.powf(exponent)
+    }
+}
+
 impl Genome {
     /// Create a minimal starting genome with the default founder diet spread.
     pub fn new_minimal(innovation: &mut InnovationCounter, rng: &mut impl Rng) -> Self {
@@ -596,19 +609,22 @@ impl Genome {
     }
 
     /// Fraction of plant tissue this organism can digest, from `diet`:
-    /// `((1 - diet) / 2)^2`. 1.0 for a pure herbivore, 0.25 for a
-    /// generalist, 0.0 for a pure carnivore.
-    pub fn plant_efficiency(&self) -> f32 {
+    /// `((1 - diet) / 2)^exponent`, where the caller passes
+    /// `SimConfig::diet_efficiency_exponent` (2.0 by default, never below
+    /// `MIN_DIET_EFFICIENCY_EXPONENT`). At 2.0: 1.0 for a pure herbivore,
+    /// 0.25 for a generalist, 0.0 for a pure carnivore.
+    pub fn plant_efficiency(&self, exponent: f32) -> f32 {
         let h = (1.0 - DIET_BOUNDS.clamp(self.diet)) / 2.0;
-        h * h
+        digestion_curve(h, exponent)
     }
 
     /// Fraction of animal tissue this organism can digest, from `diet`:
-    /// `((1 + diet) / 2)^2`. 0.0 for a pure herbivore, 0.25 for a
-    /// generalist, 1.0 for a pure carnivore.
-    pub fn animal_efficiency(&self) -> f32 {
+    /// `((1 + diet) / 2)^exponent`, the mirror of `plant_efficiency`. At
+    /// 2.0: 0.0 for a pure herbivore, 0.25 for a generalist, 1.0 for a pure
+    /// carnivore.
+    pub fn animal_efficiency(&self, exponent: f32) -> f32 {
         let c = (1.0 + DIET_BOUNDS.clamp(self.diet)) / 2.0;
-        c * c
+        digestion_curve(c, exponent)
     }
 
     pub fn total_photo_surface_area(&self) -> f32 {
@@ -1187,18 +1203,56 @@ mod tests {
     fn diet_efficiencies_follow_the_squared_curve() {
         let mut g = base_genome(2);
         g.diet = -1.0;
-        assert!((g.plant_efficiency() - 1.0).abs() < 1e-6);
-        assert!(g.animal_efficiency().abs() < 1e-6);
+        assert!((g.plant_efficiency(2.0) - 1.0).abs() < 1e-6);
+        assert!(g.animal_efficiency(2.0).abs() < 1e-6);
         g.diet = 1.0;
-        assert!(g.plant_efficiency().abs() < 1e-6);
-        assert!((g.animal_efficiency() - 1.0).abs() < 1e-6);
+        assert!(g.plant_efficiency(2.0).abs() < 1e-6);
+        assert!((g.animal_efficiency(2.0) - 1.0).abs() < 1e-6);
         g.diet = 0.0;
-        assert!((g.plant_efficiency() - 0.25).abs() < 1e-6);
-        assert!((g.animal_efficiency() - 0.25).abs() < 1e-6);
+        assert!((g.plant_efficiency(2.0) - 0.25).abs() < 1e-6);
+        assert!((g.animal_efficiency(2.0) - 0.25).abs() < 1e-6);
         // Out-of-range values (old saves) are clamped, not extrapolated.
         g.diet = 3.0;
-        assert!((g.animal_efficiency() - 1.0).abs() < 1e-6);
-        assert!(g.plant_efficiency().abs() < 1e-6);
+        assert!((g.animal_efficiency(2.0) - 1.0).abs() < 1e-6);
+        assert!(g.plant_efficiency(2.0).abs() < 1e-6);
+    }
+
+    /// The default exponent must reproduce the squared curve bit for bit,
+    /// since default runs are held byte-identical to the runs before the
+    /// exponent became a knob.
+    #[test]
+    fn default_exponent_is_exactly_the_square() {
+        // `black_box` keeps the exponent a runtime value, as it is in the
+        // sim, so the check does not depend on constant folding.
+        let exponent = std::hint::black_box(2.0_f32);
+        let mut g = base_genome(2);
+        for step in 0..=2000 {
+            g.diet = -1.0 + step as f32 * 0.001;
+            let h = (1.0 - g.diet.clamp(-1.0, 1.0)) / 2.0;
+            let c = (1.0 + g.diet.clamp(-1.0, 1.0)) / 2.0;
+            assert_eq!(g.plant_efficiency(exponent).to_bits(), (h * h).to_bits());
+            assert_eq!(g.animal_efficiency(exponent).to_bits(), (c * c).to_bits());
+        }
+    }
+
+    /// A flatter curve: at exponent 1 a generalist digests half of each
+    /// tissue, and at every exponent from 1 up the two efficiencies sum to
+    /// no more than 1, so a generalist never out-digests a specialist.
+    #[test]
+    fn flatter_exponents_keep_the_specialist_ahead() {
+        let mut g = base_genome(2);
+        g.diet = 0.0;
+        assert!((g.plant_efficiency(1.0) - 0.5).abs() < 1e-6);
+        assert!((g.animal_efficiency(1.0) - 0.5).abs() < 1e-6);
+        g.diet = -0.2;
+        assert!((g.plant_efficiency(1.5) - 0.6_f32.powf(1.5)).abs() < 1e-6);
+        for exponent in [1.0, 1.5, 2.0] {
+            for step in 0..=20 {
+                g.diet = -1.0 + step as f32 * 0.1;
+                let total = g.plant_efficiency(exponent) + g.animal_efficiency(exponent);
+                assert!(total <= 1.0 + 1e-6, "diet {} exponent {exponent}", g.diet);
+            }
+        }
     }
 
     #[test]
