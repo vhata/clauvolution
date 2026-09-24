@@ -525,11 +525,17 @@ fn sim_speed_system(speed: Res<SimSpeed>, mut virtual_time: ResMut<Time<Virtual>
     }
 }
 
-/// Translate keyboard hotkeys into WorldEventRequest events
+/// Translate keyboard hotkeys into WorldEventRequest events. Silent while
+/// egui has keyboard focus, like every other hotkey, so typing into a text
+/// field never fires a world event.
 fn keyboard_to_events_system(
     keys: Res<ButtonInput<KeyCode>>,
     mut events: EventWriter<WorldEventRequest>,
+    ui_input: Res<UiInputState>,
 ) {
+    if ui_input.wants_keyboard {
+        return;
+    }
     if keys.just_pressed(KeyCode::KeyX) {
         events.send(WorldEventRequest::Asteroid);
     }

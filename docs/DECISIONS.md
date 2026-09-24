@@ -492,7 +492,7 @@ Final strategy breakdown at 1000 ticks, before (three runs per seed: the two aud
 **Accepted tradeoff:** none worth noting — this is just the right way to do it in Bevy. Pause and relative speed are independent fields on `Time<Virtual>`, so pausing at 16× and unpausing resumes at 16×.
 
 ### Frustum culling in the render systems, not by Bevy's built-in
-**Chosen:** in `sync_organism_transforms` and `sync_food_transforms`, check each entity's position against the camera viewport and set `Visibility::Hidden` if off-screen. Margin-padded to prevent pop-in.
+**Chosen:** in `sync_organism_transforms` and `sync_food_transforms`, check each entity's position against the camera viewport and set `Visibility::Hidden` if off-screen. Margin-padded to prevent pop-in. The viewport is the primary window's logical size times the projection scale (`visible_world_rect`), which is what the default `ScalingMode::WindowSize` projection shows; the infection halos and the minimap's viewport box use the same rectangle. Until September 2026 all three hardcoded a 1920×1080 window, so any other window size culled visible organisms at the edges.
 **Alternatives:** rely on Bevy's built-in visibility culling (doesn't apply to 2D Mesh2d entities by default), render everything (wasted GPU), draw order spatial partition.
 **Why:** a 4-float-comparison per entity is trivial vs rendering cost for thousands of off-screen organisms. Big win at 2000 organisms.
 **Accepted tradeoff:** a small margin (~20px scaled) is used to prevent entities flickering at the camera edge — means we draw slightly more than strictly necessary.

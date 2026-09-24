@@ -70,6 +70,7 @@ The chain is the `SimTick` system set (exported by `clauvolution_sim`). Everythi
 ```
 spawn_terrain_sprites         ← one-time: generate chunked terrain meshes
 sync_organism_transforms      ← position, scale, LOD, frustum cull
+sync_selection_ring           ← one ring on SelectedOrganism, whatever set it
 sync_food_transforms          ← position; hidden at far zoom
 update_death_markers          ← fade/despawn death flash entities
 draw_trails_system            ← gizmos linestrips for visible organisms (if trails on)
