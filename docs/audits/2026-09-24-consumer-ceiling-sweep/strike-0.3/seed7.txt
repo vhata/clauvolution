@@ -1,0 +1,126 @@
+Compute pool capped at 6 workers (set CLAU_WORKERS to override)
+Headless run: 15000 ticks, seed 7 at 10× virtual-time
+Config override: strike_cost = 0.3
+
+=== Headless summary ===
+Founders by biome: Sand 1 (tiles 220), Grassland 148 (tiles 30459), Forest 251 (tiles 51395), Rock 0 (tiles 0); strategies: 133 plants, 104 grazers, 83 hunters, 80 omnivores; imported 0; starting energy 41.1..78.7
+Total organisms (final): 4033
+Species (final):         35
+Max generation:          91
+Total births:            132518
+Total deaths:            128885
+  by Starvation:         44300
+  by Predation:          35836
+    kills of consumers / plants: 27572 / 8264
+    by grazers (diet < 0):       35083 (27015 of consumers)
+    plants killed by consumers:  7958 (kept 14720.2 energy)
+    plants killed by hunters:    24 (kept 1.8 energy)
+  by Old age:            171
+  by Disease:            48578
+  by Event:              0
+Founding hunters died:   83 of 83 (mean age 296 ticks, oldest 1473)
+Population ceiling:      6000 (engaged 0 times, 0 births blocked)
+
+Final strategy breakdown:
+  Plants:              977
+  Grazers:             3056
+  Hunters:             0
+  Omnivores:           0
+  Infected:            702
+
+Final trait averages:
+  Body size:           1.34
+  Speed:               1.17
+  Attack:              0.06
+  Armor:               0.27
+  Photosynthesis:      27%
+  Diet (consumers):    -0.96
+  Leaf area (plants):  1.99
+  Speed plants/eaters: 0.547 / 2.309 per tick
+  Light share (plants): 0.63
+  Ready plants/eaters: 0% / 0%
+  Disease resistance:  15%
+  Symbiosis rate:      -0.09
+  Symbiotic pairs:     47
+  Avg lifespan:        284 ticks
+
+Grazer timeline (every 500 ticks; eat reach = 1 x body size):
+   tick  plants  grazers  hunters  grazer size  grazer armour  eat grazes  per grazer-s
+    511     191     2099        9         0.99           0.06        1317          0.06
+   1021     353     3811        2         1.14           0.05        5566          0.10
+   1501     475     2064        0         1.20           0.05        9408          0.19
+   2011     610      977        0         1.14           0.04        4617          0.23
+   2521    1249     3677        0         1.20           0.05       17625          0.45
+   3001    1282     3616        0         1.30           0.07       43274          0.69
+   3511     992     1254        0         1.33           0.07       27592          0.70
+   4021    1247     1958        0         1.34           0.06       13155          0.64
+   4501     966     3370        0         1.44           0.09       36071          0.78
+   5011     560     2370        0         1.48           0.10       28370          0.55
+   5521     507      799        0         1.48           0.09        9394          0.42
+   6001     775     2714        0         1.48           0.10       13493          0.52
+   6511     495     3343        0         1.53           0.12       29829          0.51
+   7021     419     1419        0         1.56           0.12       16468          0.40
+   7501     476     1183        0         1.59           0.12        6009          0.39
+   8011     611     3380        0         1.62           0.13       20663          0.50
+   8521     452     2567        0         1.65           0.14       26601          0.48
+   9001     353      809        0         1.66           0.13        9675          0.41
+   9511     577     2143        0         1.66           0.14        9075          0.44
+  10021     714     3550        0         1.69           0.15       31481          0.59
+  10501     569     1775        0         1.70           0.16       28228          0.64
+  11011     581      913        0         1.69           0.16        9576          0.55
+  11521     963     3354        0         1.68           0.18       26213          0.73
+  12001     926     3309        0         1.69           0.18       54161          0.92
+  12511     660     1098        0         1.69           0.17       31086          0.87
+  13021     766     1879        0         1.65           0.17       12402          0.65
+  13501     947     3848        0         1.66           0.18       44637          0.87
+  14011     799     2501        0         1.70           0.17       50895          0.88
+  14521     645      890        0         1.66           0.17       18532          0.79
+  15001     977     3056        0         1.64           0.17       22892          0.78
+
+Predation funnel:
+  Attack intents:      9512707
+  Targets considered:  12019795
+  Rejected (size):     336426
+  Rejected (damage):   11968245
+  Kills:               35836
+  Strikes (paid):      5166492 (92624.3 energy)
+  No plant in reach:   7811721
+  Grazes (eat/attack): 658305 / 0
+    eat bites by plants: 23481
+
+Consumer-prey gates (attacks with a consumer in reach):
+  band            intents  strikes  in reach    kill  plant  size-only  damage-only  both  mixed
+  diet >= 0         11959     2393      2173     523      5          3         1542   100      0
+  hunters            8221     1449      1313     453      5          3          763    89      0
+  founding hunt.     8025     1436      1300     452      5          3          762    78      0
+  Hunter intents by age (<100/<200/<300/<500/<1000/older):
+    all:         2049 / 1966 / 1280 / 1303 / 1150 / 473
+    in reach:    169 / 346 / 197 / 214 / 272 / 115
+  Founding hunters that fired: 30 (first at mean age 13); with a consumer in reach: 27 (first at mean age 75)
+  Founding hunters that killed a consumer: 4
+
+Energy ledger:
+  Baseline energy:     23351.3
+  Final live energy:   153247.4
+  Cumulative flows:
+    + photosynthesis              5199174.7
+    + food                       17187117.3
+    + predation                     17104.2
+      grazing                     2949337.8
+      symbiosis                      7995.4
+    - metabolism                 13384806.2
+    - movement                    4951571.7
+    - disease                      721841.6
+    - reproduction_spent          6358004.1
+    + reproduction_received       5086403.4
+    - death                       1393736.5
+    - clamp                        109772.3
+    - digestion                    440171.2
+  Net of flows:        +129896.0
+  Largest |residual|:  0.000521 per tick (tolerance 0.1)
+  Final residual:      +0.000015
+  Cumulative residual: +0.006101
+  Ticks over tolerance: 0
+
+Wrote 500 snapshots to docs/audits/2026-09-24-consumer-ceiling-sweep/strike-0.3/seed7.csv
+Headless run complete in 301.53s

@@ -1,0 +1,31 @@
+04:42:22 start food-0.05 seed3
+04:42:22 start food-0.05 seed7
+04:42:22 start food-0.05 seed42
+04:46:43 done  food-0.05 seed3 (exit 0)
+04:46:43 start food-0.02 seed42
+04:49:08 done  food-0.05 seed7 (exit 0)
+04:49:08 start food-0.02 seed3
+04:50:41 done  food-0.05 seed42 (exit 0)
+04:50:41 start food-0.02 seed7
+04:55:16 done  food-0.02 seed3 (exit 0)
+04:55:16 start strike-0.3 seed42
+04:55:16 done  food-0.02 seed42 (exit 0)
+04:55:16 start strike-0.3 seed3
+04:58:12 done  food-0.02 seed7 (exit 0)
+04:58:12 start strike-0.3 seed7
+05:00:38 done  strike-0.3 seed3 (exit 0)
+05:00:38 start food-0.2 seed42
+05:03:13 done  strike-0.3 seed7 (exit 0)
+05:03:13 start food-0.2 seed3
+05:03:29 done  strike-0.3 seed42 (exit 0)
+05:03:30 start food-0.2 seed7
+05:07:29 done  food-0.2 seed3 (exit 0)
+05:07:29 start strike-3.0 seed42
+05:07:46 done  food-0.2 seed42 (exit 0)
+05:07:46 start strike-3.0 seed3
+05:08:21 done  food-0.2 seed7 (exit 0)
+05:08:21 start strike-3.0 seed7
+05:14:16 done  strike-3.0 seed3 (exit 0)
+05:15:07 done  strike-3.0 seed7 (exit 0)
+05:16:00 done  strike-3.0 seed42 (exit 0)
+05:16:00 sweep complete
