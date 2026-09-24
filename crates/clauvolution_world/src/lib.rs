@@ -283,9 +283,16 @@ impl SpatialHash {
         self.cells.entry(key).or_default().push(entity);
     }
 
+    /// How many cells either side of the centre cell a query of `radius`
+    /// visits. `query_radius` and sensing's copy of the hash both use it, so
+    /// they visit the same cells in the same order.
+    pub fn cell_range(&self, radius: f32) -> i32 {
+        (radius / self.cell_size).ceil() as i32 + 1
+    }
+
     pub fn query_radius(&self, pos: Vec2, radius: f32) -> Vec<Entity> {
         let mut result = Vec::new();
-        let cells_range = (radius / self.cell_size).ceil() as i32 + 1;
+        let cells_range = self.cell_range(radius);
         let center = self.cell_key(pos);
 
         for dx in -cells_range..=cells_range {

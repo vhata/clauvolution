@@ -765,9 +765,104 @@ fn update_food_snapshot(
         .extend(food_query.iter().map(|(e, p, fe)| (e, p.0, fe.0)));
 }
 
+/// What sensing reads about a neighbouring organism, copied once per tick.
+#[derive(Clone, Copy)]
+struct SensedOrganism {
+    entity: Entity,
+    pos: Vec2,
+    size: f32,
+    species: u64,
+    /// `photosynthesis_rate.min(1.0)`, the nearest-organism photo hint.
+    photo_hint: f32,
+    is_photosynthesiser: bool,
+    signal: f32,
+}
+
+/// The spatial hash with each organism's sensed fields copied in, laid out
+/// as a dense grid of cells over the occupied key range.
+///
+/// Sensing used to call `SpatialHash::query_radius`, which allocates and
+/// fills a `Vec` per organism, and then resolve every returned entity
+/// through an ECS query. Here each organism is looked up once per tick, and
+/// a neighbour scan walks contiguous slices with no allocation. Within a
+/// cell, entries keep the hash's order, and `cell` is visited in
+/// `query_radius`'s order, so nearest-neighbour ties resolve exactly as
+/// before. See DECISIONS.md, "Sensing reads a per-tick copy of the hash".
+#[derive(Default)]
+struct SensingGrid {
+    entries: Vec<SensedOrganism>,
+    /// Per cell, row-major from `min`, the `[start, end)` range of `entries`.
+    ranges: Vec<(u32, u32)>,
+    min: (i32, i32),
+    width: i32,
+    height: i32,
+}
+
+impl SensingGrid {
+    fn rebuild(
+        &mut self,
+        hash: &SpatialHash,
+        mut sense: impl FnMut(Entity) -> Option<SensedOrganism>,
+    ) {
+        self.entries.clear();
+        self.ranges.clear();
+        let mut keys = hash.cells.keys();
+        let Some(&first) = keys.next() else {
+            self.width = 0;
+            self.height = 0;
+            return;
+        };
+        let (mut min, mut max) = (first, first);
+        for &(x, y) in keys {
+            min = (min.0.min(x), min.1.min(y));
+            max = (max.0.max(x), max.1.max(y));
+        }
+        self.min = min;
+        self.width = max.0 - min.0 + 1;
+        self.height = max.1 - min.1 + 1;
+        // Positions are wrapped into the world, so the key range is bounded
+        // by the world size over the cell size.
+        debug_assert!(
+            (self.width as i64) * (self.height as i64) <= 1 << 24,
+            "spatial hash keys span {}x{} cells",
+            self.width,
+            self.height
+        );
+        self.ranges
+            .resize((self.width * self.height) as usize, (0, 0));
+        for (&key, entities) in &hash.cells {
+            let start = self.entries.len() as u32;
+            self.entries
+                .extend(entities.iter().filter_map(|&entity| sense(entity)));
+            let index = self.index(key).expect("key inside the grid it sized");
+            self.ranges[index] = (start, self.entries.len() as u32);
+        }
+    }
+
+    fn index(&self, (x, y): (i32, i32)) -> Option<usize> {
+        let (dx, dy) = (x - self.min.0, y - self.min.1);
+        if dx < 0 || dy < 0 || dx >= self.width || dy >= self.height {
+            return None;
+        }
+        Some((dy * self.width + dx) as usize)
+    }
+
+    /// The organisms in one cell, in the hash's order; empty outside the grid.
+    fn cell(&self, key: (i32, i32)) -> &[SensedOrganism] {
+        match self.index(key) {
+            Some(index) => {
+                let (start, end) = self.ranges[index];
+                &self.entries[start as usize..end as usize]
+            }
+            None => &[],
+        }
+    }
+}
+
 fn sensing_and_brain_system(
     config: Res<SimConfig>,
     spatial_hash: Res<SpatialHash>,
+    mut sensing_grid: Local<SensingGrid>,
     tile_map: Res<TileMap>,
     mut organisms: Query<
         (
@@ -799,6 +894,20 @@ fn sensing_and_brain_system(
     //
     // Brain eval dominates the per-tick cost at 2000 organisms. Rayon
     // (via Bevy's TaskPool) spreads it across cores.
+    sensing_grid.rebuild(&spatial_hash, |entity| {
+        let (pos, size, species, genome, signal) = all_org_data.get(entity).ok()?;
+        Some(SensedOrganism {
+            entity,
+            pos: pos.0,
+            size: size.0,
+            species: species.0,
+            photo_hint: genome.photosynthesis_rate.min(1.0),
+            is_photosynthesiser: genome.is_photosynthesiser(),
+            signal: signal.0,
+        })
+    });
+    let sensing_grid = &*sensing_grid;
+
     organisms.par_iter_mut().for_each(|(entity, pos, energy, health, genome, brain, body_size, species_id, memory, mut output, mut group_size, mut activations)| {
         let mut inputs = [0.0f32; NUM_INPUTS];
 
@@ -823,7 +932,6 @@ fn sensing_and_brain_system(
             inputs[3] = 1.0 - (nearest_food_dist / sense_range).min(1.0);
         }
 
-        let nearby_entities = spatial_hash.query_radius(pos.0, sense_range);
         let mut nearest_org_dist = f32::MAX;
         let mut nearest_org_dir = Vec2::ZERO;
         let mut nearest_org_size_ratio = 1.0f32;
@@ -840,41 +948,45 @@ fn sensing_and_brain_system(
         let mut same_species_count = 0u32;
         let mut same_species_signal_sum = 0.0f32;
 
-        for &nearby_entity in &nearby_entities {
-            if nearby_entity == entity {
-                continue;
-            }
-            if let Ok((other_pos, other_size, other_species, other_genome, other_signal)) = all_org_data.get(nearby_entity) {
-                // Nothing has moved since `update_spatial_hash` ran this tick, so every
-                // returned entity must still fall inside the queried cell range.
-                debug_assert!({
-                    let range_cells = (sense_range / spatial_hash.cell_size).ceil() as i32 + 1;
-                    let (cx, cy) = spatial_hash.cell_key(pos.0);
-                    let (kx, ky) = spatial_hash.cell_key(other_pos.0);
-                    (kx - cx).abs() <= range_cells && (ky - cy).abs() <= range_cells
-                }, "spatial hash returned an entity outside the queried cells; is update_spatial_hash still ordered before sensing?");
-                let diff = other_pos.0 - pos.0;
-                let dist = diff.length();
+        // The cells `query_radius` would visit, in its order.
+        let range_cells = spatial_hash.cell_range(sense_range);
+        let (cx, cy) = spatial_hash.cell_key(pos.0);
+        for dx in -range_cells..=range_cells {
+            for dy in -range_cells..=range_cells {
+                let key = (cx + dx, cy + dy);
+                for other in sensing_grid.cell(key) {
+                    if other.entity == entity {
+                        continue;
+                    }
+                    // Nothing has moved since `update_spatial_hash` ran this tick, so every
+                    // organism must still sit in the cell the hash filed it under.
+                    debug_assert_eq!(
+                        spatial_hash.cell_key(other.pos), key,
+                        "spatial hash cell disagrees with a position; is update_spatial_hash still ordered before sensing?"
+                    );
+                    let diff = other.pos - pos.0;
+                    let dist = diff.length();
 
-                // Track same-species neighbours for social inputs
-                if dist < sense_range && other_species.0 == species_id.0 {
-                    same_species_count += 1;
-                    same_species_signal_sum += other_signal.0;
-                }
+                    // Track same-species neighbours for social inputs
+                    if dist < sense_range && other.species == species_id.0 {
+                        same_species_count += 1;
+                        same_species_signal_sum += other.signal;
+                    }
 
-                if dist < nearest_org_dist && dist < sense_range {
-                    nearest_org_dist = dist;
-                    nearest_org_dir = if dist > 0.001 { diff / dist } else { Vec2::ZERO };
-                    nearest_org_size_ratio = other_size.0 / body_size.0;
-                    nearest_org_same_species = if other_species.0 == species_id.0 { 1.0 } else { 0.0 };
-                    nearest_org_photo_hint = other_genome.photosynthesis_rate.min(1.0);
-                    nearest_org_signal = other_signal.0;
-                }
+                    if dist < nearest_org_dist && dist < sense_range {
+                        nearest_org_dist = dist;
+                        nearest_org_dir = if dist > 0.001 { diff / dist } else { Vec2::ZERO };
+                        nearest_org_size_ratio = other.size / body_size.0;
+                        nearest_org_same_species = if other.species == species_id.0 { 1.0 } else { 0.0 };
+                        nearest_org_photo_hint = other.photo_hint;
+                        nearest_org_signal = other.signal;
+                    }
 
-                if dist < nearest_eater_dist && dist < sense_range && !other_genome.is_photosynthesiser() {
-                    nearest_eater_dist = dist;
-                    nearest_eater_dir = if dist > 0.001 { diff / dist } else { Vec2::ZERO };
-                    nearest_eater_size_ratio = other_size.0 / body_size.0;
+                    if dist < nearest_eater_dist && dist < sense_range && !other.is_photosynthesiser {
+                        nearest_eater_dist = dist;
+                        nearest_eater_dir = if dist > 0.001 { diff / dist } else { Vec2::ZERO };
+                        nearest_eater_size_ratio = other.size / body_size.0;
+                    }
                 }
             }
         }
