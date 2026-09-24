@@ -1,0 +1,76 @@
+Compute pool capped at 6 workers (set CLAU_WORKERS to override)
+Headless run: 5000 ticks, seed 42 at 10× virtual-time
+
+=== Headless summary ===
+Founders by biome: Sand 63 (tiles 26978), Grassland 185 (tiles 79347), Forest 152 (tiles 65377), Rock 0 (tiles 0); strategies: 133 plants, 85 grazers, 91 hunters, 91 omnivores; imported 0; starting energy 41.0..78.6
+Total organisms (final): 2373
+Species (final):         25
+Max generation:          62
+Total births:            70895
+Total deaths:            69017
+  by Starvation:         10045
+  by Predation:          39338
+    kills of consumers / plants: 39338 / 0
+    by grazers (diet < 0):       37055 (37055 of consumers)
+  by Old age:            39
+  by Disease:            19595
+  by Event:              0
+Population ceiling:      6000 (engaged 2 times, 883687 births blocked)
+
+Final strategy breakdown:
+  Plants:              640
+  Grazers:             1733
+  Hunters:             0
+  Omnivores:           0
+  Infected:            318
+
+Final trait averages:
+  Body size:           1.38
+  Speed:               1.30
+  Attack:              0.37
+  Armor:               1.48
+  Photosynthesis:      23%
+  Diet (consumers):    -0.87
+  Leaf area (plants):  1.78
+  Speed plants/eaters: 0.368 / 1.811 per tick
+  Light share (plants): 0.82
+  Ready plants/eaters: 0% / 0%
+  Disease resistance:  8%
+  Symbiosis rate:      -0.17
+  Symbiotic pairs:     103
+  Avg lifespan:        284 ticks
+
+Predation funnel:
+  Attack intents:      9077603
+  Targets considered:  10574685
+  Rejected (size):     187201
+  Rejected (damage):   8883240
+  Kills:               39338
+  No plant in reach:   6434434
+  Grazes (eat/attack): 0 / 1299947
+
+Energy ledger:
+  Baseline energy:     23162.9
+  Final live energy:   72925.6
+  Cumulative flows:
+    + photosynthesis              3780312.9
+    + food                        6013271.0
+    + predation                      8695.9
+      grazing                     1704612.0
+      symbiosis                      6426.9
+    - metabolism                  4474805.1
+    - movement                    1240940.5
+    - disease                      584249.4
+    - reproduction_spent          2857938.3
+    + reproduction_received       2286350.7
+    - death                       1625265.1
+    - clamp                        528104.6
+    - digestion                    727564.6
+  Net of flows:        +49762.7
+  Largest |residual|:  0.000673 per tick (tolerance 0.1)
+  Final residual:      -0.000031
+  Cumulative residual: +0.049640
+  Ticks over tolerance: 0
+
+Wrote 166 snapshots to seed42-run1.csv
+Headless run complete in 542.99s

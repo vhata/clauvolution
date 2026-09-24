@@ -363,8 +363,78 @@ pub struct PredationStats {
     pub rejected_damage: u64,
     /// Successful kills
     pub kills: u64,
-    /// Bites taken from living plants (an attack on a photosynthesiser)
-    pub grazes: u64,
+    /// Who fed on whom, and through which output. Counted over the whole
+    /// run; `PopulationHistory` diffs it into per-second values for the
+    /// Graphs tab and the history CSV.
+    pub feeding: FeedingCounts,
+}
+
+/// Trophic counters for the graze/attack split
+/// (`plans/2026-09-21-pyramid-top.md`, step 1). They separate the two ways
+/// a consumer can take plant tissue and say who is killing whom, so that
+/// moving grazing from `attack` to `eat` can be judged by numbers.
+///
+/// "Grazer" here means a killer whose `diet` is below 0 (plant-leaning),
+/// a wider band than the grazer strategy label (`diet <= -1/3`), so that
+/// omnivores on the plant side are counted as well. "Consumer" means a
+/// victim that is not a photosynthesiser (`Genome::is_photosynthesiser`).
+#[derive(Clone, Copy, Default, Debug, PartialEq)]
+pub struct FeedingCounts {
+    /// Bites taken from a living plant through the `eat` output. Always 0
+    /// under the current rules; step 2 of the plan fills it.
+    pub grazes_eat: u64,
+    /// Bites taken from a living plant through the `attack` output.
+    pub grazes_attack: u64,
+    /// Kills whose victim is a consumer.
+    pub kills_consumer: u64,
+    /// Kills whose victim is a photosynthesiser. Always 0 under the current
+    /// rules, where an attack on a plant is a graze.
+    pub kills_plant: u64,
+    /// Kills by a killer with `diet < 0`, any victim.
+    pub grazer_kills: u64,
+    /// Kills by a killer with `diet < 0` whose victim is a consumer: the
+    /// bystander kills the split is meant to remove.
+    pub grazer_kills_consumer: u64,
+    /// Attack intents (`attack > 0.5`) with no living photosynthesiser
+    /// within attack range, whether or not another attacker had claimed it.
+    pub attacks_no_plant_in_reach: u64,
+}
+
+impl FeedingCounts {
+    /// Count one kill by who made it and what it killed.
+    pub fn record_kill(&mut self, killer_diet: f32, victim_is_plant: bool) {
+        if victim_is_plant {
+            self.kills_plant += 1;
+        } else {
+            self.kills_consumer += 1;
+        }
+        if killer_diet < 0.0 {
+            self.grazer_kills += 1;
+            if !victim_is_plant {
+                self.grazer_kills_consumer += 1;
+            }
+        }
+    }
+
+    /// All bites of living plants, through either output.
+    pub fn grazes(&self) -> u64 {
+        self.grazes_eat + self.grazes_attack
+    }
+
+    /// Per-field difference, for per-interval values from two cumulative
+    /// readings.
+    pub fn minus(&self, other: &FeedingCounts) -> FeedingCounts {
+        FeedingCounts {
+            grazes_eat: self.grazes_eat - other.grazes_eat,
+            grazes_attack: self.grazes_attack - other.grazes_attack,
+            kills_consumer: self.kills_consumer - other.kills_consumer,
+            kills_plant: self.kills_plant - other.kills_plant,
+            grazer_kills: self.grazer_kills - other.grazer_kills,
+            grazer_kills_consumer: self.grazer_kills_consumer - other.grazer_kills_consumer,
+            attacks_no_plant_in_reach: self.attacks_no_plant_in_reach
+                - other.attacks_no_plant_in_reach,
+        }
+    }
 }
 
 #[derive(Resource)]
@@ -502,6 +572,9 @@ pub struct PopSnapshot {
     pub energy_flows: EnergyFlows,
     pub ledger_max_residual: f32,
     pub ledger_cumulative_residual: f32,
+    /// Grazes and kills during this one-second interval, by output and by
+    /// who killed whom. See `FeedingCounts`.
+    pub feeding: FeedingCounts,
 }
 
 /// Tracks organism lifespans for fitness measurement
@@ -523,6 +596,7 @@ pub struct PopulationHistory {
     prev_deaths: u64,
     prev_deaths_by_cause: [u64; DEATH_CAUSE_COUNT],
     prev_flows: EnergyFlows,
+    prev_feeding: FeedingCounts,
 }
 
 impl Default for PopulationHistory {
@@ -535,6 +609,7 @@ impl Default for PopulationHistory {
             prev_deaths: 0,
             prev_deaths_by_cause: [0; DEATH_CAUSE_COUNT],
             prev_flows: EnergyFlows::default(),
+            prev_feeding: FeedingCounts::default(),
         }
     }
 }
@@ -544,6 +619,7 @@ impl PopulationHistory {
     pub fn record(
         &mut self,
         stats: &SimStats,
+        predation: &PredationStats,
         ledger: &mut EnergyLedger,
         snapshot: PopSnapshotInput,
     ) {
@@ -564,6 +640,9 @@ impl PopulationHistory {
         let dd = (stats.deaths_by_cause[3] - self.prev_deaths_by_cause[3]) as u32;
         let de = (stats.deaths_by_cause[4] - self.prev_deaths_by_cause[4]) as u32;
         self.prev_deaths_by_cause = stats.deaths_by_cause;
+
+        let feeding = predation.feeding.minus(&self.prev_feeding);
+        self.prev_feeding = predation.feeding;
 
         self.snapshots.push(PopSnapshot {
             tick: snapshot.tick,
@@ -603,6 +682,7 @@ impl PopulationHistory {
             energy_flows,
             ledger_max_residual,
             ledger_cumulative_residual: ledger.cumulative_residual as f32,
+            feeding,
         });
 
         if self.snapshots.len() > self.max_entries {
@@ -1239,5 +1319,58 @@ mod energy_flow_tests {
         };
         let sum: f64 = flows.entries().iter().map(|(_, v)| v).sum();
         assert_eq!(sum, (1..=13).sum::<i32>() as f64);
+    }
+}
+
+#[cfg(test)]
+mod feeding_count_tests {
+    use super::*;
+
+    /// A kill lands in exactly one victim bucket, and in the grazer buckets
+    /// only when the killer's diet is below zero.
+    #[test]
+    fn record_kill_sorts_by_killer_diet_and_victim() {
+        let mut c = FeedingCounts::default();
+        c.record_kill(-0.8, false); // grazer kills a consumer
+        c.record_kill(-0.1, true); // plant-leaning killer kills a plant
+        c.record_kill(0.0, false); // neutral diet is not a grazer
+        c.record_kill(0.9, true); // hunter kills a plant
+        assert_eq!(c.kills_consumer, 2);
+        assert_eq!(c.kills_plant, 2);
+        assert_eq!(c.grazer_kills, 2);
+        assert_eq!(c.grazer_kills_consumer, 1);
+        assert_eq!(c.grazes(), 0);
+    }
+
+    /// Per-second values come from two cumulative readings.
+    #[test]
+    fn minus_is_per_field() {
+        let a = FeedingCounts {
+            grazes_eat: 5,
+            grazes_attack: 7,
+            kills_consumer: 3,
+            kills_plant: 1,
+            grazer_kills: 2,
+            grazer_kills_consumer: 2,
+            attacks_no_plant_in_reach: 9,
+        };
+        let b = FeedingCounts {
+            grazes_eat: 1,
+            grazes_attack: 2,
+            kills_consumer: 3,
+            kills_plant: 0,
+            grazer_kills: 1,
+            grazer_kills_consumer: 1,
+            attacks_no_plant_in_reach: 4,
+        };
+        let d = a.minus(&b);
+        assert_eq!(d.grazes_eat, 4);
+        assert_eq!(d.grazes_attack, 5);
+        assert_eq!(d.kills_consumer, 0);
+        assert_eq!(d.kills_plant, 1);
+        assert_eq!(d.grazer_kills, 1);
+        assert_eq!(d.grazer_kills_consumer, 1);
+        assert_eq!(d.attacks_no_plant_in_reach, 5);
+        assert_eq!(a.grazes(), 12);
     }
 }

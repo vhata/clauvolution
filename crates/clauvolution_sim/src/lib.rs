@@ -1004,13 +1004,13 @@ fn predation_system(
     mut ledger: ResMut<EnergyLedger>,
 ) {
     // Collect attack intents
-    let attackers: Vec<(Entity, Vec2, f32, f32, f32)> = organisms
+    let attackers: Vec<(Entity, Vec2, f32, f32, f32, f32)> = organisms
         .iter()
         .filter(|(_, _, _, _, _, _, _, output)| output.attack > 0.5)
         .map(|(e, pos, _, _, _, genome, body_size, _)| {
             let attack_str = genome.claw_power() * body_size.0;
             let attack_range = body_size.0 * 4.0;
-            (e, pos.0, attack_str, attack_range, body_size.0)
+            (e, pos.0, attack_str, attack_range, body_size.0, genome.diet)
         })
         .collect();
     predation_stats.attacks_attempted += attackers.len() as u64;
@@ -1027,14 +1027,20 @@ fn predation_system(
     let mut claimed_victims: HashSet<Entity> = HashSet::new();
     let mut candidates: Vec<StrikeCandidate> = Vec::new();
 
-    for (attacker_entity, attacker_pos, attack_str, attack_range, attacker_size) in &attackers {
+    for (attacker_entity, attacker_pos, attack_str, attack_range, attacker_size, attacker_diet) in
+        &attackers
+    {
         let nearby = spatial_hash.query_radius(*attacker_pos, *attack_range);
         candidates.clear();
+        // Instrument only: whether any living plant was within reach,
+        // claimed or not. It does not affect which target is struck.
+        let mut plant_in_reach = false;
 
         for &target_entity in &nearby {
-            if target_entity == *attacker_entity || claimed_victims.contains(&target_entity) {
+            if target_entity == *attacker_entity {
                 continue;
             }
+            let claimed = claimed_victims.contains(&target_entity);
 
             if let Ok((
                 _,
@@ -1056,12 +1062,16 @@ fn predation_system(
                 if dist > *attack_range {
                     continue;
                 }
+                let is_plant = target_genome.is_photosynthesiser();
+                plant_in_reach |= is_plant;
+                if claimed {
+                    continue;
+                }
 
                 predation_stats.targets_considered += 1;
 
                 let defense = target_genome.armor_value() * target_body_size.0;
                 let damage = (attack_str - defense * 0.5).max(0.0);
-                let is_plant = target_genome.is_photosynthesiser();
                 // A graze passes only the damage gate: a small grazer can bite
                 // a large plant, and plant armour still defends against it.
                 let size_ok = is_plant || *attacker_size > target_body_size.0 * 0.6;
@@ -1089,19 +1099,25 @@ fn predation_system(
         // the first passing neighbour is an arbitrary one. The attacker
         // strikes the nearest: a grazer heading for a plant bites the plant,
         // not a consumer that happens to sort first. See DECISIONS.md.
+        if !plant_in_reach {
+            predation_stats.feeding.attacks_no_plant_in_reach += 1;
+        }
         if let Some(target) = nearest_target(&candidates) {
             if target.is_plant {
                 let bite = target.energy.max(0.0) * config.bite_fraction;
                 grazes.push((*attacker_entity, target.entity, bite));
             } else {
                 kills.push((*attacker_entity, target.entity, target.energy));
+                predation_stats
+                    .feeding
+                    .record_kill(*attacker_diet, target.is_plant);
             }
             claimed_victims.insert(target.entity);
         }
     }
 
     predation_stats.kills += kills.len() as u64;
-    predation_stats.grazes += grazes.len() as u64;
+    predation_stats.feeding.grazes_attack += grazes.len() as u64;
 
     for (grazer, plant, bite) in grazes {
         let Ok((_, _, _, _, _, grazer_genome, _, _)) = organisms.get(grazer) else {
@@ -2163,6 +2179,7 @@ fn record_population_history(
     fitness: Res<FitnessTracker>,
     mut ledger: ResMut<EnergyLedger>,
     config: Res<SimConfig>,
+    predation: Res<PredationStats>,
 ) {
     timer.0.tick(time.delta());
     if !timer.0.just_finished() {
@@ -2264,6 +2281,7 @@ fn record_population_history(
 
     history.record(
         &stats,
+        &predation,
         &mut ledger,
         PopSnapshotInput {
             tick: tick.0,
