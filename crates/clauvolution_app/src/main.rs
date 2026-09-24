@@ -1,3 +1,4 @@
+mod cli;
 mod script;
 
 use bevy::core::{TaskPoolOptions, TaskPoolPlugin, TaskPoolThreadAssignmentPolicy};
@@ -97,8 +98,21 @@ fn task_pool_plugin(worker_cap: usize) -> TaskPoolPlugin {
 }
 
 fn main() {
-    chdir_to_writable_if_bundled();
+    // Check the arguments before anything else, so a typo or `--help` exits
+    // here instead of falling through to the GUI.
     let args: Vec<String> = std::env::args().collect();
+    match cli::check(&args) {
+        Ok(cli::Outcome::Run) => {}
+        Ok(cli::Outcome::Help) => {
+            print!("{}", cli::usage());
+            return;
+        }
+        Err(e) => {
+            eprintln!("clauvolution: {e}\n\n{}", cli::usage());
+            std::process::exit(2);
+        }
+    }
+    chdir_to_writable_if_bundled();
     let screenshot_mode = args.iter().any(|a| a == "--screenshot");
     let load_path = args
         .iter()

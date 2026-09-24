@@ -33,7 +33,7 @@ cargo run --release -- --headless 1000 --species-threshold 1.5  # same override,
 EXTRA_ARGS="--bite-fraction 0.2" scripts/attractor_audit.sh docs/audits/<dir>   # audit with overrides, recorded in README.txt
 ```
 
-`CLAU_WORKERS=<n>` caps the compute thread pool (default 6) in both modes. Flags are parsed by hand; unknown flags are ignored silently.
+`CLAU_WORKERS=<n>` caps the compute thread pool (default 6) in both modes. `--help` prints every flag. An unknown flag, a missing or malformed value, or a repeated flag prints the usage and exits with status 2 before any window opens.
 
 Requires Rust (the version pinned in `rust-toolchain.toml`, installed by `rustup` automatically) and a GPU with Metal / Vulkan / DX12 support.
 
