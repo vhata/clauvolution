@@ -55,7 +55,7 @@ When a species dies out, capture a snapshot of its last 30 seconds — populatio
 
 More kinds of evolution to watch unfold. Each adds a qualitatively new pressure.
 
-**Top pick:** phase 2 of [`docs/design/simulation-rules.md`](design/simulation-rules.md), biomes as pressure and barrier, once its open question (`oceans-as-habitat`) is decided. Phase 1 (the diet axis, `plans/2026-09-19-diet-axis.md`) and the plant physics that made it work (`plans/2026-09-20-plant-physics.md`) shipped on 2026-09-20: plants and grazers persist and cycle on every audit seed; hunters do not yet exist (`hunter-emergence`). The graze-versus-attack split shipped on 2026-09-23 (`plans/2026-09-21-pyramid-top.md`, steps 1 to 3); hunters are still absent at 15000 ticks on every seed, and that plan's steps 4 to 6 are the open thread. Long-term climate shift is a phase 3 follow-on there, sequenced after the biome tolerance traits it would push against.
+**Top pick:** phase 2 of [`docs/design/simulation-rules.md`](design/simulation-rules.md), biomes as pressure and barrier, once its open question (`oceans-as-habitat`) is decided. Phase 1 (the diet axis, `plans/2026-09-19-diet-axis.md`) and the plant physics that made it work (`plans/2026-09-20-plant-physics.md`) shipped on 2026-09-20: plants and grazers persist and cycle on every audit seed; hunters do not yet exist (`hunter-emergence`). The graze-versus-attack split shipped on 2026-09-23 and the rest of `plans/2026-09-21-pyramid-top.md` finished on 2026-09-24: hunters are still absent at 15000 ticks on every seed, and the plan's remaining candidate, an omnivore bridge, is the open thread for a new plan (`hunter-emergence`). Long-term climate shift is a phase 3 follow-on there, sequenced after the biome tolerance traits it would push against.
 
 ### Symbiosis
 ✅ **Shipped (v1).** Genome gets a `symbiosis_rate` trait in [-1.0, +1.0]. Proximity tracker looks for a mutual-nearest neighbour held for 30+ consecutive ticks within 6 world units; once locked, each party transfers `rate * 0.05` energy to its partner per tick (negative rate drains). Graphs tab shows mutual-pair count + avg evolved rate. Inspect tab labels each organism parasite/neutral/donor.
@@ -276,6 +276,27 @@ Headless mode (Theme 4) is the fast version of this loop: `cargo run --release -
 - **Kill-share probe.** At `--kill-transfer 1.0` a hunter population cycles through all 15000 ticks on seed 42 and lasts to tick 11341 on seed 3, but plants go extinct on seeds 3 and 7 because plant kills pay out too. With attack meaning attack, payoff now binds for hunters, which phase 1 had ruled out.
 
 **Direction:** steps 4 to 6 of the pyramid plan are still needed. The `nearest eater` input goes first, then a kill-share sweep, and the size gate only if a hunter-specific counter shows it blocks most hunter strikes.
+
+**Re-run 2026-09-24**, step 6 of `plans/2026-09-21-pyramid-top.md` on main at 6a0fac1: every step of that plan (the nearest-eater inputs, the size-gate counters, the kill share split by victim tissue at 0.1 / 0.1) plus the species stay-threshold fix (#45), same eight seeds, one run each, 15k ticks. A control build without #45 ran beside it. Summaries, CSVs, the control and the reading are in [`docs/audits/2026-09-24-pyramid-step6/`](audits/2026-09-24-pyramid-step6/README.md). This is the baseline for pyramid work from here.
+
+| seed | hunters at 5000 / 15000 | last hunter tick | founding hunters, mean age at death | final plants / grazers | plant share | species at 5000 / 15000 | samples at ceiling (of 500) |
+|---|---|---|---|---|---|---|---|
+| 1 | 0 / 0 | 14611 | 224 | 3336 / 2663 | 56% | 22 / 37 | 150 |
+| 2 | 0 / 0 | 12661 | 244 | 2904 / 3096 | 48% | 19 / 60 | 132 |
+| 3 | 0 / 0 | 4231 | 264 | 2294 / 2755 | 45% | 25 / 41 | 28 |
+| 7 | 0 / 0 | 691 | 263 | 1725 / 3443 | 33% | 38 / 33 | 2 |
+| 42 | 0 / 0 | 2161 | 256 | 3131 / 2869 | 52% | 40 / 82 | 243 |
+| 99 | 0 / 0 | 12421 | 279 | 2229 / 2495 | 47% | 22 / 54 | 54 |
+| 314 | 0 / 0 | 451 | 231 | 2718 / 2880 | 49% | 26 / 51 | 114 |
+| 1000 | 0 / 0 | 721 | 223 | 2231 / 3213 | 41% | 21 / 43 | 152 |
+
+- **Hunters: none at 5000 or 15000 on any seed**, with or without #45. No seed held more than two hunters at once after tick 1500. Founders die at a mean of 223 to 279 ticks; 3 to 11 per seed kill a consumer and still die. Tracked as `hunter-emergence`; the plan's done-when for hunters is not met, and the interdependence test is blocked on it.
+- **Plants and grazers hold on every seed**, plant floors after tick 1000 of 129 to 627 (none under 100), grazers cycling with the seasons.
+- **Competition kills** run at 11 to 39 grazer kills of consumers per 1000 consumer-seconds (re-read 8 to 35); predation is 32% of deaths.
+- **The ceiling still regulates** on seven of eight seeds (28 to 243 samples at 5700 or more; seed 7 is the exception), and disease is 49% of deaths. Tracked as `consumer-ceiling-regulation`.
+- **What #45 changed:** against the control, nothing in the pyramid (same hunters, founder ages, death shares) and fewer species at 15000 on six of eight seeds (mean 61 to 50), still above the tuned band (`species-count-above-tuned-band`). Per-seed outcomes such as ceiling time move in both directions once mating changes, with no consistent sign over the eight seeds.
+
+**Direction:** the pyramid plan is done without a hunter level. Its remaining candidate, the omnivore bridge, is a new plan. Phase 2 proceeds on the two-level pyramid.
 
 **Observational trigger:** when a running sim trends toward any of these, it's time to tune. The Graphs tab has current-state readouts for plant/forager/predator ratios and death cause breakdown to make this visible.
 

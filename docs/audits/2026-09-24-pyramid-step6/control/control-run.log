@@ -1,0 +1,16 @@
+04:14:30 start control seed1
+04:14:30 start control seed2
+04:14:30 start control seed3
+04:14:30 start control seed42
+04:20:24 done  control seed3 (exit 0)
+04:22:16 done  control seed2 (exit 0)
+04:23:27 done  control seed42 (exit 0)
+04:23:56 done  control seed1 (exit 0)
+04:23:56 start control seed314
+04:23:56 start control seed7
+04:23:56 start control seed99
+04:23:56 start control seed1000
+04:30:17 done  control seed314 (exit 0)
+04:30:41 done  control seed99 (exit 0)
+04:31:10 done  control seed7 (exit 0)
+04:31:27 done  control seed1000 (exit 0)

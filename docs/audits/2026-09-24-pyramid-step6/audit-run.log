@@ -1,0 +1,16 @@
+03:54:06 start seed2-run1
+03:54:06 start seed1-run1
+03:54:06 start seed3-run1
+03:54:06 start seed42-run1
+04:03:13 done  seed3-run1 (exit 0)
+04:05:04 done  seed2-run1 (exit 0)
+04:05:05 done  seed1-run1 (exit 0)
+04:05:31 done  seed42-run1 (exit 0)
+04:05:31 start seed314-run1
+04:05:31 start seed7-run1
+04:05:31 start seed99-run1
+04:05:31 start seed1000-run1
+04:13:09 done  seed7-run1 (exit 0)
+04:13:12 done  seed314-run1 (exit 0)
+04:13:18 done  seed99-run1 (exit 0)
+04:14:27 done  seed1000-run1 (exit 0)
