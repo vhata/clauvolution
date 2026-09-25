@@ -367,22 +367,54 @@ pub struct SaveBodySegment {
     pub symmetry: u8,
 }
 
+/// One food item. `x` and `y` are required, since a food item has no
+/// neutral position. See "Save format: every field has a default unless the
+/// world cannot be rebuilt without it" in `docs/DECISIONS.md`.
 #[derive(Serialize, Deserialize)]
 pub struct SaveFood {
     pub x: f32,
     pub y: f32,
-    pub energy: f32,
+    /// Missing: the energy regeneration gives new food,
+    /// `SimConfig::food_energy_value`, filled in by `spawn_saved_food`.
+    #[serde(default)]
+    pub energy: Option<f32>,
 }
 
+/// One phylogeny node. Only `species_id` is required: it is the key every
+/// organism, chronicle entry and child node refers to, and a guessed id would
+/// attach the node to the wrong species. Every other field has a neutral
+/// value. See "Save format: every field has a default unless the world cannot
+/// be rebuilt without it" in `docs/DECISIONS.md`.
 #[derive(Serialize, Deserialize)]
 pub struct SavePhyloNode {
     pub species_id: u64,
+    /// Missing: a root species.
+    #[serde(default)]
     pub parent_id: Option<u64>,
+    /// Missing: tick 0, the start of the run.
+    #[serde(default)]
     pub born_tick: u64,
+    /// Missing: living. The next population update marks it extinct if it
+    /// has no members.
+    #[serde(default)]
     pub extinct_tick: Option<u64>,
+    /// Missing: 0. The next population update raises it to the living count.
+    #[serde(default)]
     pub peak_population: u32,
+    /// Missing: omnivore, the code any unknown value already maps to.
+    #[serde(default = "omnivore_strategy")]
     pub strategy: u8,
+    /// Missing (saves from before species naming) or empty: the placeholder
+    /// `restore_phylo` fills in, `placeholder_species_name`. The generated
+    /// names are built from the species' traits, which the node does not
+    /// store, so the original name cannot be recomputed.
+    #[serde(default)]
     pub name: String,
+}
+
+/// The `SavePhyloNode::strategy` code for an omnivore.
+fn omnivore_strategy() -> u8 {
+    3
 }
 
 #[derive(Serialize, Deserialize)]
@@ -616,7 +648,7 @@ pub fn save_world(
             .map(|(pos, energy)| SaveFood {
                 x: pos.x,
                 y: pos.y,
-                energy: *energy,
+                energy: Some(*energy),
             })
             .collect(),
         innovation_counter: innovation.0,
@@ -806,9 +838,15 @@ pub fn spawn_saved_organisms(commands: &mut Commands, organisms: &[SaveOrganism]
     total_energy
 }
 
-pub fn spawn_saved_food(commands: &mut Commands, food: &[SaveFood]) {
+/// Spawn the saved food. An item saved without its energy gets
+/// `default_energy`, the value regeneration gives new food.
+pub fn spawn_saved_food(commands: &mut Commands, food: &[SaveFood], default_energy: f32) {
     for f in food {
-        commands.spawn((Food, FoodEnergy(f.energy), Position(Vec2::new(f.x, f.y))));
+        commands.spawn((
+            Food,
+            FoodEnergy(f.energy.unwrap_or(default_energy)),
+            Position(Vec2::new(f.x, f.y)),
+        ));
     }
 }
 
@@ -828,7 +866,11 @@ pub fn restore_phylo(phylo: &mut PhyloTree, nodes: &[SavePhyloNode]) {
                 _ => SpeciesStrategy::Omnivore,
             },
             color: Color::WHITE, // will be reassigned by species classification
-            name: n.name.clone(),
+            name: if n.name.is_empty() {
+                clauvolution_phylogeny::placeholder_species_name(n.species_id)
+            } else {
+                n.name.clone()
+            },
         };
         if n.parent_id.is_none() {
             phylo.root_species.push(n.species_id);
@@ -1342,6 +1384,117 @@ mod tests {
             assert!(
                 load_json(&format!("missing-organism-{}", field), &value).is_none(),
                 "a save with an organism without `{}` must not load",
+                field
+            );
+        }
+    }
+
+    /// A phylogeny node from before species naming has no `name`. The file
+    /// loads, and the restored node carries the placeholder name rather
+    /// than a blank one.
+    #[test]
+    fn phylo_node_without_a_name_loads_with_the_placeholder() {
+        let mut value = complete_save_json();
+        remove_field(&mut value["phylo_nodes"][0], "name");
+        let state = load_json("phylo-no-name", &value).expect("a node without a name loads");
+        assert_eq!(state.phylo_nodes.len(), 1, "the node must not be dropped");
+        assert_eq!(state.phylo_nodes[0].name, "");
+
+        let mut phylo = PhyloTree::default();
+        restore_phylo(&mut phylo, &state.phylo_nodes);
+        assert_eq!(phylo.nodes[&5].name, "Species 5");
+    }
+
+    /// A saved name is kept as written.
+    #[test]
+    fn restore_phylo_keeps_a_saved_name() {
+        let state = load_json("phylo-named", &complete_save_json()).expect("loads");
+        let mut phylo = PhyloTree::default();
+        restore_phylo(&mut phylo, &state.phylo_nodes);
+        assert_eq!(phylo.nodes[&5].name, "Test");
+    }
+
+    /// Sub-records carrying only their required fields load with the values
+    /// documented on `SavePhyloNode` and `SaveFood`.
+    #[test]
+    fn sub_records_with_only_required_fields_load_with_defaults() {
+        let mut value = complete_save_json();
+        for field in [
+            "parent_id",
+            "born_tick",
+            "extinct_tick",
+            "peak_population",
+            "strategy",
+            "name",
+        ] {
+            remove_field(&mut value["phylo_nodes"][0], field);
+        }
+        remove_field(&mut value["food"][0], "energy");
+
+        let state = load_json("sub-records", &value).expect("loads");
+        let node = &state.phylo_nodes[0];
+        assert_eq!(node.species_id, 5);
+        assert_eq!(node.parent_id, None);
+        assert_eq!(node.born_tick, 0);
+        assert_eq!(node.extinct_tick, None);
+        assert_eq!(node.peak_population, 0);
+        assert_eq!(node.strategy, omnivore_strategy());
+
+        let mut phylo = PhyloTree::default();
+        restore_phylo(&mut phylo, &state.phylo_nodes);
+        assert_eq!(phylo.nodes[&5].strategy, SpeciesStrategy::Omnivore);
+        assert_eq!(phylo.root_species, vec![5]);
+
+        let food = &state.food[0];
+        assert_eq!((food.x, food.y, food.energy), (3.0, 4.0, None));
+    }
+
+    /// Food saved without its energy spawns with the default it is given;
+    /// food saved with energy keeps it.
+    #[test]
+    fn food_without_energy_spawns_with_the_default() {
+        let mut world = World::new();
+        let food = [
+            SaveFood {
+                x: 1.0,
+                y: 2.0,
+                energy: None,
+            },
+            SaveFood {
+                x: 3.0,
+                y: 4.0,
+                energy: Some(7.5),
+            },
+        ];
+        let mut queue = bevy::ecs::world::CommandQueue::default();
+        let mut commands = Commands::new(&mut queue, &world);
+        spawn_saved_food(&mut commands, &food, 25.0);
+        queue.apply(&mut world);
+
+        let mut energies: Vec<f32> = world
+            .query::<&FoodEnergy>()
+            .iter(&world)
+            .map(|e| e.0)
+            .collect();
+        energies.sort_by(f32::total_cmp);
+        assert_eq!(energies, vec![7.5, 25.0]);
+    }
+
+    /// The sub-record fields with no neutral value still reject the file.
+    #[test]
+    fn sub_record_missing_a_required_field_is_rejected() {
+        let mut value = complete_save_json();
+        remove_field(&mut value["phylo_nodes"][0], "species_id");
+        assert!(
+            load_json("missing-phylo-species-id", &value).is_none(),
+            "a phylo node without `species_id` must not load"
+        );
+        for field in ["x", "y"] {
+            let mut value = complete_save_json();
+            remove_field(&mut value["food"][0], field);
+            assert!(
+                load_json(&format!("missing-food-{}", field), &value).is_none(),
+                "a food item without `{}` must not load",
                 field
             );
         }
