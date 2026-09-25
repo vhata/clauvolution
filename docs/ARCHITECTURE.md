@@ -107,6 +107,7 @@ update_minimap                ← repaint the minimap image every 0.5s
 | Save/load | `clauvolution_sim::save` module |
 | Creature export / `--seed-with` import | `CreatureFile` in `clauvolution_sim::save`; founders spawned by `spawn_initial_population` |
 | Energy accounting | `EnergyLedger` and `EnergyFlows` in `clauvolution_core`; `clauvolution_sim::ledger_system` |
+| Trophic instruments (feeding counts, gate outcomes, diet-band income and deaths) | `PredationStats`, `FeedingCounts`, `GateOutcomes` and `DietBandStats` in `clauvolution_core`; bands from `clauvolution_sim::diet_band` |
 | Command-line flags (known list, `--help`, rejection of unknown flags) | `FLAGS` in `clauvolution_app/src/cli.rs`; values are read in `main` |
 
 ## Bevy schedule essentials

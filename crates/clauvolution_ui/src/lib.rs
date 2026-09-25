@@ -1702,6 +1702,56 @@ fn graphs_tab(ui: &mut egui::Ui, history: &PopulationHistory) {
 
             ui.add_space(4.0);
 
+            // Omnivore income by tissue (plans/2026-09-24-hunter-bridge.md,
+            // step 1): whether intermediate diets live on plants, and what
+            // they pay to do it.
+            ui.label("Omnivore energy per second: kept by source, and paid");
+            let omnivore_series = |f: fn(&BandEnergy) -> f64| -> PlotPoints {
+                snaps
+                    .iter()
+                    .enumerate()
+                    .map(|(i, s)| [i as f64, f(&s.bands.label_energy()[1])])
+                    .collect()
+            };
+            let o_food = omnivore_series(|e| e.food);
+            let o_bites = omnivore_series(|e| e.bite_energy);
+            let o_consumer = omnivore_series(|e| e.consumer_kill_energy);
+            let o_plant = omnivore_series(|e| e.plant_kill_energy);
+            let o_cost = omnivore_series(|e| e.cost());
+
+            Plot::new("omnivore_income")
+                .height(110.0)
+                .legend(Legend::default().position(egui_plot::Corner::LeftTop))
+                .show(ui, |plot_ui| {
+                    plot_ui.line(
+                        Line::new(o_food)
+                            .color(egui::Color32::from_rgb(200, 180, 90))
+                            .name("Food items"),
+                    );
+                    plot_ui.line(
+                        Line::new(o_bites)
+                            .color(egui::Color32::from_rgb(120, 200, 120))
+                            .name("Eat bites"),
+                    );
+                    plot_ui.line(
+                        Line::new(o_consumer)
+                            .color(egui::Color32::from_rgb(230, 100, 100))
+                            .name("Consumer kills"),
+                    );
+                    plot_ui.line(
+                        Line::new(o_plant)
+                            .color(egui::Color32::from_rgb(90, 160, 220))
+                            .name("Plant kills"),
+                    );
+                    plot_ui.line(
+                        Line::new(o_cost)
+                            .color(egui::Color32::from_rgb(180, 180, 180))
+                            .name("Metabolism, movement, strikes"),
+                    );
+                });
+
+            ui.add_space(4.0);
+
             // Infection & resistance — disease tuning view
             ui.label("Infection rate & evolved resistance");
             let inf: PlotPoints = snaps

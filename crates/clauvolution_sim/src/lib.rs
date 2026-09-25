@@ -1276,6 +1276,7 @@ fn action_system(
     mut commands: Commands,
     mut ledger: ResMut<EnergyLedger>,
     mut ate_food: ResMut<AteFoodThisTick>,
+    mut bands: ResMut<DietBandStats>,
 ) {
     let foods = &food_snapshot.entries;
 
@@ -1349,6 +1350,10 @@ fn action_system(
             movement.length() * config.movement_energy_cost * body_size.0 * terrain_cost;
         energy.0 -= move_cost;
         ledger.tick.movement += move_cost as f64;
+        let band = diet_band(genome);
+        if let Some(b) = band {
+            bands.energy[b].movement += move_cost as f64;
+        }
 
         // Eating food. A living plant is bitten through the same output in
         // grazing_system, which runs next and skips anyone fed here.
@@ -1369,6 +1374,11 @@ fn action_system(
                     ledger.tick.clamp +=
                         credit_clamped(&mut energy, gained, config.max_organism_energy) as f64;
                     ledger.tick.food += gained as f64;
+                    if let Some(b) = band {
+                        bands.energy[b].food_items += 1;
+                        bands.energy[b].food += gained as f64;
+                        bands.energy[b].plant_gross += (food_energy * mouth_bonus) as f64;
+                    }
                     eaten[index] = true;
                     eaten_food.push(food_entity);
                     ate_food.0.insert(entity);
@@ -1440,6 +1450,7 @@ fn grazing_system(
     >,
     mut predation_stats: ResMut<PredationStats>,
     mut ledger: ResMut<EnergyLedger>,
+    mut bands: ResMut<DietBandStats>,
 ) {
     // (eater, position, reach, mouth bonus, eater is a plant)
     let eaters: Vec<(Entity, Vec2, f32, f32, bool)> = organisms
@@ -1507,6 +1518,11 @@ fn grazing_system(
             continue;
         };
         let (kept, wasted) = digest(bite, eater_genome.plant_efficiency());
+        if let Some(b) = diet_band(eater_genome) {
+            bands.energy[b].bites += 1;
+            bands.energy[b].bite_energy += kept as f64;
+            bands.energy[b].plant_gross += bite as f64;
+        }
         let Ok((_, _, mut plant_energy, _, _, _, _, _)) = organisms.get_mut(plant) else {
             continue;
         };
@@ -1532,12 +1548,40 @@ pub fn strike_cost(attack_strength: f32, rate: f32) -> f32 {
     (attack_strength * rate).max(0.0)
 }
 
+/// The diet band (`DIET_BAND_LABELS`) a consumer counts in for the
+/// hunter-bridge instruments, or `None` for a photosynthesiser. Each
+/// strategy label from `classify_strategy` is split in half at -2/3, 0 and
+/// +2/3, so the bands nest exactly in the labels. Read only by counters.
+pub fn diet_band(genome: &Genome) -> Option<usize> {
+    let (label, upper_half) = match classify_strategy(genome) {
+        SpeciesStrategy::Photosynthesizer => return None,
+        SpeciesStrategy::Grazer => (0, genome.diet >= -2.0 / 3.0),
+        SpeciesStrategy::Omnivore => (1, genome.diet >= 0.0),
+        SpeciesStrategy::Hunter => (2, genome.diet >= 2.0 / 3.0),
+    };
+    Some(label * 2 + upper_half as usize)
+}
+
+/// The strategy label's index in `STRATEGY_LABEL_KEYS` order, for the
+/// band-crossing matrix. Read only by counters.
+fn strategy_label_index(genome: &Genome) -> usize {
+    match classify_strategy(genome) {
+        SpeciesStrategy::Photosynthesizer => 0,
+        SpeciesStrategy::Grazer => 1,
+        SpeciesStrategy::Omnivore => 2,
+        SpeciesStrategy::Hunter => 3,
+    }
+}
+
 /// Which instrumented bands an attacker falls in, for the gate counters of
 /// step 5 of `plans/2026-09-21-pyramid-top.md`. Read only by counters.
 #[derive(Clone, Copy, Debug, Default)]
 struct AttackerBand {
     /// A consumer (not a photosynthesiser) with `diet >= 0`.
     diet_nonneg: bool,
+    /// Labelled omnivore: a consumer with `-1/3 < diet < 1/3`
+    /// (`plans/2026-09-24-hunter-bridge.md`, step 1).
+    omnivore: bool,
     /// Labelled hunter: a consumer with `diet >= 1/3`.
     hunter: bool,
     /// A hunter of generation 0.
@@ -1549,10 +1593,12 @@ struct AttackerBand {
 impl AttackerBand {
     fn of(genome: &Genome, lineage: Option<(&Age, &Generation)>) -> Self {
         let consumer = !genome.is_photosynthesiser();
-        let hunter = classify_strategy(genome) == SpeciesStrategy::Hunter;
+        let strategy = classify_strategy(genome);
+        let hunter = strategy == SpeciesStrategy::Hunter;
         let (age, generation) = lineage.map(|(a, g)| (a.0, g.0)).unwrap_or((0, u32::MAX));
         Self {
             diet_nonneg: consumer && genome.diet >= 0.0,
+            omnivore: strategy == SpeciesStrategy::Omnivore,
             hunter,
             founder_hunter: hunter && generation == 0,
             age,
@@ -1560,7 +1606,7 @@ impl AttackerBand {
     }
 
     fn tracked(&self) -> bool {
-        self.diet_nonneg
+        self.diet_nonneg || self.omnivore
     }
 }
 
@@ -1591,7 +1637,12 @@ fn record_band_attack(
             g.record_consumer_attack(c.any_size, c.any_damage, c.any_both, c.struck_consumer);
         }
     };
-    bump(&mut stats.diet_nonneg_gates);
+    if band.diet_nonneg {
+        bump(&mut stats.diet_nonneg_gates);
+    }
+    if band.omnivore {
+        bump(&mut stats.feeding.omnivore_gates);
+    }
     if band.hunter {
         bump(&mut stats.feeding.hunter_gates);
         let bucket = age_bucket(band.age);
@@ -1637,6 +1688,7 @@ fn predation_system(
     mut commands: Commands,
     mut predation_stats: ResMut<PredationStats>,
     mut ledger: ResMut<EnergyLedger>,
+    mut bands: ResMut<DietBandStats>,
 ) {
     // Collect attack intents
     let attackers: Vec<(Entity, Vec2, f32, f32, f32, AttackerBand)> = organisms
@@ -1813,6 +1865,16 @@ fn predation_system(
             predation_stats.hunter_plant_kills += 1;
             predation_stats.hunter_plant_kill_energy += energy_gained as f64;
         }
+        if let Some(b) = diet_band(killer_genome) {
+            let e = &mut bands.energy[b];
+            if victim_is_plant {
+                e.plant_kills += 1;
+                e.plant_kill_energy += energy_gained as f64;
+            } else {
+                e.consumer_kills += 1;
+                e.consumer_kill_energy += energy_gained as f64;
+            }
+        }
         if let Ok((_, _, mut killer_energy, _, mut killer_flash, _, _, _)) =
             organisms.get_mut(killer)
         {
@@ -1855,10 +1917,15 @@ fn predation_system(
         if cost <= 0.0 || claimed_victims.contains(&attacker) {
             continue;
         }
-        if let Ok((_, _, mut attacker_energy, _, _, _, _, _)) = organisms.get_mut(attacker) {
+        if let Ok((_, _, mut attacker_energy, _, _, attacker_genome, _, _)) =
+            organisms.get_mut(attacker)
+        {
             attacker_energy.0 -= cost;
             ledger.tick.movement += cost as f64;
             predation_stats.strike_energy += cost as f64;
+            if let Some(b) = diet_band(attacker_genome) {
+                bands.energy[b].strike += cost as f64;
+            }
         }
     }
 }
@@ -2295,6 +2362,7 @@ fn death_system(
     mut stats: ResMut<SimStats>,
     mut fitness: ResMut<FitnessTracker>,
     mut ledger: ResMut<EnergyLedger>,
+    mut bands: ResMut<DietBandStats>,
 ) {
     for (entity, energy, health, pos, age, flows, infection, killed, lineage) in &organisms {
         if energy.0 <= 0.0 || health.0 <= 0.0 || killed.is_some() {
@@ -2314,6 +2382,14 @@ fn death_system(
                 None => DeathCause::Starvation,
             };
             stats.deaths_by_cause[cause as usize] += 1;
+            if let Some(b) = lineage.and_then(|(genome, _)| diet_band(genome)) {
+                bands.deaths[b].record(cause, age.0);
+                // Its last tick's metabolism leaves with it, as the flows do.
+                if flows.metabolism > 0.0 {
+                    bands.energy[b].organism_ticks += 1;
+                    bands.energy[b].metabolism += flows.metabolism;
+                }
+            }
             if let Some((genome, generation)) = lineage {
                 if generation.0 == 0 && classify_strategy(genome) == SpeciesStrategy::Hunter {
                     stats.founder_hunter_deaths += 1;
@@ -2385,6 +2461,7 @@ fn reproduction_system(
     mut ledger: ResMut<EnergyLedger>,
     tick: Res<TickCounter>,
     mut chronicle: ResMut<WorldChronicle>,
+    mut bands: ResMut<DietBandStats>,
 ) {
     let mut rng = &mut sim_rng.0;
 
@@ -2496,6 +2573,16 @@ fn reproduction_system(
                 effective_mutation_rate,
                 config.mutation_strength,
             );
+            // Instrument only: the child's band against this parent's
+            // (`plans/2026-09-24-hunter-bridge.md`, step 1). Reads no RNG.
+            let parent_label = strategy_label_index(genome);
+            if let Some(b) = diet_band(genome) {
+                bands.births[b] += 1;
+            }
+            bands.label_transitions[parent_label][strategy_label_index(&child_genome)] += 1;
+            if mate_genome.is_some_and(|m| strategy_label_index(m) != parent_label) {
+                bands.mixed_label_matings += 1;
+            }
 
             let offset = Vec2::new(
                 rng.gen_range(-CHILD_SPAWN_OFFSET..CHILD_SPAWN_OFFSET),
@@ -2607,14 +2694,24 @@ fn reproduction_system(
 fn ledger_system(
     tick: Res<TickCounter>,
     mut ledger: ResMut<EnergyLedger>,
-    mut organisms: Query<(&Energy, &mut EnergyFlows), With<Organism>>,
+    mut organisms: Query<(&Energy, &mut EnergyFlows, Option<&Genome>), With<Organism>>,
     mut chronicle: ResMut<WorldChronicle>,
+    mut bands: ResMut<DietBandStats>,
 ) {
     let mut total = 0.0f64;
     let mut summed = EnergyFlows::default();
-    for (energy, mut flows) in &mut organisms {
+    for (energy, mut flows, genome) in &mut organisms {
         total += energy.0 as f64;
         summed.add(&flows);
+        // Metabolism is paid under par_iter_mut, so the per-band share is
+        // read from the organism's own record here, before it is cleared.
+        // A newborn has paid none yet and is not counted this tick.
+        if flows.metabolism > 0.0 {
+            if let Some(b) = genome.and_then(diet_band) {
+                bands.energy[b].organism_ticks += 1;
+                bands.energy[b].metabolism += flows.metabolism;
+            }
+        }
         flows.clear();
     }
     ledger.tick.add(&summed);
@@ -2887,6 +2984,7 @@ fn record_population_history(
     mut ledger: ResMut<EnergyLedger>,
     config: Res<SimConfig>,
     predation: Res<PredationStats>,
+    bands: Res<DietBandStats>,
 ) {
     timer.0.tick(time.delta());
     if !timer.0.just_finished() {
@@ -2996,6 +3094,7 @@ fn record_population_history(
     history.record(
         &stats,
         &predation,
+        &bands,
         &mut ledger,
         PopSnapshotInput {
             tick: tick.0,
@@ -3865,6 +3964,7 @@ mod reproduction_tests {
         world.insert_resource(EnergyLedger::default());
         world.insert_resource(TickCounter(0));
         world.insert_resource(WorldChronicle::default());
+        world.insert_resource(DietBandStats::default());
         world
     }
 
@@ -4000,6 +4100,42 @@ mod predation_target_tests {
     #[test]
     fn no_candidates_means_no_strike() {
         assert_eq!(nearest_target(&[]), None);
+    }
+}
+
+#[cfg(test)]
+mod diet_band_tests {
+    use super::*;
+    use rand::{rngs::StdRng, SeedableRng};
+
+    /// The consumer bands nest in the strategy labels, including at the
+    /// label edges.
+    #[test]
+    fn bands_nest_in_strategy_labels() {
+        let mut innovation = InnovationCounter(0);
+        let mut rng = StdRng::seed_from_u64(3);
+        let mut genome = Genome::new_minimal(&mut innovation, &mut rng);
+        genome.photosynthesis_rate = 0.0;
+        let third = clauvolution_phylogeny::DIET_SPECIALIST_THRESHOLD;
+        for (diet, band) in [
+            (-1.0, 0),
+            (-0.7, 0),
+            (-2.0 / 3.0, 1),
+            (-third, 1),
+            (-0.3, 2),
+            (-0.01, 2),
+            (0.0, 3),
+            (0.3, 3),
+            (third, 4),
+            (0.6, 4),
+            (2.0 / 3.0, 5),
+            (1.0, 5),
+        ] {
+            genome.diet = diet;
+            assert_eq!(diet_band(&genome), Some(band), "diet {diet}");
+            assert_eq!(strategy_label_index(&genome), band / 2 + 1, "diet {diet}");
+        }
+        assert!(!genome.is_photosynthesiser());
     }
 }
 
@@ -4165,6 +4301,7 @@ mod grazing_tests {
         world.insert_resource(AteFoodThisTick::default());
         world.insert_resource(PredationStats::default());
         world.insert_resource(EnergyLedger::default());
+        world.insert_resource(DietBandStats::default());
         world
     }
 
