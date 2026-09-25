@@ -216,6 +216,12 @@ impl Session {
 /// "Strike cost".
 pub const DEFAULT_STRIKE_COST: f32 = 1.0;
 
+/// Lowest accepted `SimConfig::diet_efficiency_exponent`. Below 1 a
+/// generalist digests more in total than a specialist, which removes the
+/// reason for the diet axis to have two ends. See `docs/DECISIONS.md`,
+/// "Digestion exponent as a knob".
+pub const MIN_DIET_EFFICIENCY_EXPONENT: f32 = 1.0;
+
 #[derive(Resource, Clone, Serialize, Deserialize)]
 pub struct SimConfig {
     pub world_width: u32,
@@ -295,6 +301,13 @@ pub struct SimConfig {
     /// sim proper. `--animal-efficiency 0` is the interdependence test in
     /// `plans/2026-09-19-diet-axis.md`: nobody can live by hunting.
     pub animal_efficiency_multiplier: f32,
+    /// Exponent of the digestion curve: `Genome::plant_efficiency` is
+    /// `((1 - diet) / 2)^exponent` and `animal_efficiency` its mirror. 2.0
+    /// by default ("Why the squared curve" in `docs/DECISIONS.md`); 1.0 is a
+    /// linear split, under which a generalist digests half of each tissue.
+    /// Never below `MIN_DIET_EFFICIENCY_EXPONENT`. Overridable with
+    /// `--diet-exponent`. See "Digestion exponent as a knob".
+    pub diet_efficiency_exponent: f32,
     /// Safety ceiling on the number of living organisms. Carrying capacity
     /// comes from energy: canopy light sharing (`leaf_capacity_per_tile`)
     /// shades crowded plants until they earn near their upkeep, and grazers
@@ -332,6 +345,7 @@ impl Default for SimConfig {
             leaf_capacity_per_tile: 0.02,
             founder_diet_spread: 1.0,
             animal_efficiency_multiplier: 1.0,
+            diet_efficiency_exponent: 2.0,
             reproduction_energy_cost: 40.0,
             max_organism_energy: 120.0,
             food_energy_value: 25.0,

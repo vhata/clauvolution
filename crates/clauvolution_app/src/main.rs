@@ -962,6 +962,7 @@ struct ConfigOverrides {
     leaf_capacity: Option<f32>,
     founder_diet_spread: Option<f32>,
     animal_efficiency: Option<f32>,
+    diet_exponent: Option<f32>,
     max_energy: Option<f32>,
     max_food_density: Option<f32>,
     population_ceiling: Option<u32>,
@@ -988,6 +989,7 @@ impl ConfigOverrides {
             leaf_capacity: flag(args, "--leaf-capacity"),
             founder_diet_spread: flag(args, "--founder-diet-spread"),
             animal_efficiency: flag(args, "--animal-efficiency"),
+            diet_exponent: flag(args, "--diet-exponent"),
             max_energy: flag(args, "--max-energy"),
             max_food_density: flag(args, "--max-food-density"),
             population_ceiling: flag(args, "--population-ceiling"),
@@ -1051,6 +1053,13 @@ fn apply_config_overrides(overrides: Res<ConfigOverrides>, mut config: ResMut<Si
         &mut config.animal_efficiency_multiplier,
         overrides.animal_efficiency,
         "animal_efficiency_multiplier",
+    );
+    // `cli::check` has already refused a value below
+    // `MIN_DIET_EFFICIENCY_EXPONENT`.
+    set(
+        &mut config.diet_efficiency_exponent,
+        overrides.diet_exponent,
+        "diet_efficiency_exponent",
     );
     set(
         &mut config.max_organism_energy,

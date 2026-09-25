@@ -10,8 +10,10 @@
 //! `FLAGS` is the one list of known flags. A test checks it against the
 //! README's flag list in both directions so the two cannot drift.
 
+use clauvolution_core::MIN_DIET_EFFICIENCY_EXPONENT;
+
 /// What a flag expects after it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Value {
     /// A bare switch, no value.
     None,
@@ -33,7 +35,7 @@ pub enum Value {
 /// from what its `SimConfig` field means, so a value the sim would misread
 /// (a bite larger than the plant, a clock running backwards) is refused here,
 /// before the app starts, rather than clamped downstream.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Range {
     /// Zero or more.
     NonNegative,
@@ -41,6 +43,8 @@ pub enum Range {
     Positive,
     /// A fraction: zero to one inclusive.
     Unit,
+    /// At least the given floor.
+    AtLeast(f32),
 }
 
 impl Range {
@@ -49,14 +53,16 @@ impl Range {
             Range::NonNegative => v >= 0.0,
             Range::Positive => v > 0.0,
             Range::Unit => (0.0..=1.0).contains(&v),
+            Range::AtLeast(min) => v >= min,
         }
     }
 
-    fn describe(self) -> &'static str {
+    fn describe(self) -> String {
         match self {
-            Range::NonNegative => "a number >= 0",
-            Range::Positive => "a number > 0",
-            Range::Unit => "a number from 0 to 1",
+            Range::NonNegative => "a number >= 0".to_string(),
+            Range::Positive => "a number > 0".to_string(),
+            Range::Unit => "a number from 0 to 1".to_string(),
+            Range::AtLeast(min) => format!("a number >= {min}"),
         }
     }
 }
@@ -203,6 +209,12 @@ pub const FLAGS: &[Flag] = &[
         "override animal_efficiency (0 = nobody can live by hunting)",
     ),
     flag(
+        "--diet-exponent",
+        Value::Float(Range::AtLeast(MIN_DIET_EFFICIENCY_EXPONENT)),
+        "X",
+        "override diet_efficiency_exponent (at least 1; 2 = squared curve)",
+    ),
+    flag(
         "--max-energy",
         Value::Float(Range::Positive),
         "E",
@@ -290,7 +302,7 @@ pub fn check(args: &[String]) -> Result<Outcome, String> {
                     let what = match kind {
                         Value::Int => "a non-negative integer".to_string(),
                         Value::U32 => format!("a non-negative integer up to {}", u32::MAX),
-                        Value::Float(range) => range.describe().to_string(),
+                        Value::Float(range) => range.describe(),
                         _ => unreachable!("only numeric kinds are checked"),
                     };
                     return Err(format!("{} expects {what}, got {value:?}", flag.name));
@@ -487,6 +499,16 @@ mod tests {
     }
 
     #[test]
+    fn rejects_a_diet_exponent_below_one() {
+        assert_eq!(check(&args(&["--diet-exponent", "1.5"])), Ok(Outcome::Run));
+        assert_eq!(check(&args(&["--diet-exponent", "1"])), Ok(Outcome::Run));
+        assert_eq!(
+            check(&args(&["--diet-exponent", "0.5"])),
+            Err("--diet-exponent expects a number >= 1, got \"0.5\"".into())
+        );
+    }
+
+    #[test]
     fn every_float_flag_accepts_its_shipped_default() {
         let config = clauvolution_core::SimConfig::default();
         let defaults = [
@@ -502,6 +524,7 @@ mod tests {
             ("--leaf-capacity", config.leaf_capacity_per_tile),
             ("--founder-diet-spread", config.founder_diet_spread),
             ("--animal-efficiency", config.animal_efficiency_multiplier),
+            ("--diet-exponent", config.diet_efficiency_exponent),
             ("--max-energy", config.max_organism_energy),
             ("--max-food-density", config.max_food_density),
         ];

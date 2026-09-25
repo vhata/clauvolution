@@ -29,7 +29,7 @@ cargo run --release -- --headless 1000 --dump-history h.csv   # 1 Hz population 
 scripts/attractor_audit.sh docs/audits/$(date +%F)-attractor-audit   # 8 seeds x 2 runs x 15k ticks; summarise with scripts/attractor_audit_summary.py
 cargo run --release -- --headless 1000 --species-threshold 1.5  # same override, applied identically in headless
 # Tuning overrides, GUI or headless, each one SimConfig field: --bite-fraction F, --bite-reach R, --mouthless-bite B, --kill-transfer-animal K, --kill-transfer-plant K (--kill-transfer K sets both), --strike-cost W, --photo-drag D, --leaf-capacity C, --founder-diet-spread S,
-# --animal-efficiency M (0 = nobody can live by hunting), --max-energy E, --max-food-density D, --population-ceiling N
+# --animal-efficiency M (0 = nobody can live by hunting), --diet-exponent X (digestion curve exponent, at least 1, default 2), --max-energy E, --max-food-density D, --population-ceiling N
 EXTRA_ARGS="--bite-fraction 0.2" scripts/attractor_audit.sh docs/audits/<dir>   # audit with overrides, recorded in README.txt
 ```
 

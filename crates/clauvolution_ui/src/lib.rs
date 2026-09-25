@@ -865,8 +865,8 @@ fn inspect_tab(
                 ui.label(format!(
                     "{:+.2} (digests {:.0}% plant, {:.0}% animal)",
                     genome.diet,
-                    genome.plant_efficiency() * 100.0,
-                    genome.animal_efficiency() * 100.0
+                    genome.plant_efficiency(config.diet_efficiency_exponent) * 100.0,
+                    genome.animal_efficiency(config.diet_efficiency_exponent) * 100.0
                 ));
                 ui.end_row();
 
