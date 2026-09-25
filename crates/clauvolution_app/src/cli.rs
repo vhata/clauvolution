@@ -15,8 +15,12 @@
 pub enum Value {
     /// A bare switch, no value.
     None,
-    /// One non-negative integer.
+    /// One non-negative integer that fits a `u64`.
     Int,
+    /// One non-negative integer that fits a `u32`. The check must use the
+    /// same width as the flag's reader in `main`, or an out-of-range value
+    /// passes here and is then silently dropped there.
+    U32,
     /// One number.
     Float,
     /// One path or name.
@@ -160,7 +164,7 @@ pub const FLAGS: &[Flag] = &[
     ),
     flag(
         "--population-ceiling",
-        Value::Int,
+        Value::U32,
         "N",
         "override population_ceiling",
     ),
@@ -224,14 +228,15 @@ pub fn check(args: &[String]) -> Result<Outcome, String> {
                 i += 1;
                 let ok = match kind {
                     Value::Int => value.parse::<u64>().is_ok(),
+                    Value::U32 => value.parse::<u32>().is_ok(),
                     Value::Float => value.parse::<f32>().is_ok_and(f32::is_finite),
                     _ => true,
                 };
                 if !ok {
-                    let what = if kind == Value::Int {
-                        "a non-negative integer"
-                    } else {
-                        "a number"
+                    let what = match kind {
+                        Value::Int => "a non-negative integer".to_string(),
+                        Value::U32 => format!("a non-negative integer up to {}", u32::MAX),
+                        _ => "a number".to_string(),
                     };
                     return Err(format!("{} expects {what}, got {value:?}", flag.name));
                 }
@@ -350,6 +355,30 @@ mod tests {
             check(&args(&["--save-as", "--headless", "10"])),
             Err("--save-as needs a value NAME".into())
         );
+    }
+
+    #[test]
+    fn integer_checks_match_the_readers_width() {
+        // --population-ceiling is read as a u32, so a value that only fits
+        // a u64 must fail here rather than be dropped by the reader.
+        assert_eq!(
+            check(&args(&["--population-ceiling", "4294967295"])),
+            Ok(Outcome::Run)
+        );
+        assert_eq!(
+            check(&args(&["--population-ceiling", "4294967296"])),
+            Err(
+                "--population-ceiling expects a non-negative integer up to 4294967295, \
+                 got \"4294967296\""
+                    .into()
+            )
+        );
+        // --seed and --headless are read as u64.
+        assert_eq!(
+            check(&args(&["--seed", "18446744073709551615"])),
+            Ok(Outcome::Run)
+        );
+        assert!(check(&args(&["--seed", "18446744073709551616"])).is_err());
     }
 
     #[test]

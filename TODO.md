@@ -26,9 +26,6 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 - [DOCS] `quality-prepush-table-drift` — **The QUALITY.md gates table says fmt-check and lint run at pre-push; `lefthook.yml` runs only the tests there.** A reader trusting the table expects a push to catch a formatting or clippy regression that only the commit hook actually catches.
   - Starting point: Either correct the two "Pre-push: yes" cells or add the two jobs to the pre-push hook; the docs-only skip on `todo/skip-test-hook-for-docs-only-pushes` touches the same hook, so land after it.
   - Source: todo/skip-test-hook-for-docs-only-pushes branch, 2026-09-23
-- [TOOLING] `population-ceiling-flag-width` — **`--population-ceiling` is validated as a `u64` but read as a `u32`.** A value above `u32::MAX` passes the new argument check and is then silently ignored, which is the class of failure the check was added to remove.
-  - Starting point: Give the flag table entry the reader's actual type, or parse once and share the value. See `crates/clauvolution_app/src/cli.rs` on `todo/unknown-flag-launches-gui`.
-  - Source: todo/unknown-flag-launches-gui branch, 2026-09-23
 - [PERSIST] `save-terrain-field-coverage` — **Nothing forces a newly runtime-mutated tile field into `SaveTerrain`.** A field that starts changing at runtime is silently lost on save and load, which is the bug `persist-terrain-state` fixed for the four fields that change today.
   - Starting point: A test that mutates every `Tile` field the sim writes and round-trips the map, or a comment at the `Tile` definition naming `SaveTerrain`. See the "terrain persists only the tile fields that change" DECISIONS entry on `todo/persist-terrain-state`.
   - Source: todo/persist-terrain-state branch, 2026-09-23
