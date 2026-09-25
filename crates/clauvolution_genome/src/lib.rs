@@ -853,7 +853,25 @@ impl Genome {
         });
     }
 
-    /// Crossover two genomes. `self` is the fitter parent.
+    /// Crossover two genomes. `self` supplies the child's structure and
+    /// `other` only varies it.
+    ///
+    /// The sim has no fitness score, so `self` is not the fitter parent in
+    /// the NEAT sense: `reproduction_system` passes the parent that initiated
+    /// the mating and pays for the child, which is whichever of the pair it
+    /// visits first in query order.
+    ///
+    /// - Connections: every gene of `self`. Where both parents carry the same
+    ///   innovation, the copy (weight and enabled flag) is picked from either
+    ///   parent at random. `other`'s disjoint and excess genes are dropped, so
+    ///   the child's topology is exactly `self`'s.
+    /// - Neurons: all of `self`'s. `other`'s are added only if a child
+    ///   connection names a neuron `self` lacks, which matching genes from
+    ///   shared descent do not.
+    /// - Body segments: `self`'s list 70% of the time; otherwise `self`'s
+    ///   torso followed by a per-slot pick from either parent.
+    /// - Scalar traits, including diet: each blended with its own factor,
+    ///   symmetric in the two parents.
     pub fn crossover(&self, other: &Genome, rng: &mut impl Rng) -> Genome {
         let mut child_neurons = self.neurons.clone();
         let mut child_connections = Vec::new();
@@ -903,7 +921,7 @@ impl Genome {
             }
         }
 
-        // Crossover body segments: take from fitter parent with some mixing
+        // Crossover body segments: mostly `self`'s, with some mixing
         let child_segments = if rng.gen_bool(0.7) {
             self.body_segments.clone()
         } else {
