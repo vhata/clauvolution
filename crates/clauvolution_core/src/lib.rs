@@ -1077,12 +1077,14 @@ pub struct LightShare(pub f32);
 #[derive(Component, Clone)]
 pub struct BrainMemory(pub [f32; 3]);
 
-/// Per-organism record of the last-tick neural activations, keyed by
-/// neuron ID. Populated by `sensing_and_brain_system` for live UI
-/// visualisation (brain activation heatmap in the Inspect tab).
+/// Per-organism record of the last-tick neural activations, indexed by the
+/// organism's `Brain` slots; read one neuron with `Brain::activation`.
+/// Populated by `sensing_and_brain_system` for live UI visualisation
+/// (brain activation heatmap in the Inspect tab). The buffer is reused
+/// every tick.
 #[derive(Component, Clone, Default, Debug)]
 pub struct BrainActivations {
-    pub values: std::collections::HashMap<u64, f32>,
+    pub values: Vec<f32>,
 }
 
 /// Tracks a potential or confirmed symbiotic link to another organism.

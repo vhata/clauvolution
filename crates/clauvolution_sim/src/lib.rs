@@ -854,9 +854,178 @@ fn update_food_snapshot(
         .extend(food_query.iter().map(|(e, p, fe)| (e, p.0, fe.0)));
 }
 
+/// What sensing reads about a neighbouring organism, copied once per tick.
+#[derive(Clone, Copy)]
+struct SensedOrganism {
+    entity: Entity,
+    pos: Vec2,
+    size: f32,
+    species: u64,
+    /// `photosynthesis_rate.min(1.0)`, the nearest-organism photo hint.
+    photo_hint: f32,
+    is_photosynthesiser: bool,
+    signal: f32,
+}
+
+/// A food item as sensing sees it: its position and its index in
+/// `FoodSnapshot::entries`, which breaks distance ties.
+#[derive(Clone, Copy)]
+struct SensedFood {
+    pos: Vec2,
+    index: u32,
+}
+
+/// Items binned by cell key (`floor(pos / cell_size)` per axis) into a
+/// dense grid over the occupied key range, rebuilt once per tick. Within a
+/// cell, items keep the order they were given in.
+///
+/// Sensing uses two: organisms, filled cell by cell from the spatial hash
+/// with its keys and cell size, so each cell keeps the hash's order; and
+/// food items from `FoodSnapshot`, on `FOOD_CELL_SIZE` cells.
+/// Sensing used to call `SpatialHash::query_radius` per organism, which
+/// allocates and fills a `Vec`, resolve every hit through an ECS query, and
+/// walk the whole food snapshot. See DECISIONS.md, "Sensing reads per-tick
+/// grids, not the ECS".
+struct CellGrid<T> {
+    /// Items in cell order.
+    entries: Vec<T>,
+    /// Per cell, row-major from `min`, where its items start in `entries`;
+    /// one extra element closes the last cell.
+    starts: Vec<u32>,
+    min: (i32, i32),
+    width: i32,
+    height: i32,
+    /// The last rebuild's `(cell key, item)` pairs, kept to reuse the
+    /// allocation.
+    scratch: Vec<((i32, i32), T)>,
+    cell_size: f32,
+}
+
+impl<T> Default for CellGrid<T> {
+    fn default() -> Self {
+        Self {
+            entries: Vec::new(),
+            starts: Vec::new(),
+            min: (0, 0),
+            width: 0,
+            height: 0,
+            scratch: Vec::new(),
+            cell_size: 1.0,
+        }
+    }
+}
+
+/// How far past the sensing range a cell's nearest edge may lie and still
+/// be scanned. A cell is skipped only when every point in it is farther
+/// than the range plus this, so rounding in the cell key or the distance
+/// can never skip an item that the range test would accept.
+const CELL_REACH_MARGIN: f32 = 0.5;
+
+/// Cell size of sensing's food grid, in world units. Food order does not
+/// depend on cells (ties go to the earlier snapshot entry), so this is
+/// free to differ from the spatial hash's. Coarser than the hash because
+/// food is sparse for most of a run and every visited cell costs a lookup.
+const FOOD_CELL_SIZE: f32 = 32.0;
+
+impl<T: Copy> CellGrid<T> {
+    /// Rebuild from `(cell key, item)` pairs. A counting sort, so items that
+    /// share a cell keep their relative order.
+    fn rebuild(&mut self, cell_size: f32, items: impl IntoIterator<Item = ((i32, i32), T)>) {
+        self.cell_size = cell_size;
+        self.entries.clear();
+        self.starts.clear();
+        self.scratch.clear();
+        self.scratch.extend(items);
+        let Some(&(_, filler)) = self.scratch.first() else {
+            self.width = 0;
+            self.height = 0;
+            return;
+        };
+        let mut min = (i32::MAX, i32::MAX);
+        let mut max = (i32::MIN, i32::MIN);
+        for &(key, _) in &self.scratch {
+            min = (min.0.min(key.0), min.1.min(key.1));
+            max = (max.0.max(key.0), max.1.max(key.1));
+        }
+        self.min = min;
+        self.width = max.0 - min.0 + 1;
+        self.height = max.1 - min.1 + 1;
+        // Positions are wrapped into the world, so the key range is bounded
+        // by the world size over the cell size.
+        debug_assert!(
+            (self.width as i64) * (self.height as i64) <= 1 << 24,
+            "cell keys span {}x{} cells",
+            self.width,
+            self.height
+        );
+        let cells = (self.width * self.height) as usize;
+        self.starts.resize(cells + 1, 0);
+        for i in 0..self.scratch.len() {
+            let index = self
+                .index(self.scratch[i].0)
+                .expect("key inside the grid it sized");
+            self.starts[index + 1] += 1;
+        }
+        for i in 0..cells {
+            self.starts[i + 1] += self.starts[i];
+        }
+        // Place each item at its cell's next free position, in input order.
+        let mut next = self.starts.clone();
+        self.entries.resize(self.scratch.len(), filler);
+        for i in 0..self.scratch.len() {
+            let (key, item) = self.scratch[i];
+            let index = self.index(key).expect("key inside the grid it sized");
+            self.entries[next[index] as usize] = item;
+            next[index] += 1;
+        }
+    }
+
+    fn index(&self, (x, y): (i32, i32)) -> Option<usize> {
+        let (dx, dy) = (x - self.min.0, y - self.min.1);
+        if dx < 0 || dy < 0 || dx >= self.width || dy >= self.height {
+            return None;
+        }
+        Some((dy * self.width + dx) as usize)
+    }
+
+    /// The items in one cell, in input order; empty outside the grid.
+    fn cell(&self, key: (i32, i32)) -> &[T] {
+        match self.index(key) {
+            Some(index) => {
+                &self.entries[self.starts[index] as usize..self.starts[index + 1] as usize]
+            }
+            None => &[],
+        }
+    }
+
+    /// The inclusive range of keys, on one axis, of cells that can hold a
+    /// point within `range` (plus `CELL_REACH_MARGIN`) of coordinate `p`.
+    fn span(&self, p: f32, range: f32) -> (i32, i32) {
+        let reach = range + CELL_REACH_MARGIN;
+        (
+            ((p - reach) / self.cell_size).floor() as i32,
+            ((p + reach) / self.cell_size).floor() as i32,
+        )
+    }
+
+    /// The items in one cell, or nothing if every point of the cell is
+    /// beyond `range` (plus `CELL_REACH_MARGIN`) from `pos`.
+    fn cell_within(&self, key: (i32, i32), pos: Vec2, range: f32) -> &[T] {
+        let lo = Vec2::new(key.0 as f32, key.1 as f32) * self.cell_size;
+        let hi = lo + Vec2::splat(self.cell_size);
+        let gap = (lo - pos).max(pos - hi).max(Vec2::ZERO);
+        if gap.length() > range + CELL_REACH_MARGIN {
+            return &[];
+        }
+        self.cell(key)
+    }
+}
+
 fn sensing_and_brain_system(
     config: Res<SimConfig>,
     spatial_hash: Res<SpatialHash>,
+    mut organism_grid: Local<CellGrid<SensedOrganism>>,
+    mut food_grid: Local<CellGrid<SensedFood>>,
     tile_map: Res<TileMap>,
     mut organisms: Query<
         (
@@ -881,13 +1050,62 @@ fn sensing_and_brain_system(
         (With<Organism>, Without<Food>),
     >,
 ) {
-    // Parallelised across organisms. Each iteration only reads from shared
-    // Res/Query (spatial_hash, food_snapshot, all_org_data — all Sync) and
-    // writes to its own BrainOutput + GroupSize + BrainActivations via the
-    // per-iter Mut guard, so there's no cross-organism data dependency.
-    //
-    // Brain eval dominates the per-tick cost at 2000 organisms. Rayon
-    // (via Bevy's TaskPool) spreads it across cores.
+    // Copy what sensing reads into two grids, serially, once per tick.
+    // Organisms go in cell by cell from the spatial hash, each cell in the
+    // hash's order, which is the order `query_radius` returned them in.
+    let cell_size = spatial_hash.cell_size;
+    let all_org_data = &all_org_data;
+    organism_grid.rebuild(
+        cell_size,
+        spatial_hash.cells.iter().flat_map(|(&key, entities)| {
+            entities.iter().filter_map(move |&entity| {
+                let (pos, size, species, genome, signal) = all_org_data.get(entity).ok()?;
+                Some((
+                    key,
+                    SensedOrganism {
+                        entity,
+                        pos: pos.0,
+                        size: size.0,
+                        species: species.0,
+                        photo_hint: genome.photosynthesis_rate.min(1.0),
+                        is_photosynthesiser: genome.is_photosynthesiser(),
+                        signal: signal.0,
+                    },
+                ))
+            })
+        }),
+    );
+    let food_key = |pos: Vec2| {
+        (
+            (pos.x / FOOD_CELL_SIZE).floor() as i32,
+            (pos.y / FOOD_CELL_SIZE).floor() as i32,
+        )
+    };
+    food_grid.rebuild(
+        FOOD_CELL_SIZE,
+        food_snapshot
+            .entries
+            .iter()
+            .enumerate()
+            .map(|(index, &(_, food_pos, _))| {
+                (
+                    food_key(food_pos),
+                    SensedFood {
+                        pos: food_pos,
+                        index: index as u32,
+                    },
+                )
+            }),
+    );
+    let organism_grid = &*organism_grid;
+    let food_grid = &*food_grid;
+
+    // Parallelised across organisms. Each iteration only reads shared data
+    // (the two grids, the spatial hash's geometry, the tile map) and writes
+    // its own BrainOutput, GroupSize and BrainActivations through the
+    // per-item Mut guard, so there is no cross-organism data dependency.
+    // Rayon (via Bevy's TaskPool) spreads it across cores.
+
     organisms.par_iter_mut().for_each(|(entity, pos, energy, health, genome, brain, body_size, species_id, memory, mut output, mut group_size, mut activations)| {
         let mut inputs = [0.0f32; NUM_INPUTS];
 
@@ -897,12 +1115,25 @@ fn sensing_and_brain_system(
         let mut nearest_food_dist = f32::MAX;
         let mut nearest_food_dir = Vec2::ZERO;
 
-        for &(_food_entity, food_pos, _fe) in &food_snapshot.entries {
-            let diff = food_pos - pos.0;
-            let dist = diff.length();
-            if dist < nearest_food_dist && dist < sense_range {
-                nearest_food_dist = dist;
-                nearest_food_dir = if dist > 0.001 { diff / dist } else { Vec2::ZERO };
+        // The nearest food item in range; on equal distances the one earlier
+        // in the snapshot, as the full scan over the snapshot chose.
+        let mut nearest_food_index = u32::MAX;
+        let (x0, x1) = food_grid.span(pos.0.x, sense_range);
+        let (y0, y1) = food_grid.span(pos.0.y, sense_range);
+        for ky in y0..=y1 {
+            for kx in x0..=x1 {
+                for food in food_grid.cell_within((kx, ky), pos.0, sense_range) {
+                    let diff = food.pos - pos.0;
+                    let dist = diff.length();
+                    if dist < sense_range
+                        && (dist < nearest_food_dist
+                            || (dist == nearest_food_dist && food.index < nearest_food_index))
+                    {
+                        nearest_food_dist = dist;
+                        nearest_food_index = food.index;
+                        nearest_food_dir = if dist > 0.001 { diff / dist } else { Vec2::ZERO };
+                    }
+                }
             }
         }
 
@@ -912,7 +1143,6 @@ fn sensing_and_brain_system(
             inputs[3] = 1.0 - (nearest_food_dist / sense_range).min(1.0);
         }
 
-        let nearby_entities = spatial_hash.query_radius(pos.0, sense_range);
         let mut nearest_org_dist = f32::MAX;
         let mut nearest_org_dir = Vec2::ZERO;
         let mut nearest_org_size_ratio = 1.0f32;
@@ -929,41 +1159,48 @@ fn sensing_and_brain_system(
         let mut same_species_count = 0u32;
         let mut same_species_signal_sum = 0.0f32;
 
-        for &nearby_entity in &nearby_entities {
-            if nearby_entity == entity {
-                continue;
-            }
-            if let Ok((other_pos, other_size, other_species, other_genome, other_signal)) = all_org_data.get(nearby_entity) {
-                // Nothing has moved since `update_spatial_hash` ran this tick, so every
-                // returned entity must still fall inside the queried cell range.
-                debug_assert!({
-                    let range_cells = (sense_range / spatial_hash.cell_size).ceil() as i32 + 1;
-                    let (cx, cy) = spatial_hash.cell_key(pos.0);
-                    let (kx, ky) = spatial_hash.cell_key(other_pos.0);
-                    (kx - cx).abs() <= range_cells && (ky - cy).abs() <= range_cells
-                }, "spatial hash returned an entity outside the queried cells; is update_spatial_hash still ordered before sensing?");
-                let diff = other_pos.0 - pos.0;
-                let dist = diff.length();
+        // The cells `query_radius` would visit, in its order, less those
+        // wholly out of range.
+        let range_cells = spatial_hash.cell_range(sense_range);
+        let (cx, cy) = spatial_hash.cell_key(pos.0);
+        let (x0, x1) = organism_grid.span(pos.0.x, sense_range);
+        let (y0, y1) = organism_grid.span(pos.0.y, sense_range);
+        for dx in (-range_cells).max(x0 - cx)..=range_cells.min(x1 - cx) {
+            for dy in (-range_cells).max(y0 - cy)..=range_cells.min(y1 - cy) {
+                let key = (cx + dx, cy + dy);
+                for other in organism_grid.cell_within(key, pos.0, sense_range) {
+                    if other.entity == entity {
+                        continue;
+                    }
+                    // Nothing has moved since `update_spatial_hash` ran this tick, so every
+                    // organism must still sit in the cell the hash filed it under.
+                    debug_assert_eq!(
+                        spatial_hash.cell_key(other.pos), key,
+                        "spatial hash cell disagrees with a position; is update_spatial_hash still ordered before sensing?"
+                    );
+                    let diff = other.pos - pos.0;
+                    let dist = diff.length();
 
-                // Track same-species neighbours for social inputs
-                if dist < sense_range && other_species.0 == species_id.0 {
-                    same_species_count += 1;
-                    same_species_signal_sum += other_signal.0;
-                }
+                    // Track same-species neighbours for social inputs
+                    if dist < sense_range && other.species == species_id.0 {
+                        same_species_count += 1;
+                        same_species_signal_sum += other.signal;
+                    }
 
-                if dist < nearest_org_dist && dist < sense_range {
-                    nearest_org_dist = dist;
-                    nearest_org_dir = if dist > 0.001 { diff / dist } else { Vec2::ZERO };
-                    nearest_org_size_ratio = other_size.0 / body_size.0;
-                    nearest_org_same_species = if other_species.0 == species_id.0 { 1.0 } else { 0.0 };
-                    nearest_org_photo_hint = other_genome.photosynthesis_rate.min(1.0);
-                    nearest_org_signal = other_signal.0;
-                }
+                    if dist < nearest_org_dist && dist < sense_range {
+                        nearest_org_dist = dist;
+                        nearest_org_dir = if dist > 0.001 { diff / dist } else { Vec2::ZERO };
+                        nearest_org_size_ratio = other.size / body_size.0;
+                        nearest_org_same_species = if other.species == species_id.0 { 1.0 } else { 0.0 };
+                        nearest_org_photo_hint = other.photo_hint;
+                        nearest_org_signal = other.signal;
+                    }
 
-                if dist < nearest_eater_dist && dist < sense_range && !other_genome.is_photosynthesiser() {
-                    nearest_eater_dist = dist;
-                    nearest_eater_dir = if dist > 0.001 { diff / dist } else { Vec2::ZERO };
-                    nearest_eater_size_ratio = other_size.0 / body_size.0;
+                    if dist < nearest_eater_dist && dist < sense_range && !other.is_photosynthesiser {
+                        nearest_eater_dist = dist;
+                        nearest_eater_dir = if dist > 0.001 { diff / dist } else { Vec2::ZERO };
+                        nearest_eater_size_ratio = other.size / body_size.0;
+                    }
                 }
             }
         }
@@ -1006,7 +1243,7 @@ fn sensing_and_brain_system(
             inputs[25] = nearest_eater_size_ratio.min(2.0) / 2.0;
         }
 
-        let (brain_out, trace) = brain.evaluate_trace(&inputs);
+        let brain_out = brain.evaluate_into(&inputs, &mut activations.values);
         output.move_x = brain_out[0];
         output.move_y = brain_out[1];
         output.eat = brain_out[2];
@@ -1014,7 +1251,6 @@ fn sensing_and_brain_system(
         output.attack = brain_out[4];
         output.signal = brain_out[5];
         output.memory_out = [brain_out[6], brain_out[7], brain_out[8]];
-        activations.values = trace;
     });
 }
 

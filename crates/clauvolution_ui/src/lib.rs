@@ -1309,7 +1309,7 @@ fn draw_brain_viz(
             continue;
         };
 
-        let source_act = activations.values.get(&conn.from).copied().unwrap_or(0.0);
+        let source_act = brain.activation(&activations.values, conn.from);
         let signal = (source_act * conn.weight).abs().min(2.0) / 2.0;
         let alpha = ((signal * 210.0) as u8).saturating_add(25);
         let thickness = conn.weight.abs().clamp(0.15, 2.5) * 0.9;
@@ -1325,7 +1325,7 @@ fn draw_brain_viz(
 
     // Nodes
     for (id, &pos) in &positions {
-        let act = activations.values.get(id).copied().unwrap_or(0.0);
+        let act = brain.activation(&activations.values, *id);
         painter.circle_filled(pos, node_radius, brain_node_color(act));
         painter.circle_stroke(
             pos,
