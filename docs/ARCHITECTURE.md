@@ -63,6 +63,8 @@ record_population_history     ← 1Hz snapshot into PopulationHistory ring buffe
 record_trail_history          ← organism position samples (when trails enabled)
 ```
 
+Sensing, grazing, predation, disease transmission and symbiosis tracking read neighbours through a `CellGrid` each (sim crate), filled from the spatial hash at the start of the system with only the neighbours and fields that system uses, and walked in `SpatialHash::query_radius` order so that ties resolve as they did; see "Neighbour queries after sensing read per-system grids" in `DECISIONS.md`. Mate search in `reproduction_system` still calls `query_radius`.
+
 The chain is the `SimTick` system set (exported by `clauvolution_sim`). Everything else in `FixedUpdate` orders itself `.after(SimTick)`: `update_body_plans` (body crate, registered by the app; inserting `BodyPlan` moves an organism to a new archetype, so it must happen at a fixed point in the tick, not once per frame) and, headless only, `headless_tick_counter`. Nothing that touches simulation state runs per frame, which is what lets a headless run be a function of the seed alone; see "Headless runs are deterministic" in `DECISIONS.md`.
 
 **PostUpdate** (once per frame, after logic — rendering only)
