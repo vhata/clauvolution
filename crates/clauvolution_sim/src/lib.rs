@@ -4982,3 +4982,64 @@ mod death_marker_tests {
         assert_eq!(world.entities().len(), 0);
     }
 }
+
+#[cfg(test)]
+mod cell_grid_tests {
+    use super::*;
+    use rand::{rngs::StdRng, SeedableRng};
+
+    /// `for_each_near` must visit exactly what `query_radius` returns, in
+    /// the same order, because readers break ties on visit order.
+    #[test]
+    fn for_each_near_matches_query_radius_in_order() {
+        let mut world = World::new();
+        let mut rng = StdRng::seed_from_u64(11);
+        let mut hash = SpatialHash::new(16.0);
+        for _ in 0..600 {
+            // Negative coordinates too, so keys go below zero.
+            let pos = Vec2::new(rng.gen_range(-80.0..200.0), rng.gen_range(-40.0..120.0));
+            let entity = world.spawn_empty().id();
+            hash.insert(entity, pos);
+        }
+        let mut grid: CellGrid<Entity> = CellGrid::default();
+        grid.rebuild_from_hash(&hash, Some);
+        for _ in 0..200 {
+            let pos = Vec2::new(rng.gen_range(-120.0..240.0), rng.gen_range(-80.0..160.0));
+            let radius = rng.gen_range(0.5..40.0);
+            let mut visited = Vec::new();
+            grid.for_each_near(&hash, pos, radius, |&e| visited.push(e));
+            assert_eq!(
+                visited,
+                hash.query_radius(pos, radius),
+                "at {pos} r {radius}"
+            );
+        }
+    }
+
+    /// Dropping entities at rebuild leaves the rest in `query_radius`'s order.
+    #[test]
+    fn a_filtered_grid_keeps_the_order_of_what_it_keeps() {
+        let mut world = World::new();
+        let mut rng = StdRng::seed_from_u64(5);
+        let mut hash = SpatialHash::new(16.0);
+        for _ in 0..300 {
+            let pos = Vec2::new(rng.gen_range(0.0..100.0), rng.gen_range(0.0..100.0));
+            let entity = world.spawn_empty().id();
+            hash.insert(entity, pos);
+        }
+        let keep = |e: &Entity| !e.index().is_multiple_of(3);
+        let mut grid: CellGrid<Entity> = CellGrid::default();
+        grid.rebuild_from_hash(&hash, |e| keep(&e).then_some(e));
+        for _ in 0..100 {
+            let pos = Vec2::new(rng.gen_range(0.0..100.0), rng.gen_range(0.0..100.0));
+            let mut visited = Vec::new();
+            grid.for_each_near(&hash, pos, 20.0, |&e| visited.push(e));
+            let expected: Vec<Entity> = hash
+                .query_radius(pos, 20.0)
+                .into_iter()
+                .filter(keep)
+                .collect();
+            assert_eq!(visited, expected);
+        }
+    }
+}
