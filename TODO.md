@@ -23,9 +23,6 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 
 ### Unprioritized
 
-- [WORLD] `deep-water-share-varies-by-seed` — **Deep water ranges from 22% to 75% of the water between seeds.** `set_sea_level` stretches the water onto -1..0 from the deepest tile, so one deep trench pushes most of the water above `DEEP_WATER_BELOW` and makes it shallow; deep water is 34,742 of 157,286 water tiles on seed 7 and 117,922 on seed 314, which changes how much of each map is costly for non-aquatic movers.
-  - Starting point: set deep water at a depth quantile of the water tiles (a fixed share of the water, as sea level is a fixed share of the map) instead of a fixed point on the stretched scale; the map counts come from `cargo test -p clauvolution_world -- --nocapture`. Accepted for now in the "Sea level at a fixed land fraction" DECISIONS entry.
-  - Source: review of PR #89 (roadmap/phase2-sea-level), 2026-09-25
 - [TOOLING] `headless-save-ticks-past-summary` — **A headless run saves several ticks after the tick its summary describes.** The summary is printed when the target tick is reached, but the save is requested by event and written by `save_system` in `Update` a frame or two later, while `FixedUpdate` keeps ticking, so the save and the summary disagree.
   - Evidence: on seed 42, `--headless 300 --save-as review-a` prints its summary at tick 301 (1,636 organisms) and saves at tick 310 (1,719); `--load sessions/review-a --headless 10 --save-as review-b` prints 1,786 and saves 1,837 at tick 330. A `--load X --headless N` chain therefore runs more than N ticks per link.
   - Starting point: `headless_tick_counter` in `crates/clauvolution_app/src/main.rs`. Options are writing the save synchronously at the summary, or stopping the sim at the target tick while the save and exit phases run; either changes what a save holds, so check the headless smoke and any saved-session workflows.
