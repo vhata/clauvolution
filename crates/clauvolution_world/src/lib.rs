@@ -76,6 +76,30 @@ impl TerrainType {
     }
 }
 
+/// Version of the terrain generator. Saves regenerate terrain from the seed
+/// and record this number, so a save made by a different generator can be
+/// recognised on load and the user warned that the map is not the one that
+/// was saved. Raise it in any change after which `TileMap::generate`
+/// produces a different map from the same seed and world size. Version 1
+/// is every generator before the number was recorded; version 2 is the
+/// phase 2 step 3 generator (sea level at `LAND_FRACTION`, Rock as an
+/// elevation band, seamless noise).
+pub const TERRAIN_GENERATOR_VERSION: u32 = 2;
+
+/// Share of the map's tiles that are land. `TileMap::generate` puts sea
+/// level at the elevation quantile that leaves this share above it, so land
+/// area is the same on every seed while where it lies still varies.
+pub const LAND_FRACTION: f32 = 0.40;
+/// Water below this elevation (on the -1..0 side of sea level) is deep.
+pub const DEEP_WATER_BELOW: f32 = -0.3;
+/// Land at or above this elevation (on the 0..1 side) is Rock, whatever its
+/// moisture, so the highest ground forms ranges.
+pub const ROCK_ABOVE: f32 = 0.75;
+/// Land below Rock is Sand under this moisture, Forest at or above
+/// `FOREST_ABOVE_MOISTURE`, Grassland between.
+pub const SAND_BELOW_MOISTURE: f32 = 0.25;
+pub const FOREST_ABOVE_MOISTURE: f32 = 0.6;
+
 /// One cell of the world map.
 ///
 /// Saves store only the fields that change after `TileMap::generate`; the
@@ -97,17 +121,15 @@ pub struct Tile {
 
 impl Tile {
     fn from_elevation_moisture(elevation: f32, moisture: f32) -> Self {
-        let terrain = if elevation < -0.3 {
+        let terrain = if elevation < DEEP_WATER_BELOW {
             TerrainType::DeepWater
-        } else if elevation < -0.05 {
+        } else if elevation < 0.0 {
             TerrainType::ShallowWater
-        } else if moisture < 0.25 {
-            if elevation > 0.6 {
-                TerrainType::Rock
-            } else {
-                TerrainType::Sand
-            }
-        } else if moisture > 0.6 {
+        } else if elevation >= ROCK_ABOVE {
+            TerrainType::Rock
+        } else if moisture < SAND_BELOW_MOISTURE {
+            TerrainType::Sand
+        } else if moisture >= FOREST_ABOVE_MOISTURE {
             TerrainType::Forest
         } else {
             TerrainType::Grassland
@@ -313,9 +335,7 @@ impl TileMap {
     /// `tile_dynamics_system` both assume that range.
     pub fn generate(width: u32, height: u32, rng: &mut impl Rng) -> Self {
         let mut elevation = generate_noise_map(width, height, 5, rng);
-        for e in &mut elevation {
-            *e = *e * 2.0 - 1.0;
-        }
+        set_sea_level(&mut elevation, LAND_FRACTION);
         let moisture = generate_noise_map(width, height, 4, rng);
 
         let tiles: Vec<Tile> = elevation
@@ -336,7 +356,44 @@ impl TileMap {
     }
 }
 
-/// Simple multi-octave value noise for procedural terrain, normalised to 0..1.
+/// Remap a 0..1 elevation map to -1..1 with sea level at 0, where sea level
+/// is the elevation quantile that leaves `land_fraction` of the tiles above
+/// it. Below sea level the map is stretched linearly onto -1..0 and above it
+/// onto 0..1, so the order of tiles is kept, the deepest tile is -1 and the
+/// highest peak is 1 on every seed.
+///
+/// Ties: a tile exactly at the sea value maps to 0 and becomes land, so if
+/// several tiles shared that value the land share would come out above
+/// `land_fraction`. On all eight standard audit seeds exactly one tile sits
+/// at the sea value, and the land count is exactly the target.
+fn set_sea_level(elevation: &mut [f32], land_fraction: f32) {
+    let mut sorted = elevation.to_vec();
+    sorted.sort_by(f32::total_cmp);
+    let n = sorted.len();
+    let water_tiles = ((1.0 - land_fraction) * n as f32).round() as usize;
+    let sea = sorted[water_tiles.min(n - 1)];
+    let (lo, hi) = (sorted[0], sorted[n - 1]);
+    let below = (sea - lo).max(1e-6);
+    let above = (hi - sea).max(1e-6);
+    for e in elevation.iter_mut() {
+        *e = if *e < sea {
+            (*e - sea) / below
+        } else {
+            (*e - sea) / above
+        };
+    }
+}
+
+/// Multi-octave value noise for procedural terrain, normalised to 0..1.
+///
+/// The noise tiles seamlessly: each octave's random grid wraps, so the
+/// value at `x = width - 1` runs smoothly into the value at `x = 0`, and the
+/// same for `y`. Positions wrap with `rem_euclid`, so the world is a torus,
+/// and a grid that did not wrap put a straight terrain seam along both
+/// edges where uncorrelated values met; on six of the eight audit seeds
+/// that seam joined landmasses by chance (see "Sea level at a fixed land
+/// fraction" in `docs/DECISIONS.md`). Octave `k` has `2^k + 1` cells across
+/// the map, the same interval count as the non-wrapping grid it replaced.
 fn generate_noise_map(width: u32, height: u32, octaves: u32, rng: &mut impl Rng) -> Vec<f32> {
     let size = (width * height) as usize;
     let mut result = vec![0.0f32; size];
@@ -345,22 +402,22 @@ fn generate_noise_map(width: u32, height: u32, octaves: u32, rng: &mut impl Rng)
         let freq = (1 << octave) as f32;
         let amplitude = 1.0 / freq;
 
-        // Generate a small random grid and interpolate
-        let grid_w = (freq as u32 + 2).max(2);
-        let grid_h = (freq as u32 + 2).max(2);
+        // A small random grid that wraps in both directions, interpolated.
+        let grid_w = freq as u32 + 1;
+        let grid_h = freq as u32 + 1;
         let grid: Vec<f32> = (0..grid_w * grid_h)
             .map(|_| rng.gen_range(-1.0..1.0))
             .collect();
 
         for y in 0..height {
             for x in 0..width {
-                let gx = (x as f32 / width as f32) * (grid_w - 1) as f32;
-                let gy = (y as f32 / height as f32) * (grid_h - 1) as f32;
+                let gx = (x as f32 / width as f32) * grid_w as f32;
+                let gy = (y as f32 / height as f32) * grid_h as f32;
 
-                let x0 = gx.floor() as u32;
-                let y0 = gy.floor() as u32;
-                let x1 = (x0 + 1).min(grid_w - 1);
-                let y1 = (y0 + 1).min(grid_h - 1);
+                let x0 = (gx.floor() as u32).min(grid_w - 1);
+                let y0 = (gy.floor() as u32).min(grid_h - 1);
+                let x1 = (x0 + 1) % grid_w;
+                let y1 = (y0 + 1) % grid_h;
 
                 let fx = gx - gx.floor();
                 let fy = gy - gy.floor();
@@ -607,50 +664,76 @@ mod tests {
 
     /// Moisture must span 0..1 (the biome thresholds and the vegetation
     /// carrying capacity assume it) while elevation stays signed so that
-    /// water sits below zero. Uses the default world size and the seed the
-    /// headless validation runs use, and prints the biome counts so a tuning
-    /// pass can compare distributions.
+    /// water sits below zero, and sea level must leave `LAND_FRACTION` of
+    /// the map as land on every seed. Prints the per-biome counts on the
+    /// eight audit seeds at the default world size, so a tuning pass can
+    /// compare distributions (run with `--nocapture`), and asserts every
+    /// land biome, Rock included, on seed 42, the seed the headless
+    /// validation runs use.
     #[test]
     fn generated_map_has_unit_moisture_and_mixed_biomes() {
-        let mut rng = StdRng::seed_from_u64(42);
-        let map = TileMap::generate(512, 512, &mut rng);
+        const BIOMES: [TerrainType; 6] = [
+            TerrainType::DeepWater,
+            TerrainType::ShallowWater,
+            TerrainType::Sand,
+            TerrainType::Grassland,
+            TerrainType::Forest,
+            TerrainType::Rock,
+        ];
+        for seed in [1u64, 2, 3, 7, 42, 99, 314, 1000] {
+            let mut rng = StdRng::seed_from_u64(seed);
+            let map = TileMap::generate(512, 512, &mut rng);
 
-        let mut counts: HashMap<TerrainType, usize> = HashMap::new();
-        for tile in &map.tiles {
-            *counts.entry(tile.terrain).or_default() += 1;
-        }
-        let mut sorted: Vec<_> = counts.iter().collect();
-        sorted.sort_by_key(|(t, _)| format!("{t:?}"));
-        for (terrain, n) in sorted {
-            println!("{terrain:?}: {n}");
-        }
+            let mut counts: HashMap<TerrainType, usize> = HashMap::new();
+            for tile in &map.tiles {
+                *counts.entry(tile.terrain).or_default() += 1;
+            }
+            let n = |t: TerrainType| counts.get(&t).copied().unwrap_or(0);
+            let land: usize = BIOMES[2..].iter().map(|&t| n(t)).sum();
+            let mut line = format!(
+                "seed {seed}: land {land} ({:.1}% of tiles);",
+                100.0 * land as f64 / map.tiles.len() as f64
+            );
+            for &t in &BIOMES[..2] {
+                line += &format!(" {t:?} {}", n(t));
+            }
+            line += "; of land:";
+            for &t in &BIOMES[2..] {
+                line += &format!(
+                    " {t:?} {} ({:.1}%)",
+                    n(t),
+                    100.0 * n(t) as f64 / land as f64
+                );
+            }
+            println!("{line}");
 
-        let (mut min_m, mut max_m) = (f32::MAX, f32::MIN);
-        let (mut min_e, mut max_e) = (f32::MAX, f32::MIN);
-        for tile in &map.tiles {
-            min_m = min_m.min(tile.moisture);
-            max_m = max_m.max(tile.moisture);
-            min_e = min_e.min(tile.elevation);
-            max_e = max_e.max(tile.elevation);
+            let (mut min_m, mut max_m) = (f32::MAX, f32::MIN);
+            let (mut min_e, mut max_e) = (f32::MAX, f32::MIN);
+            for tile in &map.tiles {
+                min_m = min_m.min(tile.moisture);
+                max_m = max_m.max(tile.moisture);
+                min_e = min_e.min(tile.elevation);
+                max_e = max_e.max(tile.elevation);
+            }
+            assert!(
+                min_m >= 0.0 && max_m <= 1.0,
+                "seed {seed}: moisture outside 0..1: {min_m}..{max_m}"
+            );
+            assert!(
+                (min_e + 1.0).abs() < 1e-5 && (max_e - 1.0).abs() < 1e-5,
+                "seed {seed}: elevation should span -1..1 around sea level: {min_e}..{max_e}"
+            );
+            let expected = (LAND_FRACTION * map.tiles.len() as f32).round() as usize;
+            assert!(
+                land.abs_diff(expected) <= 1,
+                "seed {seed}: {land} land tiles, expected {expected}"
+            );
+            if seed == 42 {
+                for &t in &BIOMES[2..] {
+                    assert!(n(t) > 0, "seed 42 has no {t:?} tiles");
+                }
+            }
         }
-        println!("moisture {min_m}..{max_m}, elevation {min_e}..{max_e}");
-
-        assert!(
-            min_m >= 0.0 && max_m <= 1.0,
-            "moisture outside 0..1: {min_m}..{max_m}"
-        );
-        assert!(
-            min_e < 0.0 && max_e > 0.0,
-            "elevation should straddle zero: {min_e}..{max_e}"
-        );
-        assert!(
-            counts.len() > 1,
-            "expected more than one biome type, got {counts:?}"
-        );
-        assert!(
-            counts.contains_key(&TerrainType::Forest),
-            "no Forest tiles generated"
-        );
     }
 
     /// Flood fill joins components across the torus edges, ranks major
@@ -697,9 +780,11 @@ mod tests {
             let is_land: Vec<bool> = map.tiles.iter().map(|t| !t.terrain.is_water()).collect();
             let all = Regions::compute(512, 512, &is_land, 1);
             println!("  every component: {:?}", all.sizes);
-            // The seam question (plan step 3): the same fill without the
-            // torus wrap. Fewer regions with the wrap means the seam joins
-            // landmasses that a flat map would cut in two.
+            // The same fill without the torus wrap. The noise tiles
+            // seamlessly, so a landmass that crosses a map edge continues
+            // on the other side and the flat fill cuts it in two; fewer
+            // regions with the wrap is expected and no longer a seam
+            // artefact (phase 2 step 3).
             let flat =
                 Regions::compute_with_wrap(512, 512, &is_land, MINOR_REGION_MAX_TILES, false);
             println!(
