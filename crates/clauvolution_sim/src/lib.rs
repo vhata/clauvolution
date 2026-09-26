@@ -2215,25 +2215,36 @@ fn disease_effects_system(
 /// energy exchange.
 fn symbiosis_tracking_system(
     spatial_hash: Res<SpatialHash>,
+    mut neighbour_grid: Local<CellGrid<(Entity, Vec2)>>,
     mut organisms: Query<(Entity, &Position, &mut Symbiosis), With<Organism>>,
     all_positions: Query<&Position, With<Organism>>,
 ) {
+    // Every hashed organism with its current position, in the hash's order.
+    neighbour_grid.rebuild_from_hash(&spatial_hash, |entity| {
+        Some((entity, all_positions.get(entity).ok()?.0))
+    });
+    let neighbour_grid = &*neighbour_grid;
+    let spatial_hash = &*spatial_hash;
     organisms
         .par_iter_mut()
         .for_each(|(entity, pos, mut symbiosis)| {
-            let nearby = spatial_hash.query_radius(pos.0, SYMBIOSIS_RANGE);
+            // No range test: the nearest organism in any visited cell counts,
+            // as it did when this read `query_radius`.
             let mut best: Option<(Entity, f32)> = None;
-            for &other in &nearby {
-                if other == entity {
-                    continue;
-                }
-                if let Ok(other_pos) = all_positions.get(other) {
-                    let dist2 = (other_pos.0 - pos.0).length_squared();
+            neighbour_grid.for_each_near(
+                spatial_hash,
+                pos.0,
+                SYMBIOSIS_RANGE,
+                |&(other, other_pos)| {
+                    if other == entity {
+                        return;
+                    }
+                    let dist2 = (other_pos - pos.0).length_squared();
                     if best.is_none_or(|(_, d)| dist2 < d) {
                         best = Some((other, dist2));
                     }
-                }
-            }
+                },
+            );
             let current = best.map(|(e, _)| e);
             if current.is_some() && current == symbiosis.link_target {
                 symbiosis.link_ticks = symbiosis.link_ticks.saturating_add(1);
