@@ -718,6 +718,13 @@ fn inspect_tab(
     let terrain_name = tile_map
         .map(|tm| format!("{:?}", tm.tile_at_pos(pos.0).terrain))
         .unwrap_or_else(|| "?".to_string());
+    let region_name = tile_map
+        .map(|tm| match tm.region_at_pos(pos.0) {
+            clauvolution_world::REGION_WATER => "water".to_string(),
+            clauvolution_world::REGION_MINOR => "minor".to_string(),
+            r => format!("{r} ({} tiles)", tm.regions.sizes[r as usize]),
+        })
+        .unwrap_or_else(|| "?".to_string());
 
     let strategy = {
         let s = classify_strategy(genome);
@@ -793,6 +800,10 @@ fn inspect_tab(
 
             ui.label("Terrain");
             ui.label(terrain_name);
+            ui.end_row();
+
+            ui.label("Region");
+            ui.label(region_name);
             ui.end_row();
 
             ui.label("Group nearby");
@@ -1747,6 +1758,139 @@ fn graphs_tab(ui: &mut egui::Ui, history: &PopulationHistory) {
                         Line::new(o_cost)
                             .color(egui::Color32::from_rgb(180, 180, 180))
                             .name("Metabolism, movement, strikes"),
+                    );
+                });
+
+            ui.add_space(4.0);
+
+            // Geography (plans/2026-09-25-phase2-biomes.md, step 1): where
+            // the population stands, whether species separate by region or
+            // biome more than shuffled labels would, and how often organisms
+            // move between landmasses.
+            ui.label("Population by region (all strategies; water is both depths)");
+            let region_colors = [
+                egui::Color32::from_rgb(120, 200, 120),
+                egui::Color32::from_rgb(200, 180, 90),
+                egui::Color32::from_rgb(230, 130, 90),
+                egui::Color32::from_rgb(190, 120, 210),
+                egui::Color32::from_rgb(90, 200, 200),
+                egui::Color32::from_rgb(220, 120, 160),
+                egui::Color32::from_rgb(160, 160, 160),
+                egui::Color32::from_rgb(120, 110, 100),
+            ];
+            let region_series = |column: usize| -> PlotPoints {
+                snaps
+                    .iter()
+                    .enumerate()
+                    .map(|(i, s)| {
+                        let n: u32 = s.census.by_region.iter().map(|row| row[column]).sum();
+                        [i as f64, n as f64]
+                    })
+                    .collect()
+            };
+            let used: Vec<usize> = (0..REGION_COLUMNS)
+                .filter(|&c| {
+                    snaps
+                        .iter()
+                        .any(|s| s.census.by_region.iter().any(|r| r[c] > 0))
+                })
+                .collect();
+            let water: PlotPoints = snaps
+                .iter()
+                .enumerate()
+                .map(|(i, s)| {
+                    let n: u32 = s.census.by_biome.iter().map(|row| row[0] + row[1]).sum();
+                    [i as f64, n as f64]
+                })
+                .collect();
+            Plot::new("pop_by_region")
+                .height(110.0)
+                .legend(Legend::default().position(egui_plot::Corner::LeftTop))
+                .show(ui, |plot_ui| {
+                    for &c in &used {
+                        let name = if c < REGION_SLOTS {
+                            format!("Region {c}")
+                        } else if c == REGION_SLOTS {
+                            "Other regions".to_string()
+                        } else {
+                            "Minor regions".to_string()
+                        };
+                        plot_ui.line(
+                            Line::new(region_series(c))
+                                .color(region_colors[c])
+                                .name(name),
+                        );
+                    }
+                    plot_ui.line(
+                        Line::new(water)
+                            .color(egui::Color32::from_rgb(90, 140, 230))
+                            .name("On water"),
+                    );
+                });
+
+            ui.add_space(4.0);
+
+            ui.label("Separation: mean dominant share per species, against shuffled labels");
+            let sep_series = |f: fn(&PopSnapshot) -> f32| -> PlotPoints {
+                snaps
+                    .iter()
+                    .enumerate()
+                    .map(|(i, s)| [i as f64, f(s) as f64])
+                    .collect()
+            };
+            Plot::new("separation")
+                .height(110.0)
+                .include_y(0.0)
+                .include_y(1.0)
+                .legend(Legend::default().position(egui_plot::Corner::LeftBottom))
+                .show(ui, |plot_ui| {
+                    plot_ui.line(
+                        Line::new(sep_series(|s| s.census.region.observed))
+                            .color(egui::Color32::from_rgb(230, 130, 90))
+                            .name("Region"),
+                    );
+                    plot_ui.line(
+                        Line::new(sep_series(|s| s.census.region.null))
+                            .color(egui::Color32::from_rgb(150, 100, 80))
+                            .style(egui_plot::LineStyle::dashed_dense())
+                            .name("Region null"),
+                    );
+                    plot_ui.line(
+                        Line::new(sep_series(|s| s.census.biome.observed))
+                            .color(egui::Color32::from_rgb(120, 200, 120))
+                            .name("Biome"),
+                    );
+                    plot_ui.line(
+                        Line::new(sep_series(|s| s.census.biome.null))
+                            .color(egui::Color32::from_rgb(80, 130, 80))
+                            .style(egui_plot::LineStyle::dashed_dense())
+                            .name("Biome null"),
+                    );
+                });
+
+            ui.add_space(4.0);
+
+            ui.label("Region crossings per second");
+            let crossing_series = |kind: usize| -> PlotPoints {
+                snaps
+                    .iter()
+                    .enumerate()
+                    .map(|(i, s)| [i as f64, s.geo.crossings[kind] as f64])
+                    .collect()
+            };
+            Plot::new("crossings")
+                .height(90.0)
+                .legend(Legend::default().position(egui_plot::Corner::LeftTop))
+                .show(ui, |plot_ui| {
+                    plot_ui.line(
+                        Line::new(crossing_series(0))
+                            .color(egui::Color32::from_rgb(120, 200, 120))
+                            .name("Plants"),
+                    );
+                    plot_ui.line(
+                        Line::new(crossing_series(1))
+                            .color(egui::Color32::from_rgb(200, 180, 90))
+                            .name("Consumers"),
                     );
                 });
 

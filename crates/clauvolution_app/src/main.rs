@@ -740,8 +740,9 @@ fn dump_history_csv(
          hunter_intents,hunter_strikes,hunter_consumer_in_reach,hunter_kills_consumer,\
          hunter_rejected_size,hunter_rejected_damage,hunter_rejected_both,{},\
          species_pass_tick,species_pass_organisms,species_pass_near_other,\
-         species_pass_drifting,species_pass_isolated",
-        band_csv_header()
+         species_pass_drifting,species_pass_isolated,{}",
+        band_csv_header(),
+        geo_csv_header()
     )?;
     for s in &history.snapshots {
         let fl = &s.energy_flows;
@@ -749,7 +750,7 @@ fn dump_history_csv(
             f,
             "{},{:.1},{},{},{},{},{},{},{},{},{:.2},{:.3},{:.3},{:.3},{:.3},{:.3},{:+.3},{:.3},{:.4},{:.4},{:.3},{:.3},{:.3},{:.3},{:.3},{},{},{},{},{},{},\
              {:.2},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.6},{:.6},\
-             {},{},{},{},{},{},{},{},{},{:.3},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+             {},{},{},{},{},{},{},{},{},{:.3},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
             s.tick,
             s.tick as f64 / 30.0,
             s.organisms,
@@ -820,6 +821,7 @@ fn dump_history_csv(
             s.species_pass.near_other,
             s.species_pass.drifting,
             s.species_pass.isolated,
+            geo_csv_row(s),
         )?;
     }
     Ok(())
@@ -932,6 +934,311 @@ fn band_csv_row(s: &clauvolution_core::PopSnapshot) -> String {
         }
     }
     cols.join(",")
+}
+
+/// Trailing history columns for the phase 2 geography instruments
+/// (`plans/2026-09-25-phase2-biomes.md`, step 1), after the diet-band
+/// columns: organism-ticks in all and on deep and shallow water by kind
+/// and aquatic band, movement energy paid on water, crossings, new-region
+/// events, food items spawned and eaten by where they were, population by
+/// biome and by region column per strategy label, and the region and
+/// biome separation numbers with their shuffled nulls.
+fn geo_csv_header() -> String {
+    let mut cols: Vec<String> = Vec::new();
+    for kind in GEO_KIND_KEYS {
+        for aq in AQUATIC_BAND_KEYS {
+            for place in ["all", "deep", "shallow"] {
+                cols.push(format!("ticks_{place}_{kind}_{aq}"));
+            }
+        }
+    }
+    for kind in GEO_KIND_KEYS {
+        for depth in WATER_DEPTH_KEYS {
+            cols.push(format!("water_movement_{kind}_{depth}"));
+        }
+    }
+    for c in [
+        "crossings_plant",
+        "crossings_consumer",
+        "new_region_events",
+        "food_spawned_deep",
+        "food_spawned_shallow",
+        "food_spawned_land",
+        "food_eaten",
+        "food_eaten_deep",
+        "food_eaten_shallow",
+    ] {
+        cols.push(c.to_string());
+    }
+    for label in STRATEGY_LABEL_KEYS {
+        for biome in BIOME_KEYS {
+            cols.push(format!("{label}_on_{biome}"));
+        }
+    }
+    for label in STRATEGY_LABEL_KEYS {
+        for slot in 0..REGION_SLOTS {
+            cols.push(format!("{label}_in_r{slot}"));
+        }
+        cols.push(format!("{label}_in_rother"));
+        cols.push(format!("{label}_in_rminor"));
+    }
+    for place in ["region", "biome"] {
+        for field in ["sep", "null", "species", "confined", "confined_null"] {
+            cols.push(format!("{place}_{field}"));
+        }
+    }
+    cols.join(",")
+}
+
+fn geo_csv_row(s: &PopSnapshot) -> String {
+    let g = &s.geo;
+    let c = &s.census;
+    let mut cols: Vec<String> = Vec::new();
+    for kind in 0..2 {
+        for aq in 0..AQUATIC_BAND_COUNT {
+            cols.push(g.ticks[kind][aq].to_string());
+            cols.push(g.water_ticks[kind][0][aq].to_string());
+            cols.push(g.water_ticks[kind][1][aq].to_string());
+        }
+    }
+    for kind in 0..2 {
+        for depth in 0..2 {
+            cols.push(format!("{:.3}", g.water_movement[kind][depth]));
+        }
+    }
+    for n in [
+        g.crossings[0],
+        g.crossings[1],
+        g.new_region_events,
+        g.food_spawned[0],
+        g.food_spawned[1],
+        g.food_spawned[2],
+        g.food_eaten,
+        g.food_eaten_on_water[0],
+        g.food_eaten_on_water[1],
+    ] {
+        cols.push(n.to_string());
+    }
+    for row in &c.by_biome {
+        cols.extend(row.iter().map(|n| n.to_string()));
+    }
+    for row in &c.by_region {
+        cols.extend(row.iter().map(|n| n.to_string()));
+    }
+    for sep in [&c.region, &c.biome] {
+        cols.push(format!("{:.4}", sep.observed));
+        cols.push(format!("{:.4}", sep.null));
+        cols.push(sep.species.to_string());
+        cols.push(sep.confined.to_string());
+        cols.push(sep.confined_null.to_string());
+    }
+    cols.join(",")
+}
+
+/// Ticks between rows of the headless summary's geography timeline.
+const GEOGRAPHY_TIMELINE_STEP: u64 = 1000;
+
+/// Samples before this tick are left out of the run-level separation means
+/// and histograms: the founders are placed by biome area, not by species,
+/// so the opening seconds say nothing about separation.
+const GEOGRAPHY_SETTLE_TICK: u64 = 1000;
+
+/// Share of `part` in `whole` as a percentage, 0 when `whole` is 0.
+fn pct(part: f64, whole: f64) -> f64 {
+    if whole > 0.0 {
+        100.0 * part / whole
+    } else {
+        0.0
+    }
+}
+
+/// The phase 2 geography instruments (`plans/2026-09-25-phase2-biomes.md`,
+/// step 1): the region layout, a timeline of population by region and
+/// the separation numbers every `GEOGRAPHY_TIMELINE_STEP` ticks, then run
+/// totals for crossings, time on water by aquatic band, food landing on
+/// water, and the separation means and dominant-share histograms after
+/// `GEOGRAPHY_SETTLE_TICK`.
+fn print_geography_summary(run: &GeographyStats, history: &PopulationHistory, tile_map: &TileMap) {
+    let regions = &tile_map.regions;
+    let land = tile_map
+        .tiles
+        .iter()
+        .filter(|t| !t.terrain.is_water())
+        .count();
+    eprintln!("Geography (phase 2 step 1 instruments):");
+    eprintln!(
+        "  Regions: {} major {:?}, {} minor components ({} tiles), land {} tiles",
+        regions.count(),
+        regions.sizes,
+        regions.minor_components,
+        regions.minor_tiles,
+        land
+    );
+    if history.snapshots.is_empty() {
+        return;
+    }
+    let shown = regions.count().min(REGION_SLOTS);
+    eprintln!(
+        "  Timeline (every {GEOGRAPHY_TIMELINE_STEP} ticks; plants and consumers by region r0..r{} / minor / water at the sample; separation observed/null (species counted, confined observed/null); crossings plant/consumer and new-region events in the window):",
+        shown.saturating_sub(1)
+    );
+    let mut window = GeographyStats::default();
+    let mut next = GEOGRAPHY_TIMELINE_STEP;
+    let last = history.snapshots.len() - 1;
+    for (i, s) in history.snapshots.iter().enumerate() {
+        window.add(&s.geo);
+        if s.tick >= next || i == last {
+            let c = &s.census;
+            let by_kind = |labels: &[usize]| {
+                let mut cols: Vec<String> = (0..shown)
+                    .map(|r| labels.iter().map(|&l| c.by_region[l][r]).sum::<u32>())
+                    .map(|n| n.to_string())
+                    .collect();
+                cols.push(
+                    labels
+                        .iter()
+                        .map(|&l| c.by_region[l][REGION_SLOTS + 1])
+                        .sum::<u32>()
+                        .to_string(),
+                );
+                cols.push(
+                    labels
+                        .iter()
+                        .map(|&l| c.by_biome[l][0] + c.by_biome[l][1])
+                        .sum::<u32>()
+                        .to_string(),
+                );
+                cols.join("/")
+            };
+            eprintln!(
+                "    tick {:>5}: plants {} consumers {} | region {:.3}/{:.3} ({}, {}/{}) biome {:.3}/{:.3} ({}, {}/{}) | crossings {}/{} new-region {}",
+                s.tick,
+                by_kind(&[0]),
+                by_kind(&[1, 2, 3]),
+                c.region.observed,
+                c.region.null,
+                c.region.species,
+                c.region.confined,
+                c.region.confined_null,
+                c.biome.observed,
+                c.biome.null,
+                c.biome.species,
+                c.biome.confined,
+                c.biome.confined_null,
+                window.crossings[0],
+                window.crossings[1],
+                window.new_region_events,
+            );
+            while next <= s.tick {
+                next += GEOGRAPHY_TIMELINE_STEP;
+            }
+            window = GeographyStats::default();
+        }
+    }
+
+    // The rate is over the ticks between the first and last snapshots, with
+    // the crossings counted in them. `GeographyStats` restarts at a load
+    // while the tick does not, so the absolute tick is not the ticks run.
+    let rate_secs = (history.snapshots[last].tick - history.snapshots[0].tick) as f64 / 30.0;
+    let rate_crossings: u64 = history.snapshots[1..]
+        .iter()
+        .map(|s| s.geo.crossings.iter().sum::<u64>())
+        .sum();
+    eprintln!(
+        "  Crossings (whole run): plants {}, consumers {} ({:.2} per second); new-region events {}",
+        run.crossings[0],
+        run.crossings[1],
+        rate_crossings as f64 / rate_secs.max(1.0),
+        run.new_region_events
+    );
+    eprintln!("  Organism-ticks on water by aquatic band (share of the band's organism-ticks on deep / shallow water):");
+    for (kind, name) in GEO_KIND_KEYS.iter().enumerate() {
+        let row: Vec<String> = (0..AQUATIC_BAND_COUNT)
+            .map(|aq| {
+                let all = run.ticks[kind][aq] as f64;
+                format!(
+                    "{} {:.0} ticks {:.2}% / {:.2}%",
+                    AQUATIC_BAND_KEYS[aq],
+                    all,
+                    pct(run.water_ticks[kind][0][aq] as f64, all),
+                    pct(run.water_ticks[kind][1][aq] as f64, all)
+                )
+            })
+            .collect();
+        eprintln!("    {:<9} {}", name, row.join(" | "));
+    }
+    eprintln!(
+        "  Movement energy paid on deep / shallow water: plants {:.1} / {:.1}, consumers {:.1} / {:.1}",
+        run.water_movement[0][0],
+        run.water_movement[0][1],
+        run.water_movement[1][0],
+        run.water_movement[1][1]
+    );
+    let spawned: u64 = run.food_spawned.iter().sum();
+    eprintln!(
+        "  Food items regenerated: {} ({:.1}% on deep water, {:.1}% on shallow); eaten from any source {} ({:.2}% by eaters on deep water, {:.2}% on shallow)",
+        spawned,
+        pct(run.food_spawned[0] as f64, spawned as f64),
+        pct(run.food_spawned[1] as f64, spawned as f64),
+        run.food_eaten,
+        pct(run.food_eaten_on_water[0] as f64, run.food_eaten as f64),
+        pct(run.food_eaten_on_water[1] as f64, run.food_eaten as f64)
+    );
+
+    let settled: Vec<&PopSnapshot> = history
+        .snapshots
+        .iter()
+        .filter(|s| s.tick >= GEOGRAPHY_SETTLE_TICK)
+        .collect();
+    if settled.is_empty() {
+        return;
+    }
+    let n = settled.len() as f64;
+    for (name, pick) in [
+        (
+            "region",
+            (|c: &GeographyCensus| c.region) as fn(&GeographyCensus) -> Separation,
+        ),
+        ("biome", |c: &GeographyCensus| c.biome),
+    ] {
+        let mut obs = 0.0;
+        let mut null = 0.0;
+        let mut species = 0.0;
+        let mut confined = 0.0;
+        let mut confined_null = 0.0;
+        let mut hist = [0u64; SHARE_BINS];
+        let mut hist_null = [0u64; SHARE_BINS];
+        for s in &settled {
+            let sep = pick(&s.census);
+            obs += sep.observed as f64;
+            null += sep.null as f64;
+            species += sep.species as f64;
+            confined += sep.confined as f64;
+            confined_null += sep.confined_null as f64;
+            for b in 0..SHARE_BINS {
+                hist[b] += sep.hist[b] as u64;
+                hist_null[b] += sep.hist_null[b] as u64;
+            }
+        }
+        eprintln!(
+            "  {name} separation from tick {GEOGRAPHY_SETTLE_TICK}: mean {:.3} against null {:.3} over {:.1} species counted; confined {:.1} against {:.1} under the null",
+            obs / n,
+            null / n,
+            species / n,
+            confined / n,
+            confined_null / n
+        );
+        let fmt = |h: &[u64; SHARE_BINS]| {
+            h.iter()
+                .map(|v| v.to_string())
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        eprintln!("    dominant-share histogram, species-samples in 0.05 bins from 0:");
+        eprintln!("      observed: {}", fmt(&hist));
+        eprintln!("      null:     {}", fmt(&hist_null));
+    }
+    eprintln!();
 }
 
 #[derive(Resource)]
@@ -1114,6 +1421,7 @@ fn headless_tick_counter(
     save_report: Res<clauvolution_sim::SaveReport>,
     mut events: EventWriter<clauvolution_core::WorldEventRequest>,
     mut exit: EventWriter<AppExit>,
+    (geo, tile_map): (Res<GeographyStats>, Res<TileMap>),
     // 0 = running, 1 = summary printed + save requested, 2 = waited a frame
     // for save_system to run, 3 = exit sent
     mut phase: Local<u8>,
@@ -1140,6 +1448,7 @@ fn headless_tick_counter(
             );
             print_diet_band_summary(&bands, &predation, &history);
             print_species_pass_summary(&history, founders.is_some());
+            print_geography_summary(&geo, &history, &tile_map);
             if let Some(dp) = &dump_path {
                 match dump_history_csv(&dp.0, &history) {
                     Ok(_) => eprintln!("Wrote {} snapshots to {}", history.snapshots.len(), dp.0),

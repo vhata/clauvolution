@@ -59,6 +59,7 @@ death_system                  ← energy ≤ 0, health ≤ 0, or `Killed` → ca
 reproduction_system           ← eligible parents → crossover + mutate → spawn child
 ledger_system                 ← close the energy books: sum live energy and per-organism `EnergyFlows`, compare against the tick's recorded flows, record the residual (debug_assert / rate-limited chronicle warning past tolerance)
 species_classification_system ← NEAT compatibility distance with hysteresis (every 5s)
+region_tracking_system        ← geography counters: region crossings per organism, and a chronicle entry when a species first stands on a new major region (reads no RNG)
 record_population_history     ← 1Hz snapshot into PopulationHistory ring buffer
 record_trail_history          ← organism position samples (when trails enabled)
 ```
@@ -111,6 +112,7 @@ update_minimap                ← repaint the minimap image every 0.5s
 | Energy accounting | `EnergyLedger` and `EnergyFlows` in `clauvolution_core`; `clauvolution_sim::ledger_system` |
 | Trophic instruments (feeding counts, gate outcomes, diet-band income and deaths) | `PredationStats`, `FeedingCounts`, `GateOutcomes` and `DietBandStats` in `clauvolution_core`; bands from `clauvolution_sim::diet_band` |
 | Species distance instruments and innovation re-keying | `SpeciesPassCounts` in `clauvolution_core`, filled by `clauvolution_sim::species_classification_system`; `rekey_genome` / `InnovationTable` and `CompatibilityTerms` in `clauvolution_genome`; offline report `crates/clauvolution_sim/examples/species_keying_report.rs` |
+| Geography instruments (land regions, time on water by aquatic band, crossings, separation against a shuffled null) | `Regions` on `TileMap` in `clauvolution_world`; `GeographyStats` and `GeographyCensus` in `clauvolution_core`; `clauvolution_sim::region_tracking_system` and `geography_census` |
 | Command-line flags (known list, `--help`, rejection of unknown flags) | `FLAGS` in `clauvolution_app/src/cli.rs`; values are read in `main` |
 
 ## Bevy schedule essentials
