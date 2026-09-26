@@ -738,7 +738,9 @@ fn dump_history_csv(
          attacks_no_plant_in_reach,grazes_eat_by_plant,kills_plant_by_consumer,\
          plant_kill_energy_consumer,\
          hunter_intents,hunter_strikes,hunter_consumer_in_reach,hunter_kills_consumer,\
-         hunter_rejected_size,hunter_rejected_damage,hunter_rejected_both,{}",
+         hunter_rejected_size,hunter_rejected_damage,hunter_rejected_both,{},\
+         species_pass_tick,species_pass_organisms,species_pass_near_other,\
+         species_pass_drifting,species_pass_isolated",
         band_csv_header()
     )?;
     for s in &history.snapshots {
@@ -747,7 +749,7 @@ fn dump_history_csv(
             f,
             "{},{:.1},{},{},{},{},{},{},{},{},{:.2},{:.3},{:.3},{:.3},{:.3},{:.3},{:+.3},{:.3},{:.4},{:.4},{:.3},{:.3},{:.3},{:.3},{:.3},{},{},{},{},{},{},\
              {:.2},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.6},{:.6},\
-             {},{},{},{},{},{},{},{},{},{:.3},{},{},{},{},{},{},{},{}",
+             {},{},{},{},{},{},{},{},{},{:.3},{},{},{},{},{},{},{},{},{},{},{},{},{}",
             s.tick,
             s.tick as f64 / 30.0,
             s.organisms,
@@ -813,6 +815,11 @@ fn dump_history_csv(
             s.feeding.hunter_gates.rejected_damage,
             s.feeding.hunter_gates.rejected_both,
             band_csv_row(s),
+            s.species_pass.tick,
+            s.species_pass.organisms,
+            s.species_pass.near_other,
+            s.species_pass.drifting,
+            s.species_pass.isolated,
         )?;
     }
     Ok(())
@@ -1132,6 +1139,7 @@ fn headless_tick_counter(
                 founders.as_deref(),
             );
             print_diet_band_summary(&bands, &predation, &history);
+            print_species_pass_summary(&history);
             if let Some(dp) = &dump_path {
                 match dump_history_csv(&dp.0, &history) {
                     Ok(_) => eprintln!("Wrote {} snapshots to {}", history.snapshots.len(), dp.0),
@@ -1288,6 +1296,68 @@ fn print_band_header() {
     eprintln!(
         "    band            alive  in/tick cost/tick taken/tick   eff  food%  bite% ckill% pkill%  births  deaths  starv   pred    dis   old  mean age"
     );
+}
+
+/// The species-distance instruments (`plans/2026-09-24-innovation-keying.md`,
+/// step 1): per classification pass, the share of organisms within the join
+/// threshold of another species' representative, and the organisms past the
+/// stay threshold from their own that are also past the join threshold from
+/// every other, which is what founding a species needs.
+fn print_species_pass_summary(history: &clauvolution_core::PopulationHistory) {
+    // Each pass shows up in every snapshot until the next one; keep one copy.
+    let mut passes: Vec<clauvolution_core::SpeciesPassCounts> = Vec::new();
+    for s in &history.snapshots {
+        let p = s.species_pass;
+        if p.tick > 0 && passes.last().map(|l| l.tick) != Some(p.tick) {
+            passes.push(p);
+        }
+    }
+    eprintln!();
+    eprintln!("Species classification passes (plans/2026-09-24-innovation-keying.md):");
+    if passes.is_empty() {
+        eprintln!("  none recorded");
+        return;
+    }
+    // The first pass founds species from unclassified founders, so the
+    // drift counts mean something only after it.
+    let later = &passes[1..];
+    let share = |p: &clauvolution_core::SpeciesPassCounts| {
+        if p.organisms > 0 {
+            p.near_other as f64 / p.organisms as f64
+        } else {
+            0.0
+        }
+    };
+    eprintln!(
+        "  passes: {} (first at tick {}, founding {} organisms)",
+        passes.len(),
+        passes[0].tick,
+        passes[0].organisms
+    );
+    if !later.is_empty() {
+        let shares: Vec<f64> = later.iter().map(share).collect();
+        let min = shares.iter().cloned().fold(f64::MAX, f64::min);
+        let max = shares.iter().cloned().fold(0.0, f64::max);
+        let mean = shares.iter().sum::<f64>() / shares.len() as f64;
+        eprintln!(
+            "  within join of another species' rep: mean {:.1}%, min {:.1}%, max {:.1}% of organisms per pass",
+            mean * 100.0,
+            min * 100.0,
+            max * 100.0
+        );
+        let drifting: u64 = later.iter().map(|p| p.drifting as u64).sum();
+        let isolated: u64 = later.iter().map(|p| p.isolated as u64).sum();
+        eprintln!(
+            "  past stay from own rep: {} over the passes; of them past join from every other rep: {}",
+            drifting, isolated
+        );
+    }
+    if let Some(last) = passes.last() {
+        eprintln!(
+            "  last pass (tick {}): {} organisms, {} near another rep, {} drifting, {} isolated",
+            last.tick, last.organisms, last.near_other, last.drifting, last.isolated
+        );
+    }
 }
 
 /// The hunter-bridge instruments (`plans/2026-09-24-hunter-bridge.md`,
