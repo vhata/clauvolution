@@ -2,14 +2,15 @@
 //! `plans/2026-09-24-innovation-keying.md`.
 //!
 //! Reads a save written at the end of a run and, optionally, a save written
-//! at tick 1 (the founders), re-keys every genome with
+//! before the first classification pass (`--headless 149`: the founders and
+//! their first children, all still unclassified), re-keys every genome with
 //! `clauvolution_genome::rekey_population`, and prints the species
 //! instruments under the current identity (legacy innovation numbers) and the
 //! keyed one, each with both structural normalisations. It changes nothing.
 //!
 //! ```text
 //! cargo run --release -p clauvolution_sim --example species_keying_report -- \
-//!     sessions/run-5000/save.json [sessions/run-1/save.json]
+//!     sessions/run-5000/save.json [sessions/run-149/save.json]
 //! ```
 //!
 //! Species ids come from the save, so the keyed columns ask how the keyed
@@ -180,9 +181,10 @@ fn population_report(name: &str, pop: &Population, genomes: &[Genome]) {
     }
 }
 
-/// Founders: pairwise distances, gene sharing, and the species a founding
-/// pass (greedy, in save order, as `choose_species` does for species 0)
-/// would form at each join threshold.
+/// The founding population (every organism alive before the first
+/// classification pass): pairwise distances, gene sharing, and the species
+/// the founding pass (greedy, in save order, as `choose_species` does for
+/// species 0) would form at each join threshold.
 fn founder_report(name: &str, genomes: &[Genome]) {
     let n = genomes.len();
     let mut terms = Vec::with_capacity(n * (n - 1) / 2);
@@ -240,7 +242,7 @@ fn founder_report(name: &str, genomes: &[Genome]) {
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let Some(end_path) = args.first() else {
-        eprintln!("usage: species_keying_report <end save.json> [<tick-1 save.json>]");
+        eprintln!("usage: species_keying_report <end save.json> [<pre-founding save.json>]");
         std::process::exit(2);
     };
 
