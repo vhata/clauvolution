@@ -188,6 +188,18 @@ impl Regions {
     /// Label the land components of a `width` x `height` torus whose tiles
     /// are land where `is_land` is true.
     pub fn compute(width: u32, height: u32, is_land: &[bool], minor_max: u32) -> Self {
+        Self::compute_with_wrap(width, height, is_land, minor_max, true)
+    }
+
+    /// `compute`, with the torus wrap switchable so a test can compare
+    /// against a flat map and see whether the seam joins components.
+    fn compute_with_wrap(
+        width: u32,
+        height: u32,
+        is_land: &[bool],
+        minor_max: u32,
+        wrap: bool,
+    ) -> Self {
         let (w, h) = (width as usize, height as usize);
         debug_assert_eq!(is_land.len(), w * h);
         // First pass: raw component ids in scan order.
@@ -206,12 +218,12 @@ impl Regions {
                 size += 1;
                 let (x, y) = (i % w, i / w);
                 let neighbours = [
-                    y * w + (x + 1) % w,
-                    y * w + (x + w - 1) % w,
-                    ((y + 1) % h) * w + x,
-                    ((y + h - 1) % h) * w + x,
+                    (wrap || x + 1 < w).then(|| y * w + (x + 1) % w),
+                    (wrap || x > 0).then(|| y * w + (x + w - 1) % w),
+                    (wrap || y + 1 < h).then(|| ((y + 1) % h) * w + x),
+                    (wrap || y > 0).then(|| ((y + h - 1) % h) * w + x),
                 ];
-                for n in neighbours {
+                for n in neighbours.into_iter().flatten() {
                     if is_land[n] && raw[n] == u32::MAX {
                         raw[n] = id;
                         stack.push(n);
@@ -684,6 +696,28 @@ mod tests {
             let is_land: Vec<bool> = map.tiles.iter().map(|t| !t.terrain.is_water()).collect();
             let all = Regions::compute(512, 512, &is_land, 1);
             println!("  every component: {:?}", all.sizes);
+            // The seam question (plan step 3): the same fill without the
+            // torus wrap. Fewer regions with the wrap means the seam joins
+            // landmasses that a flat map would cut in two.
+            let flat =
+                Regions::compute_with_wrap(512, 512, &is_land, MINOR_REGION_MAX_TILES, false);
+            println!(
+                "  without the wrap: {} major regions {:?}, {} minor components ({} tiles)",
+                flat.count(),
+                flat.sizes,
+                flat.minor_components,
+                flat.minor_tiles
+            );
+            let flat_land: u32 = flat.sizes.iter().sum::<u32>() + flat.minor_tiles;
+            assert_eq!(
+                flat_land as usize, land,
+                "the flat fill labels every land tile"
+            );
+            assert!(
+                flat.count() + flat.minor_components as usize
+                    >= r.count() + r.minor_components as usize,
+                "the wrap can only join components"
+            );
             let labelled: u32 = r.sizes.iter().sum::<u32>() + r.minor_tiles;
             assert_eq!(labelled as usize, land, "every land tile has a region");
             assert!(r.sizes.windows(2).all(|p| p[0] >= p[1]), "ranked by size");

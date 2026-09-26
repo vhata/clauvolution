@@ -3400,7 +3400,10 @@ fn geography_census(rows: &[CensusRow], tick: u64) -> GeographyCensus {
 /// Per-organism and per-species region memory for crossings and the
 /// new-region chronicle event. Not saved: a loaded world starts with every
 /// organism on its current region and every species on the regions its
-/// members stand on.
+/// members stand on. A species with members that were elsewhere before the
+/// save therefore reaches those regions "for the first time" again after a
+/// load, so new-region events (and their chronicle entries) in the first
+/// window after a load are artifacts of the load, not arrivals.
 #[derive(Resource, Default)]
 struct RegionTracker {
     /// The last major region each organism stood on.

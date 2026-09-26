@@ -1136,12 +1136,19 @@ fn print_geography_summary(run: &GeographyStats, history: &PopulationHistory, ti
         }
     }
 
-    let run_secs = history.snapshots[last].tick as f64 / 30.0;
+    // The rate is over the ticks between the first and last snapshots, with
+    // the crossings counted in them. `GeographyStats` restarts at a load
+    // while the tick does not, so the absolute tick is not the ticks run.
+    let rate_secs = (history.snapshots[last].tick - history.snapshots[0].tick) as f64 / 30.0;
+    let rate_crossings: u64 = history.snapshots[1..]
+        .iter()
+        .map(|s| s.geo.crossings.iter().sum::<u64>())
+        .sum();
     eprintln!(
         "  Crossings (whole run): plants {}, consumers {} ({:.2} per second); new-region events {}",
         run.crossings[0],
         run.crossings[1],
-        (run.crossings[0] + run.crossings[1]) as f64 / run_secs.max(1.0),
+        rate_crossings as f64 / rate_secs.max(1.0),
         run.new_region_events
     );
     eprintln!("  Organism-ticks on water by aquatic band (share of the band's organism-ticks on deep / shallow water):");
@@ -1169,7 +1176,7 @@ fn print_geography_summary(run: &GeographyStats, history: &PopulationHistory, ti
     );
     let spawned: u64 = run.food_spawned.iter().sum();
     eprintln!(
-        "  Food items spawned: {} ({:.1}% on deep water, {:.1}% on shallow); eaten {} ({:.2}% by eaters on deep water, {:.2}% on shallow)",
+        "  Food items regenerated: {} ({:.1}% on deep water, {:.1}% on shallow); eaten from any source {} ({:.2}% by eaters on deep water, {:.2}% on shallow)",
         spawned,
         pct(run.food_spawned[0] as f64, spawned as f64),
         pct(run.food_spawned[1] as f64, spawned as f64),
