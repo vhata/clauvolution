@@ -495,6 +495,11 @@ mod tests {
         population
     }
 
+    /// Re-keying is a safe renaming: the brain built from a re-keyed genome
+    /// gives the same outputs, bit for bit. Brains resolve ids by lookup, so
+    /// any consistent renaming passes this, including a wrong split key; the
+    /// genome crate's `nested_splits_are_keyed_on_re_keyed_endpoints` checks
+    /// that the keys themselves are right.
     #[test]
     fn re_keyed_brain_gives_exactly_the_same_outputs() {
         let mut hidden_neurons = 0;

@@ -1139,7 +1139,7 @@ fn headless_tick_counter(
                 founders.as_deref(),
             );
             print_diet_band_summary(&bands, &predation, &history);
-            print_species_pass_summary(&history);
+            print_species_pass_summary(&history, founders.is_some());
             if let Some(dp) = &dump_path {
                 match dump_history_csv(&dp.0, &history) {
                     Ok(_) => eprintln!("Wrote {} snapshots to {}", history.snapshots.len(), dp.0),
@@ -1303,7 +1303,10 @@ fn print_band_header() {
 /// threshold of another species' representative, and the organisms past the
 /// stay threshold from their own that are also past the join threshold from
 /// every other, which is what founding a species needs.
-fn print_species_pass_summary(history: &clauvolution_core::PopulationHistory) {
+/// `founded_here` is whether this run spawned the founders (a
+/// `FounderReport` exists). Only then is the first recorded pass the founding
+/// pass; after `--load` every recorded pass is an ordinary one.
+fn print_species_pass_summary(history: &clauvolution_core::PopulationHistory, founded_here: bool) {
     // Each pass shows up in every snapshot until the next one; keep one copy.
     let mut passes: Vec<clauvolution_core::SpeciesPassCounts> = Vec::new();
     for s in &history.snapshots {
@@ -1318,9 +1321,14 @@ fn print_species_pass_summary(history: &clauvolution_core::PopulationHistory) {
         eprintln!("  none recorded");
         return;
     }
-    // The first pass founds species from unclassified founders, so the
-    // drift counts mean something only after it.
-    let later = &passes[1..];
+    // In a fresh world the first pass founds species from unclassified
+    // founders, so the drift counts mean something only after it. A loaded
+    // world's species already exist, so every pass counts.
+    let later = if founded_here {
+        &passes[1..]
+    } else {
+        &passes[..]
+    };
     let share = |p: &clauvolution_core::SpeciesPassCounts| {
         if p.organisms > 0 {
             p.near_other as f64 / p.organisms as f64
@@ -1328,12 +1336,20 @@ fn print_species_pass_summary(history: &clauvolution_core::PopulationHistory) {
             0.0
         }
     };
-    eprintln!(
-        "  passes: {} (first at tick {}, founding {} organisms)",
-        passes.len(),
-        passes[0].tick,
-        passes[0].organisms
-    );
+    if founded_here {
+        eprintln!(
+            "  passes: {} (first at tick {}, founding {} organisms)",
+            passes.len(),
+            passes[0].tick,
+            passes[0].organisms
+        );
+    } else {
+        eprintln!(
+            "  passes: {} (first at tick {}; loaded world, no founding pass)",
+            passes.len(),
+            passes[0].tick
+        );
+    }
     if !later.is_empty() {
         let shares: Vec<f64> = later.iter().map(share).collect();
         let min = shares.iter().cloned().fold(f64::MAX, f64::min);

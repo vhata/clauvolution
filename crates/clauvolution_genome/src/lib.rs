@@ -1324,6 +1324,28 @@ impl RekeyReport {
 /// as the original's did (inputs and outputs keep their ids; the brain reads
 /// them by sorted id and finds everything else by lookup). Run it after
 /// `migrate_input_layout`, since keys must be taken in the current layout.
+///
+/// Two tests cover it, and they check different things. The brain crate's
+/// `re_keyed_brain_gives_exactly_the_same_outputs` proves the renaming is
+/// safe, but any consistent renaming passes it, including one that keys
+/// splits wrongly. `nested_splits_are_keyed_on_re_keyed_endpoints` proves the
+/// keying is correct: a split of a connection touching a hidden neuron is
+/// keyed on that neuron's keyed id, not its per-genome legacy id.
+///
+/// Known limits, which matter only if step 2 of
+/// `plans/2026-09-24-innovation-keying.md` (keying on load) is picked up:
+///
+/// - **Repeat splits.** When an ancestor splits the same key twice (split,
+///   re-enabled by a toggle, split again), the second neuron gets a fresh id
+///   per genome, so its descendants no longer match each other on it or on
+///   its two genes, although they share them by descent. A load migration
+///   should key a split on `(split key, occurrence index in ascending n)`, so
+///   the k-th split of a key maps to the same id in every genome.
+/// - **Imports from different worlds.** The premise that the legacy counter
+///   is monotonic holds within one world. Genomes imported from another
+///   world can hold the same legacy number for a different gene, so the
+///   `n`, `n + 1` pairing can pick the wrong gene in a genome that mixes
+///   both numberings.
 pub fn rekey_genome(genome: &Genome, table: &mut InnovationTable) -> (Genome, RekeyReport) {
     use std::collections::{HashMap, HashSet};
 
@@ -1880,6 +1902,81 @@ mod tests {
         assert_ne!(hidden_id(&keyed[0]), hidden_id(&keyed[1]));
         // Same split, same genes: `a` and `c` match on all four connections.
         assert_eq!(keyed[0].compatibility_terms(&keyed[2]).matching, 4);
+    }
+
+    /// Split `genome`'s connection `from -> to` the way `mutate_add_neuron`
+    /// does: disable it, add hidden neuron `hidden`, and add the incoming and
+    /// outgoing genes as consecutive innovation numbers.
+    fn split_connection(
+        genome: &mut Genome,
+        innovation: &mut InnovationCounter,
+        from: u64,
+        to: u64,
+        hidden: u64,
+    ) {
+        let old = genome
+            .connections
+            .iter_mut()
+            .find(|c| c.from == from && c.to == to)
+            .unwrap_or_else(|| panic!("no connection {from} -> {to}"));
+        old.enabled = false;
+        genome.neurons.push(NeuronGene {
+            id: hidden,
+            neuron_type: NeuronType::Hidden,
+            activation: ActivationFn::Tanh,
+            bias: 0.0,
+        });
+        for (from, to) in [(from, hidden), (hidden, to)] {
+            genome.connections.push(ConnectionGene {
+                innovation: innovation.next(),
+                from,
+                to,
+                weight: 1.0,
+                enabled: true,
+            });
+        }
+    }
+
+    /// The keying check that `re_keyed_brain_gives_exactly_the_same_outputs`
+    /// cannot make: that test proves the renaming is safe, and any consistent
+    /// renaming passes it. Here two unrelated genomes each split a connection
+    /// touching their own hidden neuron 35 (a nested split). The legacy key
+    /// `(35, out)` is the same in both, but 35 is a different gene in each,
+    /// so the nested neurons must get different keyed ids. A third genome
+    /// that repeats the first one's splits must share both keyed ids with it.
+    #[test]
+    fn nested_splits_are_keyed_on_re_keyed_endpoints() {
+        let out = NUM_INPUTS as u64;
+        let first = FIRST_HIDDEN_ID;
+        let nested = FIRST_HIDDEN_ID + 1;
+        let mut innovation = InnovationCounter(0);
+        let mut genomes = Vec::new();
+        // `a` and `c` split 1 -> out; `b` splits 2 -> out. Each then splits
+        // its own `first -> out`.
+        for (seed, input) in [(1, 1u64), (2, 2), (3, 1)] {
+            let mut g = founder_with(&mut innovation, seed, &[(1, out), (2, out)]);
+            split_connection(&mut g, &mut innovation, input, out, first);
+            split_connection(&mut g, &mut innovation, first, out, nested);
+            genomes.push(g);
+        }
+        let (keyed, table, report) = rekey_population(&genomes);
+        assert_eq!(report.hidden_keyed, 6);
+        let keyed_id = |g: usize, legacy: usize| keyed[g].neurons[legacy].id;
+        let first_at = genomes[0].neurons.len() - 2;
+        let nested_at = genomes[0].neurons.len() - 1;
+        assert_ne!(keyed_id(0, first_at), keyed_id(1, first_at));
+        assert_ne!(
+            keyed_id(0, nested_at),
+            keyed_id(1, nested_at),
+            "unrelated nested splits share a legacy key but not a keyed id"
+        );
+        assert_eq!(keyed_id(0, first_at), keyed_id(2, first_at));
+        assert_eq!(
+            keyed_id(0, nested_at),
+            keyed_id(2, nested_at),
+            "a shared nested split gets the same keyed id"
+        );
+        assert_eq!(table.split_keys(), 4);
     }
 
     #[test]
