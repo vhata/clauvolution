@@ -1021,6 +1021,38 @@ impl<T: Copy> CellGrid<T> {
         }
         self.cell(key)
     }
+
+    /// Rebuild from the spatial hash, on its cell size and keys, keeping
+    /// each cell in the hash's order. `item` maps a hashed entity to what the
+    /// grid holds, or drops it; dropping an entity does not reorder the rest.
+    fn rebuild_from_hash(&mut self, hash: &SpatialHash, item: impl Fn(Entity) -> Option<T>) {
+        let item = &item;
+        self.rebuild(
+            hash.cell_size,
+            hash.cells.iter().flat_map(|(&key, entities)| {
+                entities
+                    .iter()
+                    .filter_map(move |&entity| Some((key, item(entity)?)))
+            }),
+        );
+    }
+
+    /// Visit, in order, the items `SpatialHash::query_radius(pos, radius)`
+    /// would have returned (less any `rebuild_from_hash` dropped): its cells
+    /// dx outer, dy inner, each cell in the hash's order. No cell is skipped,
+    /// because readers after `action_system` test distance against positions
+    /// that have moved off the cells the hash filed them under.
+    fn for_each_near(&self, hash: &SpatialHash, pos: Vec2, radius: f32, mut visit: impl FnMut(&T)) {
+        let range = hash.cell_range(radius);
+        let (cx, cy) = hash.cell_key(pos);
+        for dx in -range..=range {
+            for dy in -range..=range {
+                for item in self.cell((cx + dx, cy + dy)) {
+                    visit(item);
+                }
+            }
+        }
+    }
 }
 
 fn sensing_and_brain_system(
@@ -1399,6 +1431,15 @@ fn action_system(
     }
 }
 
+/// A plant as `grazing_system` sees it: alive, a photosynthesiser, with its
+/// position and energy at the start of the system.
+#[derive(Clone, Copy)]
+struct GrazeTarget {
+    entity: Entity,
+    pos: Vec2,
+    energy: f32,
+}
+
 /// A neighbour that passed every gate for one attacker (or eater) this tick.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct StrikeCandidate {
@@ -1437,6 +1478,7 @@ fn nearest_target(candidates: &[StrikeCandidate]) -> Option<&StrikeCandidate> {
 /// which `action_system`'s one mutable query cannot do while iterating.
 fn grazing_system(
     spatial_hash: Res<SpatialHash>,
+    mut plant_grid: Local<CellGrid<GrazeTarget>>,
     config: Res<SimConfig>,
     ate_food: Res<AteFoodThisTick>,
     mut organisms: Query<
@@ -1476,33 +1518,37 @@ fn grazing_system(
     let mut claimed_plants: HashSet<Entity> = HashSet::new();
     let mut candidates: Vec<StrikeCandidate> = Vec::new();
 
+    // Every living photosynthesiser the hash holds, with its position and
+    // energy as they stand now. Nothing changes them until the bites are
+    // applied below, so these are the values a lookup per candidate read.
+    plant_grid.rebuild_from_hash(&spatial_hash, |entity| {
+        let (_, pos, energy, health, _, genome, _, _) = organisms.get(entity).ok()?;
+        (health.0 > 0.0 && genome.is_photosynthesiser()).then_some(GrazeTarget {
+            entity,
+            pos: pos.0,
+            energy: energy.0,
+        })
+    });
+
     for (eater, pos, reach, bonus, eater_is_plant) in &eaters {
         candidates.clear();
-        for target in spatial_hash.query_radius(*pos, *reach) {
-            if target == *eater || claimed_plants.contains(&target) {
-                continue;
-            }
-            let Ok((_, target_pos, target_energy, target_health, _, target_genome, _, _)) =
-                organisms.get(target)
-            else {
-                continue;
-            };
-            if target_health.0 <= 0.0 || !target_genome.is_photosynthesiser() {
-                continue;
+        plant_grid.for_each_near(&spatial_hash, *pos, *reach, |target| {
+            if target.entity == *eater || claimed_plants.contains(&target.entity) {
+                return;
             }
             // The hash was built before action_system moved everyone, so
             // re-check the real distance, as the food reach does.
-            let dist = (target_pos.0 - *pos).length();
+            let dist = (target.pos - *pos).length();
             if dist >= *reach {
-                continue;
+                return;
             }
             candidates.push(StrikeCandidate {
-                entity: target,
+                entity: target.entity,
                 dist,
                 is_plant: true,
-                energy: target_energy.0,
+                energy: target.energy,
             });
-        }
+        });
         if let Some(plant) = nearest_target(&candidates) {
             bites.push((
                 *eater,
