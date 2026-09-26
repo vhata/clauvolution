@@ -2067,10 +2067,19 @@ fn niche_construction_system(
     }
 }
 
+/// An infected organism as disease transmission sees it.
+#[derive(Clone, Copy)]
+struct SickNeighbour {
+    pos: Vec2,
+    severity: f32,
+    ticks_remaining: u32,
+}
+
 /// Spread infection between nearby organisms and seed rare background infections.
 /// Runs before metabolism so infection status this tick can affect energy drain.
 fn disease_transmission_system(
     spatial_hash: Res<SpatialHash>,
+    mut sick_grid: Local<CellGrid<SickNeighbour>>,
     mut commands: Commands,
     healthy: Query<(Entity, &Position, &Genome), (With<Organism>, Without<Infection>)>,
     infected: Query<(&Position, &Infection), With<Organism>>,
@@ -2093,30 +2102,41 @@ fn disease_transmission_system(
     }
 
     // 2. Proximity transmission — spreads from infected to nearby healthy.
+    // Only infected organisms can pass anything on, so the grid holds only
+    // them, in the hash's order. New infections go through `commands` and
+    // land after this system, so the infected set is fixed for the pass.
+    sick_grid.rebuild_from_hash(&spatial_hash, |entity| {
+        let (pos, infection) = infected.get(entity).ok()?;
+        Some(SickNeighbour {
+            pos: pos.0,
+            severity: infection.severity,
+            ticks_remaining: infection.ticks_remaining,
+        })
+    });
     for (entity, healthy_pos, genome) in &healthy {
-        let nearby = spatial_hash.query_radius(healthy_pos.0, DISEASE_TRANSMISSION_RANGE);
-
         let mut infection_pressure = 0.0f32;
         let mut best_severity = 0.0f32;
         let mut best_remaining = 0u32;
 
-        for &sick_entity in &nearby {
-            if sick_entity == entity {
-                continue;
-            }
-            if let Ok((sick_pos, sick_inf)) = infected.get(sick_entity) {
-                let dist = (sick_pos.0 - healthy_pos.0).length();
+        // The healthy organism itself is never in the grid: it has no
+        // `Infection`.
+        sick_grid.for_each_near(
+            &spatial_hash,
+            healthy_pos.0,
+            DISEASE_TRANSMISSION_RANGE,
+            |sick| {
+                let dist = (sick.pos - healthy_pos.0).length();
                 if dist < DISEASE_TRANSMISSION_RANGE {
                     // Closer + more severe = more pressure
                     let prox = 1.0 - (dist / DISEASE_TRANSMISSION_RANGE);
-                    infection_pressure += sick_inf.severity * prox;
-                    if sick_inf.severity > best_severity {
-                        best_severity = sick_inf.severity;
-                        best_remaining = sick_inf.ticks_remaining;
+                    infection_pressure += sick.severity * prox;
+                    if sick.severity > best_severity {
+                        best_severity = sick.severity;
+                        best_remaining = sick.ticks_remaining;
                     }
                 }
-            }
-        }
+            },
+        );
 
         if infection_pressure <= DISEASE_TRANSMISSION_PRESSURE_FLOOR {
             continue;
