@@ -1440,6 +1440,18 @@ struct GrazeTarget {
     energy: f32,
 }
 
+/// A living organism as `predation_system`'s gates see it, taken at the
+/// start of the system. `defense` is armour value times body size.
+#[derive(Clone, Copy)]
+struct PreyView {
+    entity: Entity,
+    pos: Vec2,
+    energy: f32,
+    size: f32,
+    defense: f32,
+    is_plant: bool,
+}
+
 /// A neighbour that passed every gate for one attacker (or eater) this tick.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct StrikeCandidate {
@@ -1723,6 +1735,7 @@ fn record_band_attack(
 /// grazing is `eat`'s job (`grazing_system`).
 fn predation_system(
     spatial_hash: Res<SpatialHash>,
+    mut prey_grid: Local<CellGrid<PreyView>>,
     config: Res<SimConfig>,
     mut organisms: Query<
         (
@@ -1769,9 +1782,25 @@ fn predation_system(
     // this tick; charged after the kills are resolved.
     let mut strike_costs: Vec<(Entity, f32)> = Vec::new();
 
+    // Every living organism the hash holds, as the gates below read it.
+    // Kills are applied after every attacker has chosen, so nothing here
+    // changes during the scan.
+    prey_grid.rebuild_from_hash(&spatial_hash, |entity| {
+        let (_, pos, energy, health, _, genome, body_size, _) = organisms.get(entity).ok()?;
+        // A target at zero health is already dead (killed earlier this
+        // tick, or dying of old age) and is not prey.
+        (health.0 > 0.0).then(|| PreyView {
+            entity,
+            pos: pos.0,
+            energy: energy.0,
+            size: body_size.0,
+            defense: genome.armor_value() * body_size.0,
+            is_plant: genome.is_photosynthesiser(),
+        })
+    });
+
     for (attacker_entity, attacker_pos, attack_str, attack_range, attacker_size, band) in &attackers
     {
-        let nearby = spatial_hash.query_radius(*attacker_pos, *attack_range);
         candidates.clear();
         // Instrument only: which gates the unclaimed consumers in reach
         // passed (step 5 of plans/2026-09-21-pyramid-top.md).
@@ -1785,70 +1814,50 @@ fn predation_system(
         // Whether anything alive was within reach: a strike, not a flail.
         let mut anyone_in_reach = false;
 
-        for &target_entity in &nearby {
-            if target_entity == *attacker_entity {
-                continue;
+        prey_grid.for_each_near(&spatial_hash, *attacker_pos, *attack_range, |target| {
+            if target.entity == *attacker_entity {
+                return;
             }
-            let claimed = claimed_victims.contains(&target_entity);
-
-            if let Ok((
-                _,
-                target_pos,
-                target_energy,
-                target_health,
-                _,
-                target_genome,
-                target_body_size,
-                _,
-            )) = organisms.get(target_entity)
-            {
-                // A target at zero health is already dead (killed earlier this
-                // tick, or dying of old age) and is not prey.
-                if target_health.0 <= 0.0 {
-                    continue;
-                }
-                let dist = (target_pos.0 - *attacker_pos).length();
-                if dist > *attack_range {
-                    continue;
-                }
-                let is_plant = target_genome.is_photosynthesiser();
-                plant_in_reach |= is_plant;
-                anyone_in_reach = true;
-                if claimed {
-                    continue;
-                }
-
-                predation_stats.targets_considered += 1;
-
-                let defense = target_genome.armor_value() * target_body_size.0;
-                let damage = (attack_str - defense * DEFENCE_WEIGHT).max(0.0);
-                // A plant is prey like any other: the size gate applies.
-                let size_ok = *attacker_size > target_body_size.0 * PREY_SIZE_RATIO;
-                let damage_ok = damage > MIN_KILL_DAMAGE;
-
-                if !size_ok {
-                    predation_stats.rejected_size_gate += 1;
-                }
-                if !damage_ok {
-                    predation_stats.rejected_damage += 1;
-                }
-                if !is_plant {
-                    consumer_in_reach = true;
-                    consumer_size_ok |= size_ok;
-                    consumer_damage_ok |= damage_ok;
-                    consumer_both_ok |= size_ok && damage_ok;
-                }
-
-                if damage_ok && size_ok {
-                    candidates.push(StrikeCandidate {
-                        entity: target_entity,
-                        dist,
-                        is_plant,
-                        energy: target_energy.0,
-                    });
-                }
+            let dist = (target.pos - *attacker_pos).length();
+            if dist > *attack_range {
+                return;
             }
-        }
+            let is_plant = target.is_plant;
+            plant_in_reach |= is_plant;
+            anyone_in_reach = true;
+            if claimed_victims.contains(&target.entity) {
+                return;
+            }
+
+            predation_stats.targets_considered += 1;
+
+            let damage = (attack_str - target.defense * DEFENCE_WEIGHT).max(0.0);
+            // A plant is prey like any other: the size gate applies.
+            let size_ok = *attacker_size > target.size * PREY_SIZE_RATIO;
+            let damage_ok = damage > MIN_KILL_DAMAGE;
+
+            if !size_ok {
+                predation_stats.rejected_size_gate += 1;
+            }
+            if !damage_ok {
+                predation_stats.rejected_damage += 1;
+            }
+            if !is_plant {
+                consumer_in_reach = true;
+                consumer_size_ok |= size_ok;
+                consumer_damage_ok |= damage_ok;
+                consumer_both_ok |= size_ok && damage_ok;
+            }
+
+            if damage_ok && size_ok {
+                candidates.push(StrikeCandidate {
+                    entity: target.entity,
+                    dist,
+                    is_plant,
+                    energy: target.energy,
+                });
+            }
+        });
 
         // The neighbour list is in hash bucket order, not distance order, so
         // the first passing neighbour is an arbitrary one. The attacker
