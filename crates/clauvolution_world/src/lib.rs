@@ -369,7 +369,16 @@ fn set_sea_level(elevation: &mut [f32], land_fraction: f32) {
     }
 }
 
-/// Simple multi-octave value noise for procedural terrain, normalised to 0..1.
+/// Multi-octave value noise for procedural terrain, normalised to 0..1.
+///
+/// The noise tiles seamlessly: each octave's random grid wraps, so the
+/// value at `x = width - 1` runs smoothly into the value at `x = 0`, and the
+/// same for `y`. Positions wrap with `rem_euclid`, so the world is a torus,
+/// and a grid that did not wrap put a straight terrain seam along both
+/// edges where uncorrelated values met; on six of the eight audit seeds
+/// that seam joined landmasses by chance (see "Sea level at a fixed land
+/// fraction" in `docs/DECISIONS.md`). Octave `k` has `2^k + 1` cells across
+/// the map, the same interval count as the non-wrapping grid it replaced.
 fn generate_noise_map(width: u32, height: u32, octaves: u32, rng: &mut impl Rng) -> Vec<f32> {
     let size = (width * height) as usize;
     let mut result = vec![0.0f32; size];
@@ -378,22 +387,22 @@ fn generate_noise_map(width: u32, height: u32, octaves: u32, rng: &mut impl Rng)
         let freq = (1 << octave) as f32;
         let amplitude = 1.0 / freq;
 
-        // Generate a small random grid and interpolate
-        let grid_w = (freq as u32 + 2).max(2);
-        let grid_h = (freq as u32 + 2).max(2);
+        // A small random grid that wraps in both directions, interpolated.
+        let grid_w = freq as u32 + 1;
+        let grid_h = freq as u32 + 1;
         let grid: Vec<f32> = (0..grid_w * grid_h)
             .map(|_| rng.gen_range(-1.0..1.0))
             .collect();
 
         for y in 0..height {
             for x in 0..width {
-                let gx = (x as f32 / width as f32) * (grid_w - 1) as f32;
-                let gy = (y as f32 / height as f32) * (grid_h - 1) as f32;
+                let gx = (x as f32 / width as f32) * grid_w as f32;
+                let gy = (y as f32 / height as f32) * grid_h as f32;
 
-                let x0 = gx.floor() as u32;
-                let y0 = gy.floor() as u32;
-                let x1 = (x0 + 1).min(grid_w - 1);
-                let y1 = (y0 + 1).min(grid_h - 1);
+                let x0 = (gx.floor() as u32).min(grid_w - 1);
+                let y0 = (gy.floor() as u32).min(grid_h - 1);
+                let x1 = (x0 + 1) % grid_w;
+                let y1 = (y0 + 1) % grid_h;
 
                 let fx = gx - gx.floor();
                 let fy = gy - gy.floor();
@@ -756,9 +765,11 @@ mod tests {
             let is_land: Vec<bool> = map.tiles.iter().map(|t| !t.terrain.is_water()).collect();
             let all = Regions::compute(512, 512, &is_land, 1);
             println!("  every component: {:?}", all.sizes);
-            // The seam question (plan step 3): the same fill without the
-            // torus wrap. Fewer regions with the wrap means the seam joins
-            // landmasses that a flat map would cut in two.
+            // The same fill without the torus wrap. The noise tiles
+            // seamlessly, so a landmass that crosses a map edge continues
+            // on the other side and the flat fill cuts it in two; fewer
+            // regions with the wrap is expected and no longer a seam
+            // artefact (phase 2 step 3).
             let flat =
                 Regions::compute_with_wrap(512, 512, &is_land, MINOR_REGION_MAX_TILES, false);
             println!(
