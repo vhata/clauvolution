@@ -44,7 +44,7 @@ One-liner list of what Clauvolution does, grouped by area. For the design ration
 
 - **Procedural terrain** — seed-based value noise generating oceans, shallow water, sand, grassland, forest, rock
 - **Biome-aware food spawning** — food density proportional to tile nutrients + vegetation
-- **Terrain-dependent movement** — each biome has land and water movement costs; deep water is 10x for land organisms (creates geographic isolation)
+- **Terrain-dependent movement** — each biome has a land-adapted and a water-adapted movement cost, and an organism pays the interpolation between them by its `aquatic_adaptation` on every tile: deep water costs 10.0 at aquatic 0 and 1.0 at aquatic 1, sand 1.5 and 5.0. Fins cut the cost on water, limbs on land
 - **Seasonal cycles** — 60-second year with sinusoidal light + food regen multipliers; winter is harsh
 - **Tile dynamics** — vegetation grows toward nutrient/moisture carrying capacity; nutrients cycle
 
