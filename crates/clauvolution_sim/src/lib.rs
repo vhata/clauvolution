@@ -888,6 +888,12 @@ struct SensedFood {
 /// allocates and fills a `Vec`, resolve every hit through an ECS query, and
 /// walk the whole food snapshot. See DECISIONS.md, "Sensing reads per-tick
 /// grids, not the ECS".
+///
+/// Grazing, predation, disease transmission and symbiosis tracking each keep
+/// one too, filled from the hash at the start of the system with only the
+/// neighbours they can act on and the fields they read, and walked with
+/// `for_each_near` in `query_radius`'s order. See DECISIONS.md, "Neighbour
+/// queries after sensing read per-system grids".
 struct CellGrid<T> {
     /// Items in cell order.
     entries: Vec<T>,
@@ -1021,6 +1027,38 @@ impl<T: Copy> CellGrid<T> {
         }
         self.cell(key)
     }
+
+    /// Rebuild from the spatial hash, on its cell size and keys, keeping
+    /// each cell in the hash's order. `item` maps a hashed entity to what the
+    /// grid holds, or drops it; dropping an entity does not reorder the rest.
+    fn rebuild_from_hash(&mut self, hash: &SpatialHash, item: impl Fn(Entity) -> Option<T>) {
+        let item = &item;
+        self.rebuild(
+            hash.cell_size,
+            hash.cells.iter().flat_map(|(&key, entities)| {
+                entities
+                    .iter()
+                    .filter_map(move |&entity| Some((key, item(entity)?)))
+            }),
+        );
+    }
+
+    /// Visit, in order, the items `SpatialHash::query_radius(pos, radius)`
+    /// would have returned (less any `rebuild_from_hash` dropped): its cells
+    /// dx outer, dy inner, each cell in the hash's order. No cell is skipped,
+    /// because readers after `action_system` test distance against positions
+    /// that have moved off the cells the hash filed them under.
+    fn for_each_near(&self, hash: &SpatialHash, pos: Vec2, radius: f32, mut visit: impl FnMut(&T)) {
+        let range = hash.cell_range(radius);
+        let (cx, cy) = hash.cell_key(pos);
+        for dx in -range..=range {
+            for dy in -range..=range {
+                for item in self.cell((cx + dx, cy + dy)) {
+                    visit(item);
+                }
+            }
+        }
+    }
 }
 
 fn sensing_and_brain_system(
@@ -1055,28 +1093,18 @@ fn sensing_and_brain_system(
     // Copy what sensing reads into two grids, serially, once per tick.
     // Organisms go in cell by cell from the spatial hash, each cell in the
     // hash's order, which is the order `query_radius` returned them in.
-    let cell_size = spatial_hash.cell_size;
-    let all_org_data = &all_org_data;
-    organism_grid.rebuild(
-        cell_size,
-        spatial_hash.cells.iter().flat_map(|(&key, entities)| {
-            entities.iter().filter_map(move |&entity| {
-                let (pos, size, species, genome, signal) = all_org_data.get(entity).ok()?;
-                Some((
-                    key,
-                    SensedOrganism {
-                        entity,
-                        pos: pos.0,
-                        size: size.0,
-                        species: species.0,
-                        photo_hint: genome.photosynthesis_rate.min(1.0),
-                        is_photosynthesiser: genome.is_photosynthesiser(),
-                        signal: signal.0,
-                    },
-                ))
-            })
-        }),
-    );
+    organism_grid.rebuild_from_hash(&spatial_hash, |entity| {
+        let (pos, size, species, genome, signal) = all_org_data.get(entity).ok()?;
+        Some(SensedOrganism {
+            entity,
+            pos: pos.0,
+            size: size.0,
+            species: species.0,
+            photo_hint: genome.photosynthesis_rate.min(1.0),
+            is_photosynthesiser: genome.is_photosynthesiser(),
+            signal: signal.0,
+        })
+    });
     let food_key = |pos: Vec2| {
         (
             (pos.x / FOOD_CELL_SIZE).floor() as i32,
@@ -1399,6 +1427,27 @@ fn action_system(
     }
 }
 
+/// A plant as `grazing_system` sees it: alive, a photosynthesiser, with its
+/// position and energy at the start of the system.
+#[derive(Clone, Copy)]
+struct GrazeTarget {
+    entity: Entity,
+    pos: Vec2,
+    energy: f32,
+}
+
+/// A living organism as `predation_system`'s gates see it, taken at the
+/// start of the system. `defense` is armour value times body size.
+#[derive(Clone, Copy)]
+struct PreyView {
+    entity: Entity,
+    pos: Vec2,
+    energy: f32,
+    size: f32,
+    defense: f32,
+    is_plant: bool,
+}
+
 /// A neighbour that passed every gate for one attacker (or eater) this tick.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct StrikeCandidate {
@@ -1437,6 +1486,7 @@ fn nearest_target(candidates: &[StrikeCandidate]) -> Option<&StrikeCandidate> {
 /// which `action_system`'s one mutable query cannot do while iterating.
 fn grazing_system(
     spatial_hash: Res<SpatialHash>,
+    mut plant_grid: Local<CellGrid<GrazeTarget>>,
     config: Res<SimConfig>,
     ate_food: Res<AteFoodThisTick>,
     mut organisms: Query<
@@ -1476,33 +1526,37 @@ fn grazing_system(
     let mut claimed_plants: HashSet<Entity> = HashSet::new();
     let mut candidates: Vec<StrikeCandidate> = Vec::new();
 
+    // Every living photosynthesiser the hash holds, with its position and
+    // energy as they stand now. Nothing changes them until the bites are
+    // applied below, so these are the values a lookup per candidate read.
+    plant_grid.rebuild_from_hash(&spatial_hash, |entity| {
+        let (_, pos, energy, health, _, genome, _, _) = organisms.get(entity).ok()?;
+        (health.0 > 0.0 && genome.is_photosynthesiser()).then_some(GrazeTarget {
+            entity,
+            pos: pos.0,
+            energy: energy.0,
+        })
+    });
+
     for (eater, pos, reach, bonus, eater_is_plant) in &eaters {
         candidates.clear();
-        for target in spatial_hash.query_radius(*pos, *reach) {
-            if target == *eater || claimed_plants.contains(&target) {
-                continue;
-            }
-            let Ok((_, target_pos, target_energy, target_health, _, target_genome, _, _)) =
-                organisms.get(target)
-            else {
-                continue;
-            };
-            if target_health.0 <= 0.0 || !target_genome.is_photosynthesiser() {
-                continue;
+        plant_grid.for_each_near(&spatial_hash, *pos, *reach, |target| {
+            if target.entity == *eater || claimed_plants.contains(&target.entity) {
+                return;
             }
             // The hash was built before action_system moved everyone, so
             // re-check the real distance, as the food reach does.
-            let dist = (target_pos.0 - *pos).length();
+            let dist = (target.pos - *pos).length();
             if dist >= *reach {
-                continue;
+                return;
             }
             candidates.push(StrikeCandidate {
-                entity: target,
+                entity: target.entity,
                 dist,
                 is_plant: true,
-                energy: target_energy.0,
+                energy: target.energy,
             });
-        }
+        });
         if let Some(plant) = nearest_target(&candidates) {
             bites.push((
                 *eater,
@@ -1677,6 +1731,7 @@ fn record_band_attack(
 /// grazing is `eat`'s job (`grazing_system`).
 fn predation_system(
     spatial_hash: Res<SpatialHash>,
+    mut prey_grid: Local<CellGrid<PreyView>>,
     config: Res<SimConfig>,
     mut organisms: Query<
         (
@@ -1723,9 +1778,25 @@ fn predation_system(
     // this tick; charged after the kills are resolved.
     let mut strike_costs: Vec<(Entity, f32)> = Vec::new();
 
+    // Every living organism the hash holds, as the gates below read it.
+    // Kills are applied after every attacker has chosen, so nothing here
+    // changes during the scan.
+    prey_grid.rebuild_from_hash(&spatial_hash, |entity| {
+        let (_, pos, energy, health, _, genome, body_size, _) = organisms.get(entity).ok()?;
+        // A target at zero health is already dead (killed earlier this
+        // tick, or dying of old age) and is not prey.
+        (health.0 > 0.0).then(|| PreyView {
+            entity,
+            pos: pos.0,
+            energy: energy.0,
+            size: body_size.0,
+            defense: genome.armor_value() * body_size.0,
+            is_plant: genome.is_photosynthesiser(),
+        })
+    });
+
     for (attacker_entity, attacker_pos, attack_str, attack_range, attacker_size, band) in &attackers
     {
-        let nearby = spatial_hash.query_radius(*attacker_pos, *attack_range);
         candidates.clear();
         // Instrument only: which gates the unclaimed consumers in reach
         // passed (step 5 of plans/2026-09-21-pyramid-top.md).
@@ -1739,70 +1810,50 @@ fn predation_system(
         // Whether anything alive was within reach: a strike, not a flail.
         let mut anyone_in_reach = false;
 
-        for &target_entity in &nearby {
-            if target_entity == *attacker_entity {
-                continue;
+        prey_grid.for_each_near(&spatial_hash, *attacker_pos, *attack_range, |target| {
+            if target.entity == *attacker_entity {
+                return;
             }
-            let claimed = claimed_victims.contains(&target_entity);
-
-            if let Ok((
-                _,
-                target_pos,
-                target_energy,
-                target_health,
-                _,
-                target_genome,
-                target_body_size,
-                _,
-            )) = organisms.get(target_entity)
-            {
-                // A target at zero health is already dead (killed earlier this
-                // tick, or dying of old age) and is not prey.
-                if target_health.0 <= 0.0 {
-                    continue;
-                }
-                let dist = (target_pos.0 - *attacker_pos).length();
-                if dist > *attack_range {
-                    continue;
-                }
-                let is_plant = target_genome.is_photosynthesiser();
-                plant_in_reach |= is_plant;
-                anyone_in_reach = true;
-                if claimed {
-                    continue;
-                }
-
-                predation_stats.targets_considered += 1;
-
-                let defense = target_genome.armor_value() * target_body_size.0;
-                let damage = (attack_str - defense * DEFENCE_WEIGHT).max(0.0);
-                // A plant is prey like any other: the size gate applies.
-                let size_ok = *attacker_size > target_body_size.0 * PREY_SIZE_RATIO;
-                let damage_ok = damage > MIN_KILL_DAMAGE;
-
-                if !size_ok {
-                    predation_stats.rejected_size_gate += 1;
-                }
-                if !damage_ok {
-                    predation_stats.rejected_damage += 1;
-                }
-                if !is_plant {
-                    consumer_in_reach = true;
-                    consumer_size_ok |= size_ok;
-                    consumer_damage_ok |= damage_ok;
-                    consumer_both_ok |= size_ok && damage_ok;
-                }
-
-                if damage_ok && size_ok {
-                    candidates.push(StrikeCandidate {
-                        entity: target_entity,
-                        dist,
-                        is_plant,
-                        energy: target_energy.0,
-                    });
-                }
+            let dist = (target.pos - *attacker_pos).length();
+            if dist > *attack_range {
+                return;
             }
-        }
+            let is_plant = target.is_plant;
+            plant_in_reach |= is_plant;
+            anyone_in_reach = true;
+            if claimed_victims.contains(&target.entity) {
+                return;
+            }
+
+            predation_stats.targets_considered += 1;
+
+            let damage = (attack_str - target.defense * DEFENCE_WEIGHT).max(0.0);
+            // A plant is prey like any other: the size gate applies.
+            let size_ok = *attacker_size > target.size * PREY_SIZE_RATIO;
+            let damage_ok = damage > MIN_KILL_DAMAGE;
+
+            if !size_ok {
+                predation_stats.rejected_size_gate += 1;
+            }
+            if !damage_ok {
+                predation_stats.rejected_damage += 1;
+            }
+            if !is_plant {
+                consumer_in_reach = true;
+                consumer_size_ok |= size_ok;
+                consumer_damage_ok |= damage_ok;
+                consumer_both_ok |= size_ok && damage_ok;
+            }
+
+            if damage_ok && size_ok {
+                candidates.push(StrikeCandidate {
+                    entity: target.entity,
+                    dist,
+                    is_plant,
+                    energy: target.energy,
+                });
+            }
+        });
 
         // The neighbour list is in hash bucket order, not distance order, so
         // the first passing neighbour is an arbitrary one. The attacker
@@ -2021,10 +2072,19 @@ fn niche_construction_system(
     }
 }
 
+/// An infected organism as disease transmission sees it.
+#[derive(Clone, Copy)]
+struct SickNeighbour {
+    pos: Vec2,
+    severity: f32,
+    ticks_remaining: u32,
+}
+
 /// Spread infection between nearby organisms and seed rare background infections.
 /// Runs before metabolism so infection status this tick can affect energy drain.
 fn disease_transmission_system(
     spatial_hash: Res<SpatialHash>,
+    mut sick_grid: Local<CellGrid<SickNeighbour>>,
     mut commands: Commands,
     healthy: Query<(Entity, &Position, &Genome), (With<Organism>, Without<Infection>)>,
     infected: Query<(&Position, &Infection), With<Organism>>,
@@ -2047,30 +2107,41 @@ fn disease_transmission_system(
     }
 
     // 2. Proximity transmission — spreads from infected to nearby healthy.
+    // Only infected organisms can pass anything on, so the grid holds only
+    // them, in the hash's order. New infections go through `commands` and
+    // land after this system, so the infected set is fixed for the pass.
+    sick_grid.rebuild_from_hash(&spatial_hash, |entity| {
+        let (pos, infection) = infected.get(entity).ok()?;
+        Some(SickNeighbour {
+            pos: pos.0,
+            severity: infection.severity,
+            ticks_remaining: infection.ticks_remaining,
+        })
+    });
     for (entity, healthy_pos, genome) in &healthy {
-        let nearby = spatial_hash.query_radius(healthy_pos.0, DISEASE_TRANSMISSION_RANGE);
-
         let mut infection_pressure = 0.0f32;
         let mut best_severity = 0.0f32;
         let mut best_remaining = 0u32;
 
-        for &sick_entity in &nearby {
-            if sick_entity == entity {
-                continue;
-            }
-            if let Ok((sick_pos, sick_inf)) = infected.get(sick_entity) {
-                let dist = (sick_pos.0 - healthy_pos.0).length();
+        // The healthy organism itself is never in the grid: it has no
+        // `Infection`.
+        sick_grid.for_each_near(
+            &spatial_hash,
+            healthy_pos.0,
+            DISEASE_TRANSMISSION_RANGE,
+            |sick| {
+                let dist = (sick.pos - healthy_pos.0).length();
                 if dist < DISEASE_TRANSMISSION_RANGE {
                     // Closer + more severe = more pressure
                     let prox = 1.0 - (dist / DISEASE_TRANSMISSION_RANGE);
-                    infection_pressure += sick_inf.severity * prox;
-                    if sick_inf.severity > best_severity {
-                        best_severity = sick_inf.severity;
-                        best_remaining = sick_inf.ticks_remaining;
+                    infection_pressure += sick.severity * prox;
+                    if sick.severity > best_severity {
+                        best_severity = sick.severity;
+                        best_remaining = sick.ticks_remaining;
                     }
                 }
-            }
-        }
+            },
+        );
 
         if infection_pressure <= DISEASE_TRANSMISSION_PRESSURE_FLOOR {
             continue;
@@ -2149,25 +2220,36 @@ fn disease_effects_system(
 /// energy exchange.
 fn symbiosis_tracking_system(
     spatial_hash: Res<SpatialHash>,
+    mut neighbour_grid: Local<CellGrid<(Entity, Vec2)>>,
     mut organisms: Query<(Entity, &Position, &mut Symbiosis), With<Organism>>,
     all_positions: Query<&Position, With<Organism>>,
 ) {
+    // Every hashed organism with its current position, in the hash's order.
+    neighbour_grid.rebuild_from_hash(&spatial_hash, |entity| {
+        Some((entity, all_positions.get(entity).ok()?.0))
+    });
+    let neighbour_grid = &*neighbour_grid;
+    let spatial_hash = &*spatial_hash;
     organisms
         .par_iter_mut()
         .for_each(|(entity, pos, mut symbiosis)| {
-            let nearby = spatial_hash.query_radius(pos.0, SYMBIOSIS_RANGE);
+            // No range test: the nearest organism in any visited cell counts,
+            // as it did when this read `query_radius`.
             let mut best: Option<(Entity, f32)> = None;
-            for &other in &nearby {
-                if other == entity {
-                    continue;
-                }
-                if let Ok(other_pos) = all_positions.get(other) {
-                    let dist2 = (other_pos.0 - pos.0).length_squared();
+            neighbour_grid.for_each_near(
+                spatial_hash,
+                pos.0,
+                SYMBIOSIS_RANGE,
+                |&(other, other_pos)| {
+                    if other == entity {
+                        return;
+                    }
+                    let dist2 = (other_pos - pos.0).length_squared();
                     if best.is_none_or(|(_, d)| dist2 < d) {
                         best = Some((other, dist2));
                     }
-                }
-            }
+                },
+            );
             let current = best.map(|(e, _)| e);
             if current.is_some() && current == symbiosis.link_target {
                 symbiosis.link_ticks = symbiosis.link_ticks.saturating_add(1);
@@ -4951,5 +5033,66 @@ mod death_marker_tests {
         }
         assert_eq!(markers(&mut world), 0, "marker outlived its lifetime");
         assert_eq!(world.entities().len(), 0);
+    }
+}
+
+#[cfg(test)]
+mod cell_grid_tests {
+    use super::*;
+    use rand::{rngs::StdRng, SeedableRng};
+
+    /// `for_each_near` must visit exactly what `query_radius` returns, in
+    /// the same order, because readers break ties on visit order.
+    #[test]
+    fn for_each_near_matches_query_radius_in_order() {
+        let mut world = World::new();
+        let mut rng = StdRng::seed_from_u64(11);
+        let mut hash = SpatialHash::new(16.0);
+        for _ in 0..600 {
+            // Negative coordinates too, so keys go below zero.
+            let pos = Vec2::new(rng.gen_range(-80.0..200.0), rng.gen_range(-40.0..120.0));
+            let entity = world.spawn_empty().id();
+            hash.insert(entity, pos);
+        }
+        let mut grid: CellGrid<Entity> = CellGrid::default();
+        grid.rebuild_from_hash(&hash, Some);
+        for _ in 0..200 {
+            let pos = Vec2::new(rng.gen_range(-120.0..240.0), rng.gen_range(-80.0..160.0));
+            let radius = rng.gen_range(0.5..40.0);
+            let mut visited = Vec::new();
+            grid.for_each_near(&hash, pos, radius, |&e| visited.push(e));
+            assert_eq!(
+                visited,
+                hash.query_radius(pos, radius),
+                "at {pos} r {radius}"
+            );
+        }
+    }
+
+    /// Dropping entities at rebuild leaves the rest in `query_radius`'s order.
+    #[test]
+    fn a_filtered_grid_keeps_the_order_of_what_it_keeps() {
+        let mut world = World::new();
+        let mut rng = StdRng::seed_from_u64(5);
+        let mut hash = SpatialHash::new(16.0);
+        for _ in 0..300 {
+            let pos = Vec2::new(rng.gen_range(0.0..100.0), rng.gen_range(0.0..100.0));
+            let entity = world.spawn_empty().id();
+            hash.insert(entity, pos);
+        }
+        let keep = |e: &Entity| !e.index().is_multiple_of(3);
+        let mut grid: CellGrid<Entity> = CellGrid::default();
+        grid.rebuild_from_hash(&hash, |e| keep(&e).then_some(e));
+        for _ in 0..100 {
+            let pos = Vec2::new(rng.gen_range(0.0..100.0), rng.gen_range(0.0..100.0));
+            let mut visited = Vec::new();
+            grid.for_each_near(&hash, pos, 20.0, |&e| visited.push(e));
+            let expected: Vec<Entity> = hash
+                .query_radius(pos, 20.0)
+                .into_iter()
+                .filter(keep)
+                .collect();
+            assert_eq!(visited, expected);
+        }
     }
 }
