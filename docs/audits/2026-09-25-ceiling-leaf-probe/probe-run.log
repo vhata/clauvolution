@@ -1,0 +1,28 @@
+18:55:05 start leaf-0.012 seed42
+18:55:05 start leaf-0.015 seed42
+18:55:05 start leaf-0.01 seed42
+19:02:33 done  leaf-0.015 seed42 (exit 0)
+19:02:33 start leaf-0.015-strike-0.3 seed42
+19:03:13 done  leaf-0.012 seed42 (exit 0)
+19:03:13 start leaf-0.012-strike-0.3 seed42
+19:10:43 done  leaf-0.01 seed42 (exit 0)
+19:10:44 start leaf-0.01-strike-0.3 seed42
+19:36:04 done  leaf-0.015-strike-0.3 seed42 (exit 0)
+19:38:53 done  leaf-0.012-strike-0.3 seed42 (exit 0)
+19:44:30 done  leaf-0.01-strike-0.3 seed42 (exit 0)
+19:44:44 start leaf-0.0175 seed42
+19:44:44 start leaf-0.0175-strike-0.3 seed42
+19:44:44 start leaf-0.019 seed42
+19:51:33 done  leaf-0.019 seed42 (exit 0)
+19:51:33 start leaf-0.019-strike-0.3 seed42
+19:51:53 done  leaf-0.0175 seed42 (exit 0)
+19:52:12 done  leaf-0.0175-strike-0.3 seed42 (exit 0)
+19:52:44 start leaf-0.0175 seed7
+19:52:44 start leaf-0.0175 seed3
+19:55:13 done  leaf-0.0175 seed3 (exit 0)
+19:55:13 start leaf-0.0175-strike-0.3 seed3
+19:58:33 done  leaf-0.0175 seed7 (exit 0)
+19:58:33 start leaf-0.0175-strike-0.3 seed7
+19:59:34 done  leaf-0.0175-strike-0.3 seed3 (exit 0)
+20:00:00 done  leaf-0.019-strike-0.3 seed42 (exit 0)
+20:02:11 done  leaf-0.0175-strike-0.3 seed7 (exit 0)
