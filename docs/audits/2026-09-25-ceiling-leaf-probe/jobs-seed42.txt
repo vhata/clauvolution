@@ -1,0 +1,6 @@
+leaf-0.015 42 --leaf-capacity 0.015
+leaf-0.012 42 --leaf-capacity 0.012
+leaf-0.01 42 --leaf-capacity 0.01
+leaf-0.015-strike-0.3 42 --leaf-capacity 0.015 --strike-cost 0.3
+leaf-0.012-strike-0.3 42 --leaf-capacity 0.012 --strike-cost 0.3
+leaf-0.01-strike-0.3 42 --leaf-capacity 0.01 --strike-cost 0.3
