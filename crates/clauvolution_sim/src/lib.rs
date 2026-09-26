@@ -3129,26 +3129,33 @@ fn species_classification_system(
     }
 }
 
+/// The organism components a population snapshot reads. Shared by
+/// `record_population_history` and the headless summary, which computes the
+/// same figures from the live world at the end of a run.
+pub type SnapshotOrganisms<'w, 's> = Query<
+    'w,
+    's,
+    (
+        Entity,
+        &'static Genome,
+        &'static Symbiosis,
+        Option<&'static Infection>,
+        &'static Velocity,
+        &'static LightShare,
+        &'static Energy,
+        &'static BodySize,
+        &'static Position,
+        &'static SpeciesId,
+    ),
+    With<Organism>,
+>;
+
 fn record_population_history(
     time: Res<Time>,
     mut timer: ResMut<PopHistoryTimer>,
     tick: Res<TickCounter>,
     stats: Res<SimStats>,
-    organisms: Query<
-        (
-            Entity,
-            &Genome,
-            &Symbiosis,
-            Option<&Infection>,
-            &Velocity,
-            &LightShare,
-            &Energy,
-            &BodySize,
-            &Position,
-            &SpeciesId,
-        ),
-        With<Organism>,
-    >,
+    organisms: SnapshotOrganisms,
     food: Query<&Food>,
     mut history: ResMut<PopulationHistory>,
     fitness: Res<FitnessTracker>,
@@ -3164,6 +3171,27 @@ fn record_population_history(
         return;
     }
 
+    let snapshot = population_snapshot_input(
+        tick.0,
+        &organisms,
+        food.iter().len() as u32,
+        fitness.avg_lifespan,
+        &config,
+        &tile_map,
+    );
+    history.record(&stats, &predation, &bands, &geo, &mut ledger, snapshot);
+}
+
+/// Population counts and trait averages over the live organisms, as one
+/// history snapshot records them.
+pub fn population_snapshot_input(
+    tick: u64,
+    organisms: &SnapshotOrganisms,
+    food_count: u32,
+    avg_lifespan: f32,
+    config: &SimConfig,
+    tile_map: &TileMap,
+) -> PopSnapshotInput {
     let mut plants = 0u32;
     let mut grazers = 0u32;
     let mut hunters = 0u32;
@@ -3199,7 +3227,7 @@ fn record_population_history(
     let mut census_rows: Vec<CensusRow> = Vec::with_capacity(organisms.iter().len());
 
     for (entity, genome, symbiosis, inf, velocity, light_share, energy, body_size, pos, species) in
-        &organisms
+        organisms
     {
         let strategy = classify_strategy(genome);
         let tile_index = tile_map.index_at_pos(pos.0);
@@ -3209,7 +3237,7 @@ fn record_population_history(
             biome: biome_index(tile_map.tiles[tile_index].terrain),
             region: tile_map.regions.labels[tile_index],
         });
-        let ready = energy.0 > reproduction_threshold(&config, body_size.0);
+        let ready = energy.0 > reproduction_threshold(config, body_size.0);
         if strategy == SpeciesStrategy::Photosynthesizer {
             sum_photo_area += genome.total_photo_surface_area();
             sum_speed_plants += velocity.0.length();
@@ -3273,46 +3301,37 @@ fn record_population_history(
     let div = n.max(1) as f32;
     let eaters = grazers + hunters + omnivores;
     let org_count = plants + eaters;
-    let food_count = food.iter().len() as u32;
+    let census = geography_census(&census_rows, tick);
 
-    let census = geography_census(&census_rows, tick.0);
-
-    history.record(
-        &stats,
-        &predation,
-        &bands,
-        &geo,
-        &mut ledger,
-        PopSnapshotInput {
-            tick: tick.0,
-            organisms: org_count,
-            food: food_count,
-            plants,
-            grazers,
-            hunters,
-            omnivores,
-            avg_lifespan: fitness.avg_lifespan,
-            infected,
-            avg_disease_resistance: sum_resist / div,
-            avg_body_size: sum_body / div,
-            avg_speed: sum_speed / div,
-            avg_armor: sum_armor / div,
-            avg_attack: sum_attack / div,
-            avg_photo: sum_photo / div,
-            avg_diet: sum_diet / (grazers + hunters + omnivores).max(1) as f32,
-            avg_photo_area: sum_photo_area / plants.max(1) as f32,
-            avg_speed_plants: sum_speed_plants / plants.max(1) as f32,
-            avg_speed_eaters: sum_speed_eaters / eaters.max(1) as f32,
-            avg_light_share: sum_light_share / plants.max(1) as f32,
-            ready_share_plants: ready_plants as f32 / plants.max(1) as f32,
-            ready_share_eaters: ready_eaters as f32 / eaters.max(1) as f32,
-            symbiotic_pairs,
-            avg_symbiosis_rate: sum_symbiosis / div,
-            avg_grazer_body_size: sum_grazer_body / grazers.max(1) as f32,
-            avg_grazer_armor: sum_grazer_armor / grazers.max(1) as f32,
-            census,
-        },
-    );
+    PopSnapshotInput {
+        tick,
+        organisms: org_count,
+        food: food_count,
+        plants,
+        grazers,
+        hunters,
+        omnivores,
+        avg_lifespan,
+        infected,
+        avg_disease_resistance: sum_resist / div,
+        avg_body_size: sum_body / div,
+        avg_speed: sum_speed / div,
+        avg_armor: sum_armor / div,
+        avg_attack: sum_attack / div,
+        avg_photo: sum_photo / div,
+        avg_diet: sum_diet / (grazers + hunters + omnivores).max(1) as f32,
+        avg_photo_area: sum_photo_area / plants.max(1) as f32,
+        avg_speed_plants: sum_speed_plants / plants.max(1) as f32,
+        avg_speed_eaters: sum_speed_eaters / eaters.max(1) as f32,
+        avg_light_share: sum_light_share / plants.max(1) as f32,
+        ready_share_plants: ready_plants as f32 / plants.max(1) as f32,
+        ready_share_eaters: ready_eaters as f32 / eaters.max(1) as f32,
+        symbiotic_pairs,
+        avg_symbiosis_rate: sum_symbiosis / div,
+        avg_grazer_body_size: sum_grazer_body / grazers.max(1) as f32,
+        avg_grazer_armor: sum_grazer_armor / grazers.max(1) as f32,
+        census,
+    }
 }
 
 // -----------------------------------------------------------------------------
