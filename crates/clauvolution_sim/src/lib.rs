@@ -101,11 +101,6 @@ const BASE_MOVE_SPEED: f32 = 2.0;
 /// Armour drag coefficient: speed is multiplied by `1 / (1 + armour × drag)`.
 /// `photo_drag_factor` has the same shape for leaf area.
 const ARMOR_DRAG: f32 = 0.3;
-/// How far aquatic adaptation moves the terrain cost: water costs
-/// `1 - aquatic × weight` of its base, land `1 + aquatic × weight`. One
-/// weight for both, so adapting to water costs as much on land as it saves
-/// in it.
-const AQUATIC_MOVE_COST_WEIGHT: f32 = 0.5;
 /// Water move-cost reduction per unit of fin area.
 const FIN_MOVE_BONUS_PER_AREA: f32 = 0.3;
 /// Most of the water move cost fins can remove.
@@ -117,6 +112,31 @@ const LIMB_MOVE_BONUS_CAP: f32 = 0.4;
 /// Floor on the terrain cost multiplier, on water and land alike, so no
 /// combination of adaptations makes moving close to free.
 const TERRAIN_MOVE_COST_FLOOR: f32 = 0.5;
+
+/// Terrain cost multiplier on movement energy for one organism on one tile.
+///
+/// Interpolates between the land-adapted and water-adapted tables by
+/// `aquatic` (0..1): `land + aquatic × (water − land)`. An organism at 0 pays
+/// the land table everywhere (deep water 10.0), one at 1 the water table
+/// (sand 5.0), and every value between is a tradeoff. Fins then cut the cost
+/// on water tiles and limbs on land tiles, and the result is floored at
+/// `TERRAIN_MOVE_COST_FLOOR`. See "Movement cost interpolates by aquatic
+/// adaptation" in DECISIONS.md.
+///
+/// `aquatic` is clamped to 0..1 first. Mutation keeps it in range, so this
+/// only guards against a hand-edited save extrapolating past either table.
+fn terrain_move_cost(terrain: TerrainType, aquatic: f32, fin_area: f32, limb_count: usize) -> f32 {
+    let aquatic = aquatic.clamp(0.0, 1.0);
+    let land = terrain.land_move_cost();
+    let water = terrain.water_move_cost();
+    let base = land + aquatic * (water - land);
+    let bonus = if terrain.is_water() {
+        (fin_area * FIN_MOVE_BONUS_PER_AREA).min(FIN_MOVE_BONUS_CAP)
+    } else {
+        (limb_count as f32 * LIMB_MOVE_BONUS_PER_LIMB).min(LIMB_MOVE_BONUS_CAP)
+    };
+    (base * (1.0 - bonus)).max(TERRAIN_MOVE_COST_FLOOR)
+}
 
 // -----------------------------------------------------------------------------
 // Feeding and predation tuning constants
@@ -1358,22 +1378,8 @@ fn action_system(
         let tile = tile_map.tile_at_pos(pos.0);
 
         let aqua = genome.aquatic_adaptation;
-        let fin_bonus = genome.fin_area() * FIN_MOVE_BONUS_PER_AREA;
-        let limb_bonus = genome.limb_count() as f32 * LIMB_MOVE_BONUS_PER_LIMB;
-
-        let terrain_cost = if tile.terrain.is_water() {
-            let base = tile.terrain.water_move_cost();
-            (base
-                * (1.0 - aqua * AQUATIC_MOVE_COST_WEIGHT)
-                * (1.0 - fin_bonus.min(FIN_MOVE_BONUS_CAP)))
-            .max(TERRAIN_MOVE_COST_FLOOR)
-        } else {
-            let base = tile.terrain.land_move_cost();
-            (base
-                * (1.0 + aqua * AQUATIC_MOVE_COST_WEIGHT)
-                * (1.0 - limb_bonus.min(LIMB_MOVE_BONUS_CAP)))
-            .max(TERRAIN_MOVE_COST_FLOOR)
-        };
+        let terrain_cost =
+            terrain_move_cost(tile.terrain, aqua, genome.fin_area(), genome.limb_count());
 
         pos.0 += movement;
         pos.0.x = pos.0.x.rem_euclid(config.world_width as f32);
@@ -3934,6 +3940,49 @@ mod tests {
     use super::*;
     use bevy::ecs::world::CommandQueue;
     use rand::{rngs::StdRng, SeedableRng};
+
+    #[test]
+    fn terrain_move_cost_interpolates_by_aquatic_adaptation() {
+        use TerrainType::*;
+        // (terrain, aquatic, fin area, limbs, expected). The first twelve
+        // rows are the bare interpolation between the land and water tables
+        // at aquatic 0, 0.5 and 1: deep water 10.0 and 1.0, shallow 3.0 and
+        // 1.0, sand 1.5 and 5.0, grassland 1.0 and 4.0.
+        let cases = [
+            (DeepWater, 0.0, 0.0, 0, 10.0),
+            (DeepWater, 0.5, 0.0, 0, 5.5),
+            (DeepWater, 1.0, 0.0, 0, 1.0),
+            (ShallowWater, 0.0, 0.0, 0, 3.0),
+            (ShallowWater, 0.5, 0.0, 0, 2.0),
+            (ShallowWater, 1.0, 0.0, 0, 1.0),
+            (Sand, 0.0, 0.0, 0, 1.5),
+            (Sand, 0.5, 0.0, 0, 3.25),
+            (Sand, 1.0, 0.0, 0, 5.0),
+            (Grassland, 0.0, 0.0, 0, 1.0),
+            (Grassland, 0.5, 0.0, 0, 2.5),
+            (Grassland, 1.0, 0.0, 0, 4.0),
+            // Fins act on water tiles only (fin area 1.0 takes 0.3 off).
+            (DeepWater, 0.5, 1.0, 0, 5.5 * 0.7),
+            (Sand, 0.5, 1.0, 0, 3.25),
+            // Limbs act on land tiles only (two limbs take 0.3 off).
+            (Grassland, 0.0, 0.0, 2, 0.7),
+            (DeepWater, 0.0, 0.0, 2, 10.0),
+            // Bonuses cap at 0.4 (limbs) and 0.5 (fins); the floor is 0.5.
+            (Grassland, 0.0, 0.0, 10, 0.6),
+            (DeepWater, 1.0, 10.0, 0, 0.5),
+            // Out-of-range aquatic values are clamped to 0..1.
+            (DeepWater, 1.2, 0.0, 0, 1.0),
+            (Sand, 1.2, 0.0, 0, 5.0),
+            (DeepWater, -0.2, 0.0, 0, 10.0),
+        ];
+        for (terrain, aquatic, fins, limbs, expected) in cases {
+            let got = terrain_move_cost(terrain, aquatic, fins, limbs);
+            assert!(
+                (got - expected).abs() < 1e-6,
+                "{terrain:?} aquatic {aquatic} fins {fins} limbs {limbs}: {got}, expected {expected}"
+            );
+        }
+    }
 
     #[test]
     fn convergence_high_water_logs_only_new_highs() {

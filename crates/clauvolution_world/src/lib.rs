@@ -48,8 +48,9 @@ impl TerrainType {
         matches!(self, TerrainType::DeepWater | TerrainType::ShallowWater)
     }
 
-    /// Movement cost multiplier for land-adapted organisms
-    /// Deep water is nearly impassable — creates real geographic barriers
+    /// Movement cost multiplier for a fully land-adapted organism
+    /// (`aquatic_adaptation` 0). The sim interpolates between this table and
+    /// `water_move_cost` by the organism's aquatic adaptation on every tile.
     pub fn land_move_cost(&self) -> f32 {
         match self {
             TerrainType::DeepWater => 10.0,
@@ -61,8 +62,8 @@ impl TerrainType {
         }
     }
 
-    /// Movement cost multiplier for water-adapted organisms
-    /// Land is hard for aquatic organisms — they stay in water
+    /// Movement cost multiplier for a fully water-adapted organism
+    /// (`aquatic_adaptation` 1). See `land_move_cost`.
     pub fn water_move_cost(&self) -> f32 {
         match self {
             TerrainType::DeepWater => 1.0,

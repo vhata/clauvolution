@@ -83,7 +83,7 @@ Three findings from phase 0 change how phase 1 should be approached, and the pha
 
 - **The energy clamp destroys about as much energy as foragers eat** (`energy-clamp-waste`): 7.40M destroyed against 7.62M eaten over 5000 ticks on seed 42. A forager near the 120 cap keeps almost nothing from a meal. The diet axis makes eating a specialisation, so what a specialist can keep has to be decided in the same pass.
 - **The population cap is the carrying capacity.** The ceiling raise is sequenced after grazing gives plants a consumer; when it is raised, the plateau and the tick cost (`reproduction-linear-scans`) are measured again.
-- **Water is neither barrier nor habitat.** The movement code picks the cost table by tile rather than by the organism's aquatic adaptation, so deep water is cheaper to cross than sand and no audit run has shown geographic isolation (`move-cost-table-by-tile`). Water tiles grow no food. Whether oceans become habitat, with the colonisation of land as something to watch, or stay a barrier that aquatic specialists unlock, is a phase 2 design decision to make before the terrain work (`oceans-as-habitat`).
+- **Water is neither barrier nor habitat.** The movement code picks the cost table by tile rather than by the organism's aquatic adaptation, so deep water is cheaper to cross than sand and no audit run has shown geographic isolation. (Fixed in phase 2 step 2: the cost now interpolates between the two tables by aquatic adaptation; see "Movement cost interpolates by aquatic adaptation" in `docs/DECISIONS.md`.) Water tiles grow no food. Whether oceans become habitat, with the colonisation of land as something to watch, or stay a barrier that aquatic specialists unlock, is a phase 2 design decision to make before the terrain work (`oceans-as-habitat`).
 
 Same-seed runs remain non-reproducible when started at different moments (`determinism-claim-recheck`), so every comparison in phase 1 carries that spread.
 
@@ -153,7 +153,7 @@ Two new genome traits: `heat_tolerance` in -1..1 and `aquatic` in 0..1. Every ti
 
 ### Terrain-aware movement
 
-The flat ten-times deep-water cost becomes a cost table by terrain and body: water cheap for high `aquatic` with fins and ruinous without, rock steep for large bodies, sand moderate and hot. Oceans and ranges become barriers for most lineages and habitat for the ones that pay to specialise. This replaces one special case with the general rule.
+The ten-times deep-water cost never ran: movement read its table by the tile, so deep water cost a land-adapted organism 1.0 (see "Movement cost interpolates by aquatic adaptation" in `docs/DECISIONS.md`). Step 2 replaced that with a cost interpolated between the land and water tables by `aquatic`. The rest of this section is the fuller goal, a cost table by terrain and body: water cheap for high `aquatic` with fins and ruinous without, rock steep for large bodies, sand moderate and hot. Oceans and ranges become barriers for most lineages and habitat for the ones that pay to specialise. This replaces one special case with the general rule.
 
 ### A world with continents
 
