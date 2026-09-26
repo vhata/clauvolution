@@ -2227,4 +2227,34 @@ mod feeding_count_tests {
         assert_eq!(age_bucket(1000), 5);
         assert_eq!(age_bucket(50_000), 5);
     }
+
+    /// Dominant shares are per species, skip small species, and do not
+    /// depend on the order the organisms arrive in.
+    #[test]
+    fn dominant_shares_per_species() {
+        // Species 1: 3 of 4 on place 0. Species 2: 2 of 2 on place 5
+        // (below min_members 3). Species 3: 3 of 3 on place 1.
+        let species = [1, 2, 1, 3, 1, 3, 2, 3, 1];
+        let places = [0, 5, 0, 1, 2, 1, 5, 1, 0];
+        assert_eq!(dominant_shares(&species, &places, 3), vec![0.75, 1.0]);
+        let mut rev_s = species;
+        let mut rev_p = places;
+        rev_s.reverse();
+        rev_p.reverse();
+        assert_eq!(dominant_shares(&rev_s, &rev_p, 3), vec![0.75, 1.0]);
+
+        let (mean, confined, hist) = summarise_shares(&[0.75, 1.0], 0.9);
+        assert!((mean - 0.875).abs() < 1e-6);
+        assert_eq!(confined, 1);
+        assert_eq!(hist[15], 1);
+        assert_eq!(hist[SHARE_BINS - 1], 1);
+    }
+
+    #[test]
+    fn aquatic_bands_cover_zero_to_one() {
+        assert_eq!(aquatic_band(0.0), 0);
+        assert_eq!(aquatic_band(0.49), 1);
+        assert_eq!(aquatic_band(0.5), 2);
+        assert_eq!(aquatic_band(1.0), AQUATIC_BAND_COUNT - 1);
+    }
 }
