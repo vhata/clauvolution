@@ -1,6 +1,6 @@
 # Plan: the hunter bridge, so that an intermediate diet can live long enough for carnivory to grow from it
 
-**Status:** planned 2026-09-24. Not started.
+**Status:** steps 1 and 2 done (#78, #81; the disadvantage is structural and the digestion exponent does not produce hunters). Step 3's condition was not met. Parked 2026-09-25 in favour of phase 2 (`plans/2026-09-25-phase2-biomes.md`).
 **Scope:** `hunter-emergence` in `TODO.md`, through the one candidate `plans/2026-09-21-pyramid-top.md` left open: the omnivore bridge. Not phase 2 of `docs/design/simulation-rules.md`, and not `consumer-ceiling-regulation` or `species-count-above-tuned-band`, which are re-measured by this plan's audit but not worked by it.
 
 ## Why
