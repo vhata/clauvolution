@@ -24,6 +24,7 @@ impl Plugin for CorePlugin {
             .insert_resource(SimStats::default())
             .insert_resource(PredationStats::default())
             .insert_resource(DietBandStats::default())
+            .insert_resource(GeographyStats::default())
             .insert_resource(TickCounter(0))
             .insert_resource(SimSpeed::default())
             .insert_resource(SpeciesColors::default())
@@ -938,6 +939,204 @@ impl DietBandStats {
     }
 }
 
+/// Bands of `Genome::aquatic_adaptation` (0..1) for the geography
+/// instruments: 0..0.25, 0.25..0.5, 0.5..0.75 and 0.75..1. Founders draw
+/// from 0..0.5, so the top two bands hold only evolved values.
+pub const AQUATIC_BAND_COUNT: usize = 4;
+pub const AQUATIC_BAND_KEYS: [&str; AQUATIC_BAND_COUNT] = ["aq0", "aq1", "aq2", "aq3"];
+
+/// The aquatic band of an `aquatic_adaptation` value.
+pub fn aquatic_band(aquatic: f32) -> usize {
+    ((aquatic.max(0.0) * AQUATIC_BAND_COUNT as f32) as usize).min(AQUATIC_BAND_COUNT - 1)
+}
+
+/// Terrain types in the order the geography census uses, matching
+/// `clauvolution_world::TerrainType`'s declaration order (the sim maps one
+/// to the other; core does not depend on the world crate).
+pub const BIOME_COUNT: usize = 6;
+pub const BIOME_KEYS: [&str; BIOME_COUNT] = ["deep", "shallow", "sand", "grass", "forest", "rock"];
+
+/// Water depths, indexing `GeographyStats`' water arrays: deep, shallow.
+pub const WATER_DEPTH_KEYS: [&str; 2] = ["deep", "shallow"];
+
+/// Organism kinds for the geography counters: plants (photosynthesisers)
+/// and consumers (every other strategy label).
+pub const GEO_KIND_KEYS: [&str; 2] = ["plant", "consumer"];
+
+/// Region columns in the census: the largest `REGION_SLOTS` major regions
+/// by rank, then every other major region pooled, then the minor regions.
+pub const REGION_SLOTS: usize = 6;
+pub const REGION_COLUMNS: usize = REGION_SLOTS + 2;
+
+/// Bins of the per-species dominant-share histograms (width 1/20).
+pub const SHARE_BINS: usize = 20;
+
+/// The phase 2 geography instruments (`plans/2026-09-25-phase2-biomes.md`,
+/// step 1) that are counted as flows over the run: time spent on water by
+/// aquatic band, movement energy paid there, region crossings, new-region
+/// events and where food items land. Counted over the whole run;
+/// `PopulationHistory` diffs it into a per-second `PopSnapshot::geo`.
+/// Counting only: nothing in the simulation reads it.
+#[derive(Resource, Clone, Copy, Default, Debug, PartialEq)]
+pub struct GeographyStats {
+    /// Organism-ticks on every tile by kind and aquatic band: the
+    /// denominator for the water shares below.
+    pub ticks: [[u64; AQUATIC_BAND_COUNT]; 2],
+    /// Organism-ticks on water by kind, depth (`WATER_DEPTH_KEYS`) and
+    /// aquatic band, taken on the tile the organism starts its move on.
+    pub water_ticks: [[[u64; AQUATIC_BAND_COUNT]; 2]; 2],
+    /// Movement energy paid on water by kind and depth.
+    pub water_movement: [[f64; 2]; 2],
+    /// Region crossings by kind: an organism standing on a major region
+    /// other than the last major region it stood on. Minor regions and
+    /// water do not reset the last region, and a newborn starts on the
+    /// region it is born on, so budding across water is not a crossing
+    /// (it can still bring a species to a new region; see
+    /// `new_region_events`).
+    pub crossings: [u64; 2],
+    /// Species first reaching a major region none of its members stood on
+    /// when the species was first seen. Each one is also a chronicle entry.
+    pub new_region_events: u64,
+    /// Food items spawned by `food_regeneration_system` on deep water,
+    /// shallow water and land.
+    pub food_spawned: [u64; 3],
+    /// Food items eaten by consumers standing on deep and shallow water.
+    pub food_eaten_on_water: [u64; 2],
+    /// Food items eaten by consumers anywhere.
+    pub food_eaten: u64,
+}
+
+impl GeographyStats {
+    pub fn add(&mut self, other: &GeographyStats) {
+        for k in 0..2 {
+            for b in 0..AQUATIC_BAND_COUNT {
+                self.ticks[k][b] += other.ticks[k][b];
+                for d in 0..2 {
+                    self.water_ticks[k][d][b] += other.water_ticks[k][d][b];
+                }
+            }
+            for d in 0..2 {
+                self.water_movement[k][d] += other.water_movement[k][d];
+            }
+            self.crossings[k] += other.crossings[k];
+            self.food_eaten_on_water[k] += other.food_eaten_on_water[k];
+        }
+        for t in 0..3 {
+            self.food_spawned[t] += other.food_spawned[t];
+        }
+        self.new_region_events += other.new_region_events;
+        self.food_eaten += other.food_eaten;
+    }
+
+    pub fn minus(&self, other: &GeographyStats) -> GeographyStats {
+        let mut d = *self;
+        for k in 0..2 {
+            for b in 0..AQUATIC_BAND_COUNT {
+                d.ticks[k][b] -= other.ticks[k][b];
+                for w in 0..2 {
+                    d.water_ticks[k][w][b] -= other.water_ticks[k][w][b];
+                }
+            }
+            for w in 0..2 {
+                d.water_movement[k][w] -= other.water_movement[k][w];
+            }
+            d.crossings[k] -= other.crossings[k];
+            d.food_eaten_on_water[k] -= other.food_eaten_on_water[k];
+        }
+        for t in 0..3 {
+            d.food_spawned[t] -= other.food_spawned[t];
+        }
+        d.new_region_events -= other.new_region_events;
+        d.food_eaten -= other.food_eaten;
+        d
+    }
+}
+
+/// Separation of species over places (regions or biomes) at one sample.
+#[derive(Clone, Copy, Default, Debug, PartialEq)]
+pub struct Separation {
+    /// Mean over counted species of the share of its members in its
+    /// dominant place (the design's regime-separation number).
+    pub observed: f32,
+    /// The same with species labels permuted over the same organisms.
+    pub null: f32,
+    /// Species with enough members on a labelled place to be counted.
+    pub species: u32,
+    /// Counted species whose dominant share is at or above the confinement
+    /// cut-off, observed and under the null.
+    pub confined: u32,
+    pub confined_null: u32,
+    /// Histogram of counted species' dominant shares, observed and null.
+    pub hist: [u32; SHARE_BINS],
+    pub hist_null: [u32; SHARE_BINS],
+}
+
+/// Where the population stands at one sample: counts by biome and by region
+/// per strategy label (`STRATEGY_LABEL_KEYS` order), and the separation
+/// numbers.
+#[derive(Clone, Copy, Default, Debug, PartialEq)]
+pub struct GeographyCensus {
+    pub by_biome: [[u32; BIOME_COUNT]; STRATEGY_LABEL_COUNT],
+    /// Land organisms by region column (see `REGION_COLUMNS`).
+    pub by_region: [[u32; REGION_COLUMNS]; STRATEGY_LABEL_COUNT],
+    pub region: Separation,
+    pub biome: Separation,
+}
+
+/// The dominant-place share of each species with at least `min_members`
+/// members, from parallel slices of species ids and place labels. Returned
+/// in ascending species order, so a sum over it is deterministic.
+pub fn dominant_shares(species: &[u64], places: &[u16], min_members: usize) -> Vec<f32> {
+    let mut pairs: Vec<(u64, u16)> = species
+        .iter()
+        .copied()
+        .zip(places.iter().copied())
+        .collect();
+    pairs.sort_unstable();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < pairs.len() {
+        let sp = pairs[i].0;
+        let (mut total, mut best, mut run) = (0usize, 0usize, 0usize);
+        let mut j = i;
+        while j < pairs.len() && pairs[j].0 == sp {
+            if j > i && pairs[j].1 != pairs[j - 1].1 {
+                run = 0;
+            }
+            run += 1;
+            best = best.max(run);
+            total += 1;
+            j += 1;
+        }
+        if total >= min_members {
+            out.push(best as f32 / total as f32);
+        }
+        i = j;
+    }
+    out
+}
+
+/// Summarise dominant shares into a `Separation`'s observed or null half:
+/// (mean, count at or above `cutoff`, histogram).
+pub fn summarise_shares(shares: &[f32], cutoff: f32) -> (f32, u32, [u32; SHARE_BINS]) {
+    let mut hist = [0u32; SHARE_BINS];
+    let mut confined = 0;
+    let mut sum = 0.0f64;
+    for &s in shares {
+        sum += s as f64;
+        if s >= cutoff {
+            confined += 1;
+        }
+        hist[((s * SHARE_BINS as f32) as usize).min(SHARE_BINS - 1)] += 1;
+    }
+    let mean = if shares.is_empty() {
+        0.0
+    } else {
+        (sum / shares.len() as f64) as f32
+    };
+    (mean, confined, hist)
+}
+
 #[derive(Resource)]
 pub struct TickCounter(pub u64);
 
@@ -1089,6 +1288,11 @@ pub struct PopSnapshot {
     /// run every few seconds, so consecutive snapshots repeat a pass; its
     /// `tick` tells them apart.
     pub species_pass: SpeciesPassCounts,
+    /// Geography flows during this one-second interval. See
+    /// `GeographyStats`.
+    pub geo: GeographyStats,
+    /// Population by biome and region, and separation, at the sample.
+    pub census: GeographyCensus,
 }
 
 /// Tracks organism lifespans for fitness measurement
@@ -1112,6 +1316,7 @@ pub struct PopulationHistory {
     prev_flows: EnergyFlows,
     prev_feeding: FeedingCounts,
     prev_bands: DietBandStats,
+    prev_geo: GeographyStats,
 }
 
 impl Default for PopulationHistory {
@@ -1126,6 +1331,7 @@ impl Default for PopulationHistory {
             prev_flows: EnergyFlows::default(),
             prev_feeding: FeedingCounts::default(),
             prev_bands: DietBandStats::default(),
+            prev_geo: GeographyStats::default(),
         }
     }
 }
@@ -1137,6 +1343,7 @@ impl PopulationHistory {
         stats: &SimStats,
         predation: &PredationStats,
         bands: &DietBandStats,
+        geo: &GeographyStats,
         ledger: &mut EnergyLedger,
         snapshot: PopSnapshotInput,
     ) {
@@ -1163,6 +1370,9 @@ impl PopulationHistory {
 
         let band_interval = bands.minus(&self.prev_bands);
         self.prev_bands = *bands;
+
+        let geo_interval = geo.minus(&self.prev_geo);
+        self.prev_geo = *geo;
 
         self.snapshots.push(PopSnapshot {
             tick: snapshot.tick,
@@ -1207,6 +1417,8 @@ impl PopulationHistory {
             avg_grazer_armor: snapshot.avg_grazer_armor,
             bands: band_interval,
             species_pass: stats.species_pass,
+            geo: geo_interval,
+            census: snapshot.census,
         });
 
         if self.snapshots.len() > self.max_entries {
@@ -1244,6 +1456,7 @@ pub struct PopSnapshotInput {
     pub avg_symbiosis_rate: f32,
     pub avg_grazer_body_size: f32,
     pub avg_grazer_armor: f32,
+    pub census: GeographyCensus,
 }
 
 /// Tracks whether egui is currently capturing mouse/keyboard input

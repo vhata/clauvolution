@@ -1,5 +1,7 @@
 use bevy::prelude::*;
-use clauvolution_core::{Food, FoodEnergy, Organism, Position, Season, SimConfig, SimRng};
+use clauvolution_core::{
+    Food, FoodEnergy, GeographyStats, Organism, Position, Season, SimConfig, SimRng,
+};
 use rand::Rng;
 use std::collections::HashMap;
 
@@ -143,6 +145,123 @@ pub struct TileMap {
     pub width: u32,
     pub height: u32,
     pub tiles: Vec<Tile>,
+    /// Land regions: the connected components of land tiles. Computed once
+    /// in `generate` from the terrain alone, never saved (terrain type does
+    /// not change at runtime, so a load regenerates the same labels).
+    pub regions: Regions,
+}
+
+/// Components of land smaller than this many tiles pool into one "minor"
+/// region. Set from the phase 2 step 1 baseline
+/// (`docs/audits/2026-09-25-phase2-baseline/`): below it are islets that
+/// hold a handful of organisms at most; above it the landmasses that hold
+/// populations of their own.
+pub const MINOR_REGION_MAX_TILES: u32 = 2048;
+
+/// Label of a water tile in `Regions::labels`.
+pub const REGION_WATER: u16 = u16::MAX;
+/// Label shared by every land component under `MINOR_REGION_MAX_TILES`.
+pub const REGION_MINOR: u16 = u16::MAX - 1;
+
+/// Connected land components of a `TileMap`, found by flood fill over
+/// non-water tiles with 4-neighbour adjacency and the torus wrap that
+/// positions use (`rem_euclid` in `action_system`).
+///
+/// Major regions (at least `MINOR_REGION_MAX_TILES` tiles) are numbered
+/// from 0 in descending order of size, ties broken by the lowest tile index,
+/// so the numbering is a function of the terrain alone and region 0 is
+/// always the largest landmass. Computed without any RNG.
+#[derive(Clone, Debug, Default)]
+pub struct Regions {
+    /// One label per tile, in `TileMap::tiles` order: a major region index,
+    /// `REGION_MINOR`, or `REGION_WATER`.
+    pub labels: Vec<u16>,
+    /// Tile count of each major region, indexed by label.
+    pub sizes: Vec<u32>,
+    /// How many components pooled into `REGION_MINOR`, and their tiles.
+    pub minor_components: u32,
+    pub minor_tiles: u32,
+}
+
+impl Regions {
+    /// Label the land components of a `width` x `height` torus whose tiles
+    /// are land where `is_land` is true.
+    pub fn compute(width: u32, height: u32, is_land: &[bool], minor_max: u32) -> Self {
+        let (w, h) = (width as usize, height as usize);
+        debug_assert_eq!(is_land.len(), w * h);
+        // First pass: raw component ids in scan order.
+        let mut raw = vec![u32::MAX; w * h];
+        let mut raw_sizes: Vec<u32> = Vec::new();
+        let mut stack: Vec<usize> = Vec::new();
+        for start in 0..w * h {
+            if !is_land[start] || raw[start] != u32::MAX {
+                continue;
+            }
+            let id = raw_sizes.len() as u32;
+            let mut size = 0u32;
+            raw[start] = id;
+            stack.push(start);
+            while let Some(i) = stack.pop() {
+                size += 1;
+                let (x, y) = (i % w, i / w);
+                let neighbours = [
+                    y * w + (x + 1) % w,
+                    y * w + (x + w - 1) % w,
+                    ((y + 1) % h) * w + x,
+                    ((y + h - 1) % h) * w + x,
+                ];
+                for n in neighbours {
+                    if is_land[n] && raw[n] == u32::MAX {
+                        raw[n] = id;
+                        stack.push(n);
+                    }
+                }
+            }
+            raw_sizes.push(size);
+        }
+
+        // Rank the major components by size; raw ids are already in order of
+        // their lowest tile index, so a stable sort breaks ties by it.
+        let mut major: Vec<u32> = (0..raw_sizes.len() as u32)
+            .filter(|&id| raw_sizes[id as usize] >= minor_max)
+            .collect();
+        major.sort_by_key(|&id| std::cmp::Reverse(raw_sizes[id as usize]));
+        assert!(
+            major.len() < REGION_MINOR as usize,
+            "too many major regions for a u16 label"
+        );
+        let mut relabel = vec![REGION_MINOR; raw_sizes.len()];
+        for (rank, &id) in major.iter().enumerate() {
+            relabel[id as usize] = rank as u16;
+        }
+        let labels = raw
+            .iter()
+            .map(|&id| {
+                if id == u32::MAX {
+                    REGION_WATER
+                } else {
+                    relabel[id as usize]
+                }
+            })
+            .collect();
+        let sizes = major.iter().map(|&id| raw_sizes[id as usize]).collect();
+        let minor: Vec<u32> = raw_sizes
+            .iter()
+            .copied()
+            .filter(|&n| n < minor_max)
+            .collect();
+        Regions {
+            labels,
+            sizes,
+            minor_components: minor.len() as u32,
+            minor_tiles: minor.iter().sum(),
+        }
+    }
+
+    /// Number of major regions.
+    pub fn count(&self) -> usize {
+        self.sizes.len()
+    }
 }
 
 impl TileMap {
@@ -155,9 +274,21 @@ impl TileMap {
     }
 
     pub fn tile_at_pos(&self, pos: Vec2) -> &Tile {
+        &self.tiles[self.index_at_pos(pos)]
+    }
+
+    /// Index into `tiles` (and `regions.labels`) of the tile under `pos`,
+    /// clamped the same way `tile_at_pos` is.
+    pub fn index_at_pos(&self, pos: Vec2) -> usize {
         let x = (pos.x as u32).min(self.width - 1);
         let y = (pos.y as u32).min(self.height - 1);
-        self.get(x, y)
+        (y * self.width + x) as usize
+    }
+
+    /// Region label of the tile under `pos`: a major region index,
+    /// `REGION_MINOR` or `REGION_WATER`.
+    pub fn region_at_pos(&self, pos: Vec2) -> u16 {
+        self.regions.labels[self.index_at_pos(pos)]
     }
 
     /// Generate a world from two layered value-noise maps.
@@ -179,10 +310,14 @@ impl TileMap {
             .map(|(&e, &m)| Tile::from_elevation_moisture(e, m))
             .collect();
 
+        let is_land: Vec<bool> = tiles.iter().map(|t| !t.terrain.is_water()).collect();
+        let regions = Regions::compute(width, height, &is_land, MINOR_REGION_MAX_TILES);
+
         TileMap {
             width,
             height,
             tiles,
+            regions,
         }
     }
 }
@@ -377,6 +512,7 @@ pub fn food_regeneration_system(
     tile_map: Res<TileMap>,
     season: Res<Season>,
     mut sim_rng: ResMut<SimRng>,
+    mut geo: ResMut<GeographyStats>,
 ) {
     let current_food = food_query.iter().len() as f32;
     let max_food = config.world_width as f32 * config.world_height as f32 * config.max_food_density;
@@ -394,6 +530,13 @@ pub fn food_regeneration_system(
 
         // Food spawns proportional to vegetation density + nutrients
         if rng.gen::<f32>() < (tile.vegetation_density + tile.nutrients) * 0.5 {
+            // Counted for the phase 2 instruments: deep, shallow, land.
+            let landing = match tile.terrain {
+                TerrainType::DeepWater => 0,
+                TerrainType::ShallowWater => 1,
+                _ => 2,
+            };
+            geo.food_spawned[landing] += 1;
             commands.spawn((
                 Food,
                 FoodEnergy(config.food_energy_value),
@@ -494,5 +637,55 @@ mod tests {
             counts.contains_key(&TerrainType::Forest),
             "no Forest tiles generated"
         );
+    }
+
+    /// Flood fill joins components across the torus edges, ranks major
+    /// regions by size and pools small ones.
+    #[test]
+    fn regions_wrap_the_torus_and_pool_minor_components() {
+        // 6 x 4 torus. `#` is land.
+        //   #....#   <- joined across the x edge: 4 tiles with row 3
+        //   ......
+        //   ..##..   <- 2 tiles, minor at minor_max 3
+        //   #....#
+        let rows = ["#....#", "......", "..##..", "#....#"];
+        let is_land: Vec<bool> = rows
+            .iter()
+            .flat_map(|r| r.chars().map(|c| c == '#'))
+            .collect();
+        let regions = Regions::compute(6, 4, &is_land, 3);
+        assert_eq!(regions.sizes, vec![4]);
+        assert_eq!(regions.minor_components, 1);
+        assert_eq!(regions.minor_tiles, 2);
+        assert_eq!(regions.labels[0], 0);
+        assert_eq!(regions.labels[5], 0);
+        assert_eq!(regions.labels[18], 0, "joined across the y edge");
+        assert_eq!(regions.labels[14], REGION_MINOR);
+        assert_eq!(regions.labels[1], REGION_WATER);
+    }
+
+    /// Region counts and sizes on the eight audit seeds at the default world
+    /// size, for the phase 2 audits. Run with `--nocapture` to read them.
+    #[test]
+    fn regions_on_the_audit_seeds() {
+        for seed in [1u64, 2, 3, 7, 42, 99, 314, 1000] {
+            let mut rng = StdRng::seed_from_u64(seed);
+            let map = TileMap::generate(512, 512, &mut rng);
+            let r = &map.regions;
+            let land = map.tiles.iter().filter(|t| !t.terrain.is_water()).count();
+            println!(
+                "seed {seed}: land {land}, {} major regions {:?}, {} minor components ({} tiles)",
+                r.count(),
+                r.sizes,
+                r.minor_components,
+                r.minor_tiles
+            );
+            let is_land: Vec<bool> = map.tiles.iter().map(|t| !t.terrain.is_water()).collect();
+            let all = Regions::compute(512, 512, &is_land, 1);
+            println!("  every component: {:?}", all.sizes);
+            let labelled: u32 = r.sizes.iter().sum::<u32>() + r.minor_tiles;
+            assert_eq!(labelled as usize, land, "every land tile has a region");
+            assert!(r.sizes.windows(2).all(|p| p[0] >= p[1]), "ranked by size");
+        }
     }
 }

@@ -13,7 +13,7 @@ pub use clauvolution_phylogeny::classify_strategy;
 use clauvolution_phylogeny::{PhyloTree, SpeciesStrategy, SpeciesTraits, WorldChronicle};
 use clauvolution_world::{
     food_regeneration_system, tile_dynamics_system, update_spatial_hash, SpatialHash, TerrainType,
-    TileMap,
+    TileMap, REGION_MINOR, REGION_WATER,
 };
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
@@ -454,6 +454,7 @@ impl Plugin for SimPlugin {
                     reproduction_system,
                     ledger_system,
                     species_classification_system,
+                    region_tracking_system,
                     record_population_history,
                     record_trail_history,
                 )
@@ -482,7 +483,8 @@ impl Plugin for SimPlugin {
         )))
         .init_resource::<CanopyGrid>()
         .init_resource::<AteFoodThisTick>()
-        .init_resource::<ConvergenceHighWater>();
+        .init_resource::<ConvergenceHighWater>()
+        .init_resource::<RegionTracker>();
     }
 }
 
@@ -1307,6 +1309,7 @@ fn action_system(
     mut ledger: ResMut<EnergyLedger>,
     mut ate_food: ResMut<AteFoodThisTick>,
     mut bands: ResMut<DietBandStats>,
+    mut geo: ResMut<GeographyStats>,
 ) {
     let foods = &food_snapshot.entries;
 
@@ -1384,6 +1387,14 @@ fn action_system(
         if let Some(b) = band {
             bands.energy[b].movement += move_cost as f64;
         }
+        // Geography counters, on the tile the move started from.
+        let geo_kind = band.is_some() as usize;
+        let aq_band = aquatic_band(aqua);
+        geo.ticks[geo_kind][aq_band] += 1;
+        if let Some(depth) = water_depth(tile.terrain) {
+            geo.water_ticks[geo_kind][depth][aq_band] += 1;
+            geo.water_movement[geo_kind][depth] += move_cost as f64;
+        }
 
         // Eating food. A living plant is bitten through the same output in
         // grazing_system, which runs next and skips anyone fed here.
@@ -1410,6 +1421,10 @@ fn action_system(
                         bands.energy[b].food_items += 1;
                         bands.energy[b].food += gained as f64;
                         bands.energy[b].plant_gross += (food_energy * mouth_bonus) as f64;
+                    }
+                    geo.food_eaten += 1;
+                    if let Some(depth) = water_depth(tile_map.tile_at_pos(pos.0).terrain) {
+                        geo.food_eaten_on_water[depth] += 1;
                     }
                     eaten[index] = true;
                     eaten_food.push(food_entity);
@@ -1631,6 +1646,28 @@ fn strategy_label_index(genome: &Genome) -> usize {
         SpeciesStrategy::Grazer => 1,
         SpeciesStrategy::Omnivore => 2,
         SpeciesStrategy::Hunter => 3,
+    }
+}
+
+/// Index into `GeographyStats`' water arrays (`WATER_DEPTH_KEYS`), or
+/// `None` on land. Read only by counters.
+fn water_depth(terrain: TerrainType) -> Option<usize> {
+    match terrain {
+        TerrainType::DeepWater => Some(0),
+        TerrainType::ShallowWater => Some(1),
+        _ => None,
+    }
+}
+
+/// The terrain type's index in `BIOME_KEYS`. Read only by counters.
+fn biome_index(terrain: TerrainType) -> usize {
+    match terrain {
+        TerrainType::DeepWater => 0,
+        TerrainType::ShallowWater => 1,
+        TerrainType::Sand => 2,
+        TerrainType::Grassland => 3,
+        TerrainType::Forest => 4,
+        TerrainType::Rock => 5,
     }
 }
 
@@ -3101,6 +3138,8 @@ fn record_population_history(
             &LightShare,
             &Energy,
             &BodySize,
+            &Position,
+            &SpeciesId,
         ),
         With<Organism>,
     >,
@@ -3111,6 +3150,8 @@ fn record_population_history(
     config: Res<SimConfig>,
     predation: Res<PredationStats>,
     bands: Res<DietBandStats>,
+    geo: Res<GeographyStats>,
+    tile_map: Res<TileMap>,
 ) {
     timer.0.tick(time.delta());
     if !timer.0.just_finished() {
@@ -3149,8 +3190,19 @@ fn record_population_history(
     let mut sym_by_entity: std::collections::HashMap<Entity, (Option<Entity>, u32)> =
         std::collections::HashMap::with_capacity(organisms.iter().len());
 
-    for (entity, genome, symbiosis, inf, velocity, light_share, energy, body_size) in &organisms {
+    let mut census_rows: Vec<CensusRow> = Vec::with_capacity(organisms.iter().len());
+
+    for (entity, genome, symbiosis, inf, velocity, light_share, energy, body_size, pos, species) in
+        &organisms
+    {
         let strategy = classify_strategy(genome);
+        let tile_index = tile_map.index_at_pos(pos.0);
+        census_rows.push(CensusRow {
+            label: strategy_label_index(genome),
+            species: species.0,
+            biome: biome_index(tile_map.tiles[tile_index].terrain),
+            region: tile_map.regions.labels[tile_index],
+        });
         let ready = energy.0 > reproduction_threshold(&config, body_size.0);
         if strategy == SpeciesStrategy::Photosynthesizer {
             sum_photo_area += genome.total_photo_surface_area();
@@ -3217,10 +3269,13 @@ fn record_population_history(
     let org_count = plants + eaters;
     let food_count = food.iter().len() as u32;
 
+    let census = geography_census(&census_rows, tick.0);
+
     history.record(
         &stats,
         &predation,
         &bands,
+        &geo,
         &mut ledger,
         PopSnapshotInput {
             tick: tick.0,
@@ -3249,8 +3304,167 @@ fn record_population_history(
             avg_symbiosis_rate: sum_symbiosis / div,
             avg_grazer_body_size: sum_grazer_body / grazers.max(1) as f32,
             avg_grazer_armor: sum_grazer_armor / grazers.max(1) as f32,
+            census,
         },
     );
+}
+
+// -----------------------------------------------------------------------------
+// Geography instruments (plans/2026-09-25-phase2-biomes.md, step 1). Counting
+// only: nothing in the simulation reads what these systems write, and none of
+// them draws from `SimRng`.
+// -----------------------------------------------------------------------------
+
+/// Species with fewer members than this on labelled places are left out of
+/// the separation numbers: a species of one is trivially confined, and the
+/// shuffled null cannot fully correct a mean dominated by tiny species.
+pub const SEPARATION_MIN_MEMBERS: usize = 10;
+
+/// A counted species is confined when at least this share of its members
+/// stands in its dominant region. Set from the phase 2 step 1 baseline
+/// (`docs/audits/2026-09-25-phase2-baseline/`).
+pub const CONFINEMENT_CUTOFF: f32 = 0.9;
+
+/// Seed for the separation null's label shuffle, mixed with the tick. The
+/// shuffle uses its own `StdRng` so the instruments never advance `SimRng`.
+const SEPARATION_NULL_SEED: u64 = 0x5eba_7a71_0000_0000;
+
+/// One organism's place in the census.
+struct CensusRow {
+    /// Strategy label in `STRATEGY_LABEL_KEYS` order.
+    label: usize,
+    species: u64,
+    biome: usize,
+    region: u16,
+}
+
+/// Separation of species over one kind of place, with the null from the
+/// same organisms under shuffled species labels.
+fn separation(species: &[u64], places: &[u16], tick: u64, salt: u64) -> Separation {
+    use rand::seq::SliceRandom;
+    use rand::SeedableRng;
+    let observed = dominant_shares(species, places, SEPARATION_MIN_MEMBERS);
+    let mut shuffled = species.to_vec();
+    let mut rng = rand::rngs::StdRng::seed_from_u64(SEPARATION_NULL_SEED ^ salt ^ tick);
+    shuffled.shuffle(&mut rng);
+    let null = dominant_shares(&shuffled, places, SEPARATION_MIN_MEMBERS);
+    let (mean, confined, hist) = summarise_shares(&observed, CONFINEMENT_CUTOFF);
+    let (null_mean, confined_null, hist_null) = summarise_shares(&null, CONFINEMENT_CUTOFF);
+    Separation {
+        observed: mean,
+        null: null_mean,
+        species: observed.len() as u32,
+        confined,
+        confined_null,
+        hist,
+        hist_null,
+    }
+}
+
+/// Population by biome and by region per strategy label, and the region
+/// and biome separation numbers against their shuffled nulls. Region
+/// separation is over organisms on major regions; biome separation over
+/// every organism, water biomes included.
+fn geography_census(rows: &[CensusRow], tick: u64) -> GeographyCensus {
+    let mut census = GeographyCensus::default();
+    let mut region_species = Vec::with_capacity(rows.len());
+    let mut region_places = Vec::with_capacity(rows.len());
+    let mut biome_species = Vec::with_capacity(rows.len());
+    let mut biome_places = Vec::with_capacity(rows.len());
+    for row in rows {
+        census.by_biome[row.label][row.biome] += 1;
+        biome_species.push(row.species);
+        biome_places.push(row.biome as u16);
+        let column = match row.region {
+            REGION_WATER => continue,
+            REGION_MINOR => REGION_SLOTS + 1,
+            r if (r as usize) < REGION_SLOTS => r as usize,
+            _ => REGION_SLOTS,
+        };
+        census.by_region[row.label][column] += 1;
+        if row.region != REGION_MINOR {
+            region_species.push(row.species);
+            region_places.push(row.region);
+        }
+    }
+    census.region = separation(&region_species, &region_places, tick, 1);
+    census.biome = separation(&biome_species, &biome_places, tick, 2);
+    census
+}
+
+/// Per-organism and per-species region memory for crossings and the
+/// new-region chronicle event. Not saved: a loaded world starts with every
+/// organism on its current region and every species on the regions its
+/// members stand on.
+#[derive(Resource, Default)]
+struct RegionTracker {
+    /// The last major region each organism stood on.
+    last_region: HashMap<Entity, u16>,
+    /// The major regions each species has had members on, starting with
+    /// the ones its members stood on when it was first seen.
+    species_regions: HashMap<u64, Vec<u16>>,
+}
+
+/// Count region crossings and log a species' first arrival on a major
+/// region. Runs every tick after species classification, so a species
+/// created by a split starts with the regions its members already hold.
+fn region_tracking_system(
+    tick: Res<TickCounter>,
+    tile_map: Res<TileMap>,
+    organisms: Query<(Entity, &Position, &SpeciesId, &Genome), With<Organism>>,
+    mut tracker: ResMut<RegionTracker>,
+    mut geo: ResMut<GeographyStats>,
+    mut chronicle: ResMut<WorldChronicle>,
+    phylo: Res<PhyloTree>,
+) {
+    let tracker = &mut *tracker;
+    let mut last = HashMap::with_capacity(tracker.last_region.len());
+    // Ordered so chronicle entries in one tick come out in a fixed order.
+    let mut present: std::collections::BTreeMap<u64, std::collections::BTreeSet<u16>> =
+        std::collections::BTreeMap::new();
+    for (entity, pos, species, genome) in &organisms {
+        let region = tile_map.region_at_pos(pos.0);
+        let previous = tracker.last_region.get(&entity).copied();
+        if region < REGION_MINOR {
+            if previous.is_some_and(|p| p != region) {
+                geo.crossings[!genome.is_photosynthesiser() as usize] += 1;
+            }
+            last.insert(entity, region);
+            present.entry(species.0).or_default().insert(region);
+        } else if let Some(p) = previous {
+            last.insert(entity, p);
+        }
+    }
+    tracker.last_region = last;
+
+    for (species, regions) in present {
+        let Some(known) = tracker.species_regions.get_mut(&species) else {
+            tracker
+                .species_regions
+                .insert(species, regions.into_iter().collect());
+            continue;
+        };
+        for region in regions {
+            if known.contains(&region) {
+                continue;
+            }
+            known.push(region);
+            geo.new_region_events += 1;
+            let name = phylo
+                .nodes
+                .get(&species)
+                .map(|n| n.name.clone())
+                .unwrap_or_else(|| clauvolution_phylogeny::placeholder_species_name(species));
+            chronicle.log_species(
+                tick.0,
+                format!(
+                    "{name} reached region {region} ({} tiles) for the first time",
+                    tile_map.regions.sizes[region as usize]
+                ),
+                species,
+            );
+        }
+    }
 }
 
 /// Sample each organism's position into its trail ring buffer.
