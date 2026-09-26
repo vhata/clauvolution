@@ -1460,9 +1460,12 @@ fn headless_tick_counter(
                 &config,
                 &tile_map,
             );
+            // Species 0 is the unclassified bucket founders start in, not a
+            // species; classification never counts it either.
             let live_species = organisms
                 .iter()
                 .map(|(.., species)| species.0)
+                .filter(|&id| id != 0)
                 .collect::<std::collections::HashSet<_>>()
                 .len();
             print_headless_summary(
