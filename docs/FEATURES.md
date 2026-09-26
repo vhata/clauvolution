@@ -31,7 +31,7 @@ One-liner list of what Clauvolution does, grouped by area. For the design ration
 
 ## Speciation & tracking
 
-- **Species classification** — NEAT compatibility distance with hysteresis; re-evaluated every 5 seconds. Trait-led: the body term is normalised to 0..1 across the ten scalar traits and weighted 1.0, the three NEAT brain terms 0.5 each
+- **Species classification** — NEAT compatibility distance with hysteresis; re-evaluated every 5 seconds. Trait-led: the body term is normalised to 0..1 across the ten scalar traits and weighted 1.0, the three NEAT brain terms 0.5 each. Each pass counts organisms within the join threshold of another species, those drifting past the stay threshold, and those isolated enough to found a species (`SpeciesPassCounts`: Graphs tab, history CSV, headless summary)
 - **Phylogenetic tree** — ancestry tracking with parent/child lineage grouping
 - **Species naming** — three-word trait-based names (habitat + descriptor + strategy noun); children inherit two-of-three from parent; no two living species share a name (the descriptor is walked past taken names, a number is the last resort)
 - **Parent species tracking** — inspect panel shows organism's lineage; species ids are issued once, so a new species never takes over an extinct one's tree node
@@ -84,7 +84,7 @@ One-liner list of what Clauvolution does, grouped by area. For the design ration
 - **Tabbed right panel** (Inspect / Phylo / Graphs / Chronicle / Events / Help):
   - **Inspect** — selected organism stats: species/strategy/parent, energy/health bars, diet and digestion efficiencies, body/brain collapsibles, infection state
   - **Phylo** — collapsible lineage tree with strategy badges, declining indicators, recently-extinct section; click a species name to select a living member; the last species reached by click (here or from the Chronicle tab) stays highlighted
-  - **Graphs** — `egui_plot` line charts for population by strategy, death cause breakdown (with grazer kills of consumers as its own line), grazes per second by output (eat / attack), infection rate & evolved resistance, trait evolution, pop vs species, symbiosis, energy income and costs per second, ledger residual, food & lifespan. Current-stats readout and average-traits grid.
+  - **Graphs** — `egui_plot` line charts for population by strategy, death cause breakdown (with grazer kills of consumers as its own line), grazes per second by output (eat / attack), infection rate & evolved resistance, trait evolution, pop vs species, species passes (near another species %, drifting, isolated), symbiosis, energy income and costs per second, ledger residual, food & lifespan. Current-stats readout and average-traits grid.
   - **Chronicle** — scrollable event log with "hide seasons" filter; speciation and extinction entries are links that switch to the Phylo tab with that species highlighted (and a living member selected, if any), and the volcano entry is a link that centres the camera on the eruption. Entries carry their target through save and load
   - **Events** — buttons for all extinction/bloom events with cooldown feedback; save-world button; active effects readout
   - **Help** — collapsible sections explaining everything
