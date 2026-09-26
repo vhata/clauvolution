@@ -950,7 +950,8 @@ impl Genome {
     /// The sim has no fitness score, so `self` is not the fitter parent in
     /// the NEAT sense: `reproduction_system` passes the parent that initiated
     /// the mating and pays for the child, which is whichever of the pair it
-    /// visits first in query order.
+    /// visits first in query order. Why the rule stays: DECISIONS.md,
+    /// "Crossover takes topology from the initiating parent".
     ///
     /// - Connections: every gene of `self`. Where both parents carry the same
     ///   innovation, the copy (weight and enabled flag) is picked from either
