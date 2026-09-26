@@ -153,10 +153,11 @@ pub struct TileMap {
 
 /// Components of land smaller than this many tiles pool into one "minor"
 /// region. Set from the phase 2 step 1 baseline
-/// (`docs/audits/2026-09-25-phase2-baseline/`): below it are islets that
-/// hold a handful of organisms at most; above it the landmasses that hold
-/// populations of their own.
-pub const MINOR_REGION_MAX_TILES: u32 = 2048;
+/// (`docs/audits/2026-09-25-phase2-baseline/`). On the eight audit seeds the
+/// land components are either 38 tiles (one, which held 0 or 1 organisms at
+/// every sample) or 990 tiles and up (each held tens of organisms at most
+/// samples). The cut sits in that gap.
+pub const MINOR_REGION_MAX_TILES: u32 = 512;
 
 /// Label of a water tile in `Regions::labels`.
 pub const REGION_WATER: u16 = u16::MAX;

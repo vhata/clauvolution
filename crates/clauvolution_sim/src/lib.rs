@@ -3321,8 +3321,13 @@ fn record_population_history(
 pub const SEPARATION_MIN_MEMBERS: usize = 10;
 
 /// A counted species is confined when at least this share of its members
-/// stands in its dominant region. Set from the phase 2 step 1 baseline
-/// (`docs/audits/2026-09-25-phase2-baseline/`).
+/// stands in its dominant region (the same cut-off is applied to biomes).
+/// Set from the phase 2 step 1 baseline
+/// (`docs/audits/2026-09-25-phase2-baseline/`): on seed 2, the one seed
+/// whose largest region holds under 80% of the land, the shuffled null put
+/// 2 of about 7,500 species-samples at or above 0.9. Where one region holds
+/// most of the land the null itself is often above the cut-off, so the
+/// confined count is only meaningful beside `confined_null`.
 pub const CONFINEMENT_CUTOFF: f32 = 0.9;
 
 /// Seed for the separation null's label shuffle, mixed with the tick. The
