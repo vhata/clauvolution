@@ -1058,6 +1058,9 @@ mod tests {
             let labelled: u32 = r.sizes.iter().sum::<u32>() + r.minor_tiles;
             assert_eq!(labelled as usize, land, "every land tile has a region");
             assert!(r.sizes.windows(2).all(|p| p[0] >= p[1]), "ranked by size");
+            // Covers the eight audit seeds only. About 9% of other seeds do
+            // bridge at the default shelf width (`shelf-bridges-on-some-seeds`
+            // in TODO.md), so this guards the audit maps, not every seed.
             assert_eq!(bridged, 0, "seed {seed}: a shelf bridges a strait");
             if seed == 42 {
                 let large = r.sizes.iter().filter(|&&n| n >= LARGE_REGION_TILES).count();
