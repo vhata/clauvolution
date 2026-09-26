@@ -1,6 +1,6 @@
 # Plan: innovation numbers keyed by structure, so that unrelated means different
 
-**Status:** planned 2026-09-24. Not started.
+**Status:** stopped after step 1 (#83, 2026-09-25): keying does not separate lineages, so steps 2 to 4 will not run. Crossover keeps the initiator-topology rule (decided 2026-09-26).
 **Scope:** `species-distance-unrelated-ceiling` in `TODO.md`. The change makes a connection's identity its structure, as in NEAT proper, and carries saves, exported creatures and the species thresholds across it. It does not retune the species distance weights beyond what the threshold sweep needs.
 
 ## Why
