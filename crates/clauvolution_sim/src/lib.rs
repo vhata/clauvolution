@@ -888,6 +888,12 @@ struct SensedFood {
 /// allocates and fills a `Vec`, resolve every hit through an ECS query, and
 /// walk the whole food snapshot. See DECISIONS.md, "Sensing reads per-tick
 /// grids, not the ECS".
+///
+/// Grazing, predation, disease transmission and symbiosis tracking each keep
+/// one too, filled from the hash at the start of the system with only the
+/// neighbours they can act on and the fields they read, and walked with
+/// `for_each_near` in `query_radius`'s order. See DECISIONS.md, "Neighbour
+/// queries after sensing read per-system grids".
 struct CellGrid<T> {
     /// Items in cell order.
     entries: Vec<T>,
@@ -1087,28 +1093,18 @@ fn sensing_and_brain_system(
     // Copy what sensing reads into two grids, serially, once per tick.
     // Organisms go in cell by cell from the spatial hash, each cell in the
     // hash's order, which is the order `query_radius` returned them in.
-    let cell_size = spatial_hash.cell_size;
-    let all_org_data = &all_org_data;
-    organism_grid.rebuild(
-        cell_size,
-        spatial_hash.cells.iter().flat_map(|(&key, entities)| {
-            entities.iter().filter_map(move |&entity| {
-                let (pos, size, species, genome, signal) = all_org_data.get(entity).ok()?;
-                Some((
-                    key,
-                    SensedOrganism {
-                        entity,
-                        pos: pos.0,
-                        size: size.0,
-                        species: species.0,
-                        photo_hint: genome.photosynthesis_rate.min(1.0),
-                        is_photosynthesiser: genome.is_photosynthesiser(),
-                        signal: signal.0,
-                    },
-                ))
-            })
-        }),
-    );
+    organism_grid.rebuild_from_hash(&spatial_hash, |entity| {
+        let (pos, size, species, genome, signal) = all_org_data.get(entity).ok()?;
+        Some(SensedOrganism {
+            entity,
+            pos: pos.0,
+            size: size.0,
+            species: species.0,
+            photo_hint: genome.photosynthesis_rate.min(1.0),
+            is_photosynthesiser: genome.is_photosynthesiser(),
+            signal: signal.0,
+        })
+    });
     let food_key = |pos: Vec2| {
         (
             (pos.x / FOOD_CELL_SIZE).floor() as i32,
