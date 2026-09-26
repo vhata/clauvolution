@@ -384,7 +384,11 @@ fn load_saved_world(
     let mut rng = rand::rngs::StdRng::seed_from_u64(config.terrain_seed);
     let mut tile_map =
         clauvolution_world::TileMap::generate(config.world_width, config.world_height, &mut rng);
-    let terrain_restored = save::restore_terrain(&mut tile_map, state.terrain.as_ref());
+    let terrain_restored = save::restore_terrain(
+        &mut tile_map,
+        state.terrain.as_ref(),
+        state.terrain_generator,
+    );
     commands.insert_resource(tile_map);
 
     // Reseed SimRng from the saved seed. (Mid-run save/load diverges from

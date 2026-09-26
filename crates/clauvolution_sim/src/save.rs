@@ -5,7 +5,7 @@ use clauvolution_genome::*;
 use clauvolution_phylogeny::{
     ChronicleTarget, PhyloNode, PhyloTree, SpeciesStrategy, WorldChronicle,
 };
-use clauvolution_world::{Tile, TileMap};
+use clauvolution_world::{Tile, TileMap, TERRAIN_GENERATOR_VERSION};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -91,6 +91,17 @@ pub struct SaveState {
     /// are lost.
     #[serde(default)]
     pub terrain: Option<SaveTerrain>,
+    /// `TERRAIN_GENERATOR_VERSION` of the build that wrote the save. Missing:
+    /// 1, the generator every save before this field was written with. A
+    /// load whose number differs from the running build's regenerates a
+    /// different map from the same seed; `restore_terrain` then leaves the
+    /// saved terrain state off and returns a warning.
+    #[serde(default = "pre_versioned_terrain_generator")]
+    pub terrain_generator: u32,
+}
+
+fn pre_versioned_terrain_generator() -> u32 {
+    1
 }
 
 /// The tile fields that change after generation, one value per tile in
@@ -217,7 +228,23 @@ impl SaveTerrain {
 /// save's seed. When the save has no terrain state or it does not fit,
 /// leaves `map` as regenerated and returns a warning for the caller to put
 /// where the user will see it (headless runs have no log).
-pub fn restore_terrain(map: &mut TileMap, terrain: Option<&SaveTerrain>) -> Result<(), String> {
+///
+/// `generator` is the save's `terrain_generator`. When it is not this
+/// build's `TERRAIN_GENERATOR_VERSION`, the regenerated map is not the map
+/// that was saved: the saved state is left off, since its vegetation and
+/// moisture belong to other terrain, and the warning says so. The load
+/// still goes ahead, with organisms and food at their saved positions.
+pub fn restore_terrain(
+    map: &mut TileMap,
+    terrain: Option<&SaveTerrain>,
+    generator: u32,
+) -> Result<(), String> {
+    if generator != TERRAIN_GENERATOR_VERSION {
+        return Err(format!(
+            "This save was made with terrain generator {} and this build uses generator {}, so the map regenerated from its seed is not the map that was saved; organisms and food keep their saved positions on the new map, and the saved vegetation, moisture, nutrient and temperature state is not applied",
+            generator, TERRAIN_GENERATOR_VERSION
+        ));
+    }
     let reason = match terrain {
         None => "the save has no usable terrain state".to_string(),
         Some(t) => match t.apply_to(map) {
@@ -709,6 +736,7 @@ pub fn save_world(
             })
             .collect(),
         terrain: terrain.map(SaveTerrain::from_tile_map),
+        terrain_generator: TERRAIN_GENERATOR_VERSION,
     };
 
     let json = serde_json::to_string(&state).map_err(SaveError::Serialize)?;
@@ -1362,6 +1390,7 @@ mod tests {
         assert!(state.phylo_nodes.is_empty());
         assert!(state.chronicle_entries.is_empty());
         assert!(state.terrain.is_none());
+        assert_eq!(state.terrain_generator, 1);
 
         assert_eq!(state.organisms.len(), 1, "the organism must not be dropped");
         let org = &state.organisms[0];
@@ -1606,9 +1635,35 @@ mod tests {
         let terrain = state.terrain.as_ref().expect("the save carries terrain");
         assert_eq!(terrain, &SaveTerrain::from_tile_map(&map));
 
+        assert_eq!(state.terrain_generator, TERRAIN_GENERATOR_VERSION);
+
         let mut loaded = small_map(state.terrain_seed);
-        restore_terrain(&mut loaded, state.terrain.as_ref()).expect("the terrain fits");
+        restore_terrain(&mut loaded, state.terrain.as_ref(), state.terrain_generator)
+            .expect("the terrain fits");
         assert_eq!(tile_fields(&loaded), at_save);
+    }
+
+    /// A save from another terrain generator (here one written before the
+    /// version was recorded) still loads, but its terrain state is left off
+    /// the regenerated map, which is a different map, and the load warns.
+    #[test]
+    fn save_from_another_terrain_generator_warns_and_keeps_the_regenerated_map() {
+        let mut other = small_map(42);
+        modify_like_a_run(&mut other);
+        let mut value = complete_save_json();
+        value["terrain"] = serde_json::to_value(SaveTerrain::from_tile_map(&other)).unwrap();
+        assert!(value.get("terrain_generator").is_none());
+        let state = load_json("old-generator", &value).expect("the save loads");
+        assert_eq!(state.terrain_generator, 1);
+        assert!(state.terrain.is_some(), "the record itself is valid");
+        assert_eq!(state.organisms.len(), 1);
+
+        let mut map = small_map(state.terrain_seed);
+        let regenerated = tile_fields(&map);
+        let warning = restore_terrain(&mut map, state.terrain.as_ref(), state.terrain_generator)
+            .expect_err("a different generator is reported");
+        assert!(warning.contains("terrain generator 1"), "{warning}");
+        assert_eq!(tile_fields(&map), regenerated);
     }
 
     /// Every save written before terrain was persisted has no `terrain`
@@ -1623,7 +1678,7 @@ mod tests {
 
         let mut map = small_map(state.terrain_seed);
         let regenerated = tile_fields(&map);
-        let warning = restore_terrain(&mut map, state.terrain.as_ref())
+        let warning = restore_terrain(&mut map, state.terrain.as_ref(), TERRAIN_GENERATOR_VERSION)
             .expect_err("a missing terrain is reported");
         assert!(warning.contains("no usable terrain state"), "{warning}");
         assert_eq!(tile_fields(&map), regenerated);

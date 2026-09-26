@@ -76,6 +76,16 @@ impl TerrainType {
     }
 }
 
+/// Version of the terrain generator. Saves regenerate terrain from the seed
+/// and record this number, so a save made by a different generator can be
+/// recognised on load and the user warned that the map is not the one that
+/// was saved. Raise it in any change after which `TileMap::generate`
+/// produces a different map from the same seed and world size. Version 1
+/// is every generator before the number was recorded; version 2 is the
+/// phase 2 step 3 generator (sea level at `LAND_FRACTION`, Rock as an
+/// elevation band, seamless noise).
+pub const TERRAIN_GENERATOR_VERSION: u32 = 2;
+
 /// Share of the map's tiles that are land. `TileMap::generate` puts sea
 /// level at the elevation quantile that leaves this share above it, so land
 /// area is the same on every seed while where it lies still varies.
