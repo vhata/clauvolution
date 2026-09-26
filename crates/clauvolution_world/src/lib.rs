@@ -361,6 +361,11 @@ impl TileMap {
 /// it. Below sea level the map is stretched linearly onto -1..0 and above it
 /// onto 0..1, so the order of tiles is kept, the deepest tile is -1 and the
 /// highest peak is 1 on every seed.
+///
+/// Ties: a tile exactly at the sea value maps to 0 and becomes land, so if
+/// several tiles shared that value the land share would come out above
+/// `land_fraction`. On all eight standard audit seeds exactly one tile sits
+/// at the sea value, and the land count is exactly the target.
 fn set_sea_level(elevation: &mut [f32], land_fraction: f32) {
     let mut sorted = elevation.to_vec();
     sorted.sort_by(f32::total_cmp);

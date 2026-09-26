@@ -8,10 +8,11 @@ Step 3 of `plans/2026-09-25-phase2-biomes.md`. The terrain generator changed in 
 
 Run details:
 
-- **Commit:** 48f86d4 on `roadmap/phase2-sea-level`, stacked on the step 2 movement branch (#87). The save-format commit after it does not touch the simulation.
+- **Commit:** d878820 on `roadmap/phase2-sea-level` (the seamless-noise commit), stacked on the step 2 movement branch (#87). The save-format commit after it does not touch the simulation. The runs were made at 48f86d4, the same commit before a rebase; the only difference is #87's review fix (an aquatic clamp in `terrain_move_cost`, a no-op for in-range genomes), and the reviewer's 5000-tick rerun of seed 7 at the PR head was byte-identical.
 - **Seeds:** 1, 2, 3, 7, 42, 99, 314, 1000, one run each (headless runs are deterministic), 15000 ticks, no overrides. Three at a time; wall times in the summaries are not comparable across audits.
 - **How to repeat:** `cargo build --release`, then for each seed `./target/release/clauvolution --headless 15000 --seed S --dump-history seedS-run1.csv > seedS-run1.txt 2>&1`. The map counts come from `cargo test -p clauvolution_world -- --nocapture` (`generated_map_has_unit_moisture_and_mixed_biomes` and `regions_on_the_audit_seeds`).
 - **Before:** `docs/audits/2026-09-25-phase2-movement/` (step 2, same seeds and ticks, old generator). Definitions of regions, crossings, separation, aquatic bands and "at ceiling" are in that note and in the step 1 baseline note.
+- **Reading cycles:** the plants/grazers table below samples every 1500 ticks, which can alias with the 1800-tick seasonal cycle (a sample lands 300 ticks earlier in the season each time, so several in a row can sit near the same phase). Cycling is read from the CSVs at 120-tick resolution instead.
 
 ## The maps
 
@@ -118,6 +119,21 @@ Plants / grazers every 1500 ticks from tick 1501, after the change:
 - **Seed 314:** 2064/956, 2863/2237, 2675/2692, 3584/2416, 3052/1234, 2857/909, 2832/1842, 3271/2728, 3203/2797, 3436/2562.
 - **Seed 1000:** 1324/1520, 2973/3027, 3540/2460, 3659/2339, 3154/1531, 2358/1007, 2369/2224, 2708/3292, 3151/2847, 3517/2483.
 
+These samples alias with the seasonal cycle; seed 2's last four (grazers 5,384 to 5,522) all land near a grazer peak. At 120-tick resolution from tick 9001, every seed's grazers boom and crash with a period of about 1,800 ticks, the seasonal year, with 7 grazer peaks after tick 1000 on each seed. On seven seeds the grazer troughs fall on the same ticks (9061, 10861, 12661, 14461); seed 2's lag about 120 ticks. Plants cycle on the same period, in antiphase. Ranges from tick 9001 (plants; grazers; 30-tick samples at 5,990 organisms or more):
+
+| seed | plants | grazers | ceiling samples |
+|---|---|---|---|
+| 1 | 2,298..3,531 | 662..3,044 | 53 |
+| 2 | 158..1,342 | 1,637..5,706 | 121 |
+| 3 | 2,301..3,939 | 1,079..3,236 | 123 |
+| 7 | 1,601..3,799 | 577..2,872 | 26 |
+| 42 | 2,456..4,042 | 586..2,714 | 61 |
+| 99 | 2,300..3,356 | 773..3,470 | 67 |
+| 314 | 2,437..3,742 | 859..3,255 | 98 |
+| 1000 | 2,313..3,636 | 981..3,471 | 106 |
+
+Seed 2's grazers after tick 9000: 5,422 (t10531), 1,973 (t10891), 5,623 (t12451), 2,368 (t12811), 5,716 (t14371), 2,701 (t14611), 5,505 (t14971). Its peaks reach the 6,000 ceiling (engaged 5 times over the run, 8.6M births blocked, 143 samples at 5,990 or more).
+
 ## Reading
 
 **Land area is now equal across seeds, and every seed has every biome.** The twofold spread is gone by construction. Rock appears on all eight seeds, and organisms use it (1.8% to 9.8% of organisms over the run, and plants on Rock at 15000 on every seed).
@@ -126,7 +142,7 @@ Plants / grazers every 1500 ticks from tick 1501, after the change:
 
 **Biome separation stays a little above its null everywhere** (0.362 to 0.459 against 0.299 to 0.393). The gap is 0.03 to 0.08 on each seed, much as before (0.02 to 0.08). Seed 99's high figures from step 2 (0.541 against 0.522, when 73% of its tiles were water) came down with its water share.
 
-**Plants and grazers persist on every seed; seed 2 stopped cycling.** Plant floors after tick 1000 rose on five seeds (to 709 to 1523) and fell on three (seed 42 to 494, seed 99 to 245, seed 2 to 150). Seven seeds show the usual boom-and-bust cycles. Seed 2 went to a different state from about tick 10000: grazers held 5,384 to 5,522 at the four samples from tick 10501 while plants held 478 to 615. Over ticks 14521 to 15001 its grazers took 98.6% of their income from food items, paid 0.204 energy per tick against 0.810 in step 2, had a mean age of 737 against 247, and 60% of them stood on water at tick 15000. Mean body size at 15000 was 0.57 against 1.02 in step 2, and eaters moved at 1.12 against 2.21 per tick. That is a slow, small, food-item grazer that does not need plants. It is one trajectory on one seed, but it is the food-item supply doing the work the plan expects of vegetation, which step 5 is set up to test (39% to 50% of regenerated food items landed on water in these runs).
+**Plants and grazers persist and cycle on every seed; seed 2's grazers live on food items.** Plant floors after tick 1000 rose on five seeds (to 709 to 1523) and fell on three (seed 42 to 494, seed 99 to 245, seed 2 to 150). All eight seeds boom and bust on the seasonal year, about 1,800 ticks (see the 120-tick ranges above). Seed 2 cycles on the same period at a different level: from tick 9000 its grazers swing between 1,637 and 5,706, reaching the 6,000 ceiling at each peak, over 158 to 1,342 plants. (An earlier draft read the four 1500-tick samples from tick 10501, which all land near a grazer peak, as a plateau; that was aliasing.) Over ticks 14521 to 15001 its grazers took 98.6% of their income from food items, paid 0.204 energy per tick against 0.810 in step 2, had a mean age of 737 against 247, and 59.1% of them stood on water at tick 15000. Mean body size at 15000 was 0.57 against 1.02 in step 2, and eaters moved at 1.12 against 2.21 per tick. That is a slow, small, food-item grazer that barely needs plants. It is one trajectory on one seed, but it is the food-item supply doing the work the plan expects of vegetation, which step 5 is set up to test (39% to 50% of regenerated food items landed on water in these runs).
 
 **Ceiling samples** summed over the eight seeds went from 1010 to 1188: up on seeds 2, 3, 99 (0 to 125, since it now has 40% land instead of 27%) and 314, down on 7 and 42 (267 to 95, with 39% less land).
 
@@ -138,5 +154,5 @@ Plants / grazers every 1500 ticks from tick 1501, after the change:
 
 ## Not measured here
 
-- A second run per seed. Headless runs are deterministic, so one run per seed is one trajectory; seed 2's food-item state may or may not recur on a perturbed run.
+- A second run per seed. Headless runs are deterministic, so one run per seed is one trajectory; seed 2's food-item-fed grazers may or may not recur on a perturbed run.
 - The late aquatic band mix per seed; the whole-run band totals are in each summary's geography block.
