@@ -415,6 +415,32 @@ pub struct SimStats {
     pub founder_hunter_deaths: u64,
     pub founder_hunter_age_sum: u64,
     pub founder_hunter_age_max: u64,
+    /// What the latest species classification pass saw; see
+    /// `SpeciesPassCounts`.
+    pub species_pass: SpeciesPassCounts,
+}
+
+/// Counts from one species classification pass, the instrument
+/// `plans/2026-09-24-innovation-keying.md` judges the species distance by.
+/// `species_classification_system` fills them from the distances
+/// `choose_species` evaluates; only `near_other` for an organism that stays
+/// in its species needs distances the choice itself does not, and that scan
+/// stops at the first representative within the join threshold.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SpeciesPassCounts {
+    /// Tick of the pass; 0 before the first pass.
+    pub tick: u64,
+    /// Organisms classified.
+    pub organisms: u32,
+    /// Organisms within the join threshold of some other species'
+    /// representative (any representative, for an unclassified organism).
+    pub near_other: u32,
+    /// Organisms past the stay threshold from their own species'
+    /// representative.
+    pub drifting: u32,
+    /// Drifting organisms also past the join threshold from every other
+    /// representative: the ones that found a new species.
+    pub isolated: u32,
 }
 
 /// Instrumentation counters for the attack path. Rolled up over a whole run
@@ -1059,6 +1085,10 @@ pub struct PopSnapshot {
     /// Diet-band energy, deaths, births and crossings during this one-second
     /// interval. See `DietBandStats`.
     pub bands: DietBandStats,
+    /// The latest species classification pass as of this snapshot. Passes
+    /// run every few seconds, so consecutive snapshots repeat a pass; its
+    /// `tick` tells them apart.
+    pub species_pass: SpeciesPassCounts,
 }
 
 /// Tracks organism lifespans for fitness measurement
@@ -1176,6 +1206,7 @@ impl PopulationHistory {
             avg_grazer_body_size: snapshot.avg_grazer_body_size,
             avg_grazer_armor: snapshot.avg_grazer_armor,
             bands: band_interval,
+            species_pass: stats.species_pass,
         });
 
         if self.snapshots.len() > self.max_entries {

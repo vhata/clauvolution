@@ -550,7 +550,7 @@ fn genome_to_save(g: &Genome) -> SaveGenome {
 /// was added) is migrated to the current layout with the new inputs
 /// unconnected, so it behaves as it did; see
 /// `Genome::migrate_input_layout`.
-fn save_to_genome(s: &SaveGenome) -> Genome {
+pub fn save_to_genome(s: &SaveGenome) -> Genome {
     let mut genome = save_to_genome_as_written(s);
     genome.migrate_input_layout();
     genome

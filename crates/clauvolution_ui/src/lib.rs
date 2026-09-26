@@ -1814,6 +1814,58 @@ fn graphs_tab(ui: &mut egui::Ui, history: &PopulationHistory) {
 
             ui.add_space(4.0);
 
+            // Species distance instruments (plans/2026-09-24-innovation-keying.md):
+            // how many organisms sit within the join threshold of another
+            // species, and how many drift from their own species far enough
+            // to found a new one. Each point is the latest pass.
+            ui.label("Species passes: near another species (%) vs drifting / isolated");
+            let near_other: PlotPoints = snaps
+                .iter()
+                .enumerate()
+                .map(|(i, s)| {
+                    let p = &s.species_pass;
+                    let share = if p.organisms > 0 {
+                        p.near_other as f64 / p.organisms as f64 * 100.0
+                    } else {
+                        0.0
+                    };
+                    [i as f64, share]
+                })
+                .collect();
+            let drifting: PlotPoints = snaps
+                .iter()
+                .enumerate()
+                .map(|(i, s)| [i as f64, s.species_pass.drifting as f64])
+                .collect();
+            let isolated: PlotPoints = snaps
+                .iter()
+                .enumerate()
+                .map(|(i, s)| [i as f64, s.species_pass.isolated as f64])
+                .collect();
+
+            Plot::new("species_passes")
+                .height(120.0)
+                .legend(Legend::default().position(egui_plot::Corner::LeftTop))
+                .show(ui, |plot_ui| {
+                    plot_ui.line(
+                        Line::new(near_other)
+                            .color(egui::Color32::from_rgb(255, 200, 100))
+                            .name("Near another species %"),
+                    );
+                    plot_ui.line(
+                        Line::new(drifting)
+                            .color(egui::Color32::from_rgb(100, 160, 255))
+                            .name("Drifting (past stay)"),
+                    );
+                    plot_ui.line(
+                        Line::new(isolated)
+                            .color(egui::Color32::from_rgb(120, 220, 120))
+                            .name("Isolated (can found)"),
+                    );
+                });
+
+            ui.add_space(4.0);
+
             // Trait evolution — key genetic trends over time
             ui.label("Key trait evolution (scaled to fit)");
             let t_attack: PlotPoints = snaps

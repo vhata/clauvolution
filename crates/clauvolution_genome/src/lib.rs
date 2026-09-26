@@ -390,6 +390,81 @@ fn digestion_curve(share: f32, exponent: f32) -> f32 {
     }
 }
 
+/// Weights of the compatibility distance's terms; see
+/// `Genome::compatibility_distance`.
+const COMPAT_EXCESS_WEIGHT: f32 = 0.5;
+const COMPAT_DISJOINT_WEIGHT: f32 = 0.5;
+const COMPAT_WEIGHT_DIFF_WEIGHT: f32 = 0.5;
+const COMPAT_BODY_WEIGHT: f32 = 1.0;
+
+/// What the excess and disjoint counts are divided by in the compatibility
+/// distance. `Larger` is the live rule. `Mean` is the alternative the
+/// innovation-keying plan measures (`plans/2026-09-24-innovation-keying.md`):
+/// under it two genomes that share no gene score exactly 1.0 from the
+/// structural terms, where `Larger` gives them at most 1.0.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StructuralNorm {
+    /// The larger of the two gene counts (at least 1).
+    Larger,
+    /// The mean of the two gene counts (at least 1).
+    Mean,
+}
+
+/// The aligned connection-gene counts and body term behind a compatibility
+/// distance, from `Genome::compatibility_terms`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CompatibilityTerms {
+    pub genes_self: usize,
+    pub genes_other: usize,
+    pub matching: usize,
+    pub disjoint: usize,
+    pub excess: usize,
+    /// Sum of `|weight difference|` over matching genes.
+    pub weight_diff_sum: f32,
+    /// `Genome::body_trait_distance`, unweighted.
+    pub body: f32,
+}
+
+impl CompatibilityTerms {
+    /// The weighted weight-difference term: 0.5 times the mean weight
+    /// difference over matching genes, or 0 when none match. One shared
+    /// gene is enough to switch the whole term on.
+    pub fn weight_term(&self) -> f32 {
+        let avg_weight_diff = if self.matching > 0 {
+            self.weight_diff_sum / self.matching as f32
+        } else {
+            0.0
+        };
+        COMPAT_WEIGHT_DIFF_WEIGHT * avg_weight_diff
+    }
+
+    /// The weighted excess and disjoint terms under `norm`.
+    pub fn structural_term(&self, norm: StructuralNorm) -> f32 {
+        let n = self.norm(norm);
+        (COMPAT_EXCESS_WEIGHT * self.excess as f32 / n)
+            + (COMPAT_DISJOINT_WEIGHT * self.disjoint as f32 / n)
+    }
+
+    fn norm(&self, norm: StructuralNorm) -> f32 {
+        match norm {
+            StructuralNorm::Larger => self.genes_self.max(self.genes_other).max(1) as f32,
+            StructuralNorm::Mean => ((self.genes_self + self.genes_other) as f32 / 2.0).max(1.0),
+        }
+    }
+
+    /// The compatibility distance under `norm`. With `Larger` this is
+    /// `Genome::compatibility_distance` exactly: the four terms are summed
+    /// in the same order as before the terms were split out, so the float
+    /// result is bit-identical.
+    pub fn distance(&self, norm: StructuralNorm) -> f32 {
+        let n = self.norm(norm);
+        (COMPAT_EXCESS_WEIGHT * self.excess as f32 / n)
+            + (COMPAT_DISJOINT_WEIGHT * self.disjoint as f32 / n)
+            + self.weight_term()
+            + COMPAT_BODY_WEIGHT * self.body
+    }
+}
+
 impl Genome {
     /// Create a minimal starting genome with the default founder diet spread.
     pub fn new_minimal(innovation: &mut InnovationCounter, rng: &mut impl Rng) -> Self {
@@ -989,11 +1064,16 @@ impl Genome {
     /// NEAT terms 0.5 each, so species are trait-led. See
     /// `docs/DECISIONS.md`, "Species classification".
     pub fn compatibility_distance(&self, other: &Genome) -> f32 {
-        let c1 = 0.5;
-        let c2 = 0.5;
-        let c3 = 0.5;
-        let c_body = 1.0;
+        self.compatibility_terms(other)
+            .distance(StructuralNorm::Larger)
+    }
 
+    /// The raw ingredients of `compatibility_distance`: connection genes
+    /// aligned by innovation number into matching, disjoint and excess, the
+    /// summed weight difference over matching genes, and the body term.
+    /// `CompatibilityTerms::distance` combines them; the species
+    /// instruments read them directly.
+    pub fn compatibility_terms(&self, other: &Genome) -> CompatibilityTerms {
         let mut s_sorted: Vec<&ConnectionGene> = self.connections.iter().collect();
         let mut o_sorted: Vec<&ConnectionGene> = other.connections.iter().collect();
         s_sorted.sort_by_key(|c| c.innovation);
@@ -1020,18 +1100,15 @@ impl Genome {
             }
         }
 
-        let excess = (s_sorted.len() - i) + (o_sorted.len() - j);
-        let n = s_sorted.len().max(o_sorted.len()).max(1) as f32;
-        let avg_weight_diff = if matching > 0 {
-            weight_diff_sum / matching as f32
-        } else {
-            0.0
-        };
-
-        (c1 * excess as f32 / n)
-            + (c2 * disjoint as f32 / n)
-            + (c3 * avg_weight_diff)
-            + c_body * self.body_trait_distance(other)
+        CompatibilityTerms {
+            genes_self: s_sorted.len(),
+            genes_other: o_sorted.len(),
+            matching,
+            disjoint,
+            excess: (s_sorted.len() - i) + (o_sorted.len() - j),
+            weight_diff_sum,
+            body: self.body_trait_distance(other),
+        }
     }
 
     /// Mean over the scalar traits of the absolute difference divided by the
@@ -1109,6 +1186,269 @@ impl Genome {
         self.neurons.splice(insert_at..insert_at, new_inputs);
         true
     }
+}
+
+// --- Keyed innovations ---
+//
+// Step 1 of `plans/2026-09-24-innovation-keying.md`: the re-keying that turns
+// legacy innovation numbers (one per mutation event) into numbers keyed by
+// structure (one per `(from, to)` pair), and hidden neuron ids into world-wide
+// ids keyed by the connection they split. Nothing in the running sim calls
+// this yet; the offline species report uses it, and step 2 wires it into the
+// load path.
+
+/// The first world-wide hidden neuron id; ids below it are the inputs and
+/// outputs, which are the same in every genome.
+pub const FIRST_HIDDEN_ID: u64 = (NUM_INPUTS + NUM_OUTPUTS) as u64;
+
+/// World-wide identity for keyed genes. A connection's innovation number is
+/// issued once per `(from, to)` key, and a hidden neuron's id once per split
+/// key, the `(from, to)` of the connection it replaced. Keys are in keyed
+/// ids, so a split whose endpoints are hidden neurons is keyed on those
+/// neurons' world-wide ids.
+///
+/// Numbers are issued in order of first request, so a table built by walking
+/// the same genomes in the same order is the same table. The maps are only
+/// ever looked up, never iterated.
+#[derive(Clone, Debug)]
+pub struct InnovationTable {
+    connections: std::collections::HashMap<(u64, u64), u64>,
+    splits: std::collections::HashMap<(u64, u64), u64>,
+    next_innovation: u64,
+    next_hidden: u64,
+    fresh_hidden: usize,
+}
+
+impl Default for InnovationTable {
+    fn default() -> Self {
+        Self {
+            connections: std::collections::HashMap::new(),
+            splits: std::collections::HashMap::new(),
+            next_innovation: 0,
+            next_hidden: FIRST_HIDDEN_ID,
+            fresh_hidden: 0,
+        }
+    }
+}
+
+impl InnovationTable {
+    /// The innovation number for a connection `from -> to`, issuing a new
+    /// one the first time the key is seen.
+    pub fn connection(&mut self, from: u64, to: u64) -> u64 {
+        let next = &mut self.next_innovation;
+        *self.connections.entry((from, to)).or_insert_with(|| {
+            let n = *next;
+            *next += 1;
+            n
+        })
+    }
+
+    /// The hidden neuron id for a split of the connection `from -> to`,
+    /// issuing a new one the first time the key is seen.
+    pub fn split(&mut self, from: u64, to: u64) -> u64 {
+        let next = &mut self.next_hidden;
+        *self.splits.entry((from, to)).or_insert_with(|| {
+            let id = *next;
+            *next += 1;
+            id
+        })
+    }
+
+    /// A hidden neuron id no key maps to, for a neuron whose split cannot be
+    /// recovered. It matches nothing in any other genome.
+    pub fn fresh_hidden(&mut self) -> u64 {
+        let id = self.next_hidden;
+        self.next_hidden += 1;
+        self.fresh_hidden += 1;
+        id
+    }
+
+    /// Distinct connection keys issued.
+    pub fn connection_keys(&self) -> usize {
+        self.connections.len()
+    }
+
+    /// Distinct split keys issued.
+    pub fn split_keys(&self) -> usize {
+        self.splits.len()
+    }
+
+    /// Hidden ids handed out by `fresh_hidden`.
+    pub fn fresh_hidden_count(&self) -> usize {
+        self.fresh_hidden
+    }
+}
+
+/// What re-keying one genome, or a population, found.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RekeyReport {
+    /// Hidden neurons whose split key was recovered.
+    pub hidden_keyed: usize,
+    /// Hidden neurons with no recoverable split (no incoming gene, or the
+    /// lowest incoming gene's successor does not leave the neuron). Each
+    /// gets a fresh id.
+    pub hidden_unplaced: usize,
+    /// Hidden neurons whose split key another hidden neuron in the same
+    /// genome already took: the connection was split, re-enabled by a
+    /// toggle, and split again. Each gets a fresh id.
+    pub hidden_repeat_splits: usize,
+    /// Connection ends naming a neuron the genome does not list. Each such
+    /// id gets a fresh id so it stays distinct.
+    pub dangling_ids: usize,
+}
+
+impl RekeyReport {
+    fn add(&mut self, other: RekeyReport) {
+        self.hidden_keyed += other.hidden_keyed;
+        self.hidden_unplaced += other.hidden_unplaced;
+        self.hidden_repeat_splits += other.hidden_repeat_splits;
+        self.dangling_ids += other.dangling_ids;
+    }
+}
+
+/// Re-key a genome written with legacy innovation numbers.
+///
+/// The legacy counter is monotonic within a world, and `mutate_add_neuron`
+/// issues a split's incoming gene and outgoing gene as consecutive numbers
+/// `n` and `n + 1`. Connections are never deleted and `crossover` keeps every
+/// gene of the parent whose neurons the child takes, so a genome that carries
+/// a hidden neuron carries both of its split genes. The split key of a hidden
+/// neuron is therefore `(from of gene n, to of gene n + 1)`, where `n` is the
+/// lowest innovation among the neuron's incoming genes. Resolving hidden
+/// neurons in ascending `n` maps every split's endpoints before the split
+/// itself, since a neuron exists before anything splits a connection
+/// touching it.
+///
+/// Every neuron and connection keeps its position in its list, and ids are
+/// renamed one-to-one, so the brain built from the result evaluates exactly
+/// as the original's did (inputs and outputs keep their ids; the brain reads
+/// them by sorted id and finds everything else by lookup). Run it after
+/// `migrate_input_layout`, since keys must be taken in the current layout.
+///
+/// Two tests cover it, and they check different things. The brain crate's
+/// `re_keyed_brain_gives_exactly_the_same_outputs` proves the renaming is
+/// safe, but any consistent renaming passes it, including one that keys
+/// splits wrongly. `nested_splits_are_keyed_on_re_keyed_endpoints` proves the
+/// keying is correct: a split of a connection touching a hidden neuron is
+/// keyed on that neuron's keyed id, not its per-genome legacy id.
+///
+/// Known limits, which matter only if step 2 of
+/// `plans/2026-09-24-innovation-keying.md` (keying on load) is picked up:
+///
+/// - **Repeat splits.** When an ancestor splits the same key twice (split,
+///   re-enabled by a toggle, split again), the second neuron gets a fresh id
+///   per genome, so its descendants no longer match each other on it or on
+///   its two genes, although they share them by descent. A load migration
+///   should key a split on `(split key, occurrence index in ascending n)`, so
+///   the k-th split of a key maps to the same id in every genome.
+/// - **Imports from different worlds.** The premise that the legacy counter
+///   is monotonic holds within one world. Genomes imported from another
+///   world can hold the same legacy number for a different gene, so the
+///   `n`, `n + 1` pairing can pick the wrong gene in a genome that mixes
+///   both numberings.
+pub fn rekey_genome(genome: &Genome, table: &mut InnovationTable) -> (Genome, RekeyReport) {
+    use std::collections::{HashMap, HashSet};
+
+    let mut report = RekeyReport::default();
+    let by_innovation: HashMap<u64, &ConnectionGene> = genome
+        .connections
+        .iter()
+        .map(|c| (c.innovation, c))
+        .collect();
+
+    // Recover each hidden neuron's split genes, in neuron-list order.
+    let mut placed: Vec<(u64, u64, u64, u64)> = Vec::new(); // (n, hidden id, from, to)
+    let mut unplaced: Vec<u64> = Vec::new();
+    for neuron in genome
+        .neurons
+        .iter()
+        .filter(|n| n.neuron_type == NeuronType::Hidden)
+    {
+        let incoming = genome
+            .connections
+            .iter()
+            .filter(|c| c.to == neuron.id)
+            .map(|c| c.innovation)
+            .min();
+        let split = incoming.and_then(|n| {
+            let first = by_innovation.get(&n)?;
+            let second = by_innovation.get(&(n + 1))?;
+            (second.from == neuron.id).then_some((n, neuron.id, first.from, second.to))
+        });
+        match split {
+            Some(s) => placed.push(s),
+            None => unplaced.push(neuron.id),
+        }
+    }
+    placed.sort_by_key(|&(n, ..)| n);
+
+    let mut remap: HashMap<u64, u64> = HashMap::new();
+    for neuron in &genome.neurons {
+        if neuron.neuron_type != NeuronType::Hidden {
+            remap.insert(neuron.id, neuron.id);
+        }
+    }
+    for id in unplaced {
+        remap.insert(id, table.fresh_hidden());
+        report.hidden_unplaced += 1;
+    }
+    let mut used_splits: HashSet<(u64, u64)> = HashSet::new();
+    for (_, hidden, from, to) in placed {
+        let key = match (remap.get(&from), remap.get(&to)) {
+            (Some(&f), Some(&t)) => Some((f, t)),
+            _ => None,
+        };
+        let id = match key {
+            Some(key) if used_splits.insert(key) => {
+                report.hidden_keyed += 1;
+                table.split(key.0, key.1)
+            }
+            Some(_) => {
+                report.hidden_repeat_splits += 1;
+                table.fresh_hidden()
+            }
+            None => {
+                report.hidden_unplaced += 1;
+                table.fresh_hidden()
+            }
+        };
+        remap.insert(hidden, id);
+    }
+
+    let mut out = genome.clone();
+    for neuron in &mut out.neurons {
+        neuron.id = remap[&neuron.id];
+    }
+    for conn in &mut out.connections {
+        for end in [&mut conn.from, &mut conn.to] {
+            *end = *remap.entry(*end).or_insert_with(|| {
+                report.dangling_ids += 1;
+                table.fresh_hidden()
+            });
+        }
+        conn.innovation = table.connection(conn.from, conn.to);
+    }
+    (out, report)
+}
+
+/// Re-key a population in order, returning the keyed genomes, the table they
+/// were keyed through, and the summed report. The order decides which
+/// numbers are issued first, so callers pass genomes in a stable order
+/// (save order), never map order.
+pub fn rekey_population<'a>(
+    genomes: impl IntoIterator<Item = &'a Genome>,
+) -> (Vec<Genome>, InnovationTable, RekeyReport) {
+    let mut table = InnovationTable::default();
+    let mut report = RekeyReport::default();
+    let keyed = genomes
+        .into_iter()
+        .map(|g| {
+            let (keyed, r) = rekey_genome(g, &mut table);
+            report.add(r);
+            keyed
+        })
+        .collect();
+    (keyed, table, report)
 }
 
 #[cfg(test)]
@@ -1464,5 +1804,246 @@ mod tests {
         let mut odd = legacy_22_input_genome();
         odd.neurons[3].id = 500;
         assert!(!odd.migrate_input_layout());
+    }
+
+    /// A founder with exactly the given input-to-output connections, each
+    /// numbered by `innovation`.
+    fn founder_with(innovation: &mut InnovationCounter, seed: u64, pairs: &[(u64, u64)]) -> Genome {
+        let mut genome = base_genome(seed);
+        genome.connections = pairs
+            .iter()
+            .map(|&(from, to)| ConnectionGene {
+                innovation: innovation.next(),
+                from,
+                to,
+                weight: 0.5,
+                enabled: true,
+            })
+            .collect();
+        genome
+    }
+
+    fn innovation_of(genome: &Genome, from: u64, to: u64) -> u64 {
+        genome
+            .connections
+            .iter()
+            .find(|c| c.from == from && c.to == to)
+            .unwrap_or_else(|| panic!("no connection {from} -> {to}"))
+            .innovation
+    }
+
+    #[test]
+    fn unrelated_genomes_with_the_same_wiring_share_keyed_genes() {
+        let out = NUM_INPUTS as u64;
+        let mut innovation = InnovationCounter(0);
+        let a = founder_with(&mut innovation, 1, &[(1, out), (2, out + 1)]);
+        let b = founder_with(&mut innovation, 2, &[(1, out), (3, out + 1)]);
+        assert_eq!(
+            a.compatibility_terms(&b).matching,
+            0,
+            "legacy numbers never match"
+        );
+
+        let (keyed, table, report) = rekey_population([&a, &b]);
+        assert_eq!(report, RekeyReport::default());
+        assert_eq!(table.connection_keys(), 3);
+        assert_eq!(
+            innovation_of(&keyed[0], 1, out),
+            innovation_of(&keyed[1], 1, out)
+        );
+        assert_ne!(
+            innovation_of(&keyed[0], 2, out + 1),
+            innovation_of(&keyed[1], 3, out + 1)
+        );
+        let terms = keyed[0].compatibility_terms(&keyed[1]);
+        assert_eq!((terms.matching, terms.disjoint + terms.excess), (1, 2));
+    }
+
+    #[test]
+    fn hidden_neurons_are_keyed_by_the_connection_they_split() {
+        let out = NUM_INPUTS as u64;
+        let mut innovation = InnovationCounter(0);
+        // Both genomes' first hidden neuron is id 35 per genome, but `a`
+        // splits 1 -> out and `b` splits 2 -> out; `c` splits 1 -> out too.
+        let mut genomes = Vec::new();
+        for (seed, split) in [(1, 0usize), (2, 1), (3, 0)] {
+            let mut g = founder_with(&mut innovation, seed, &[(1, out), (2, out)]);
+            let old = g.connections[split].clone();
+            g.connections[split].enabled = false;
+            let hidden = FIRST_HIDDEN_ID;
+            g.neurons.push(NeuronGene {
+                id: hidden,
+                neuron_type: NeuronType::Hidden,
+                activation: ActivationFn::Tanh,
+                bias: 0.0,
+            });
+            for (from, to) in [(old.from, hidden), (hidden, old.to)] {
+                g.connections.push(ConnectionGene {
+                    innovation: innovation.next(),
+                    from,
+                    to,
+                    weight: 1.0,
+                    enabled: true,
+                });
+            }
+            genomes.push(g);
+        }
+        let (keyed, table, report) = rekey_population(&genomes);
+        assert_eq!(report.hidden_keyed, 3);
+        assert_eq!(table.split_keys(), 2);
+        let hidden_id = |g: &Genome| {
+            g.neurons
+                .iter()
+                .find(|n| n.neuron_type == NeuronType::Hidden)
+                .unwrap()
+                .id
+        };
+        assert_eq!(hidden_id(&keyed[0]), hidden_id(&keyed[2]));
+        assert_ne!(hidden_id(&keyed[0]), hidden_id(&keyed[1]));
+        // Same split, same genes: `a` and `c` match on all four connections.
+        assert_eq!(keyed[0].compatibility_terms(&keyed[2]).matching, 4);
+    }
+
+    /// Split `genome`'s connection `from -> to` the way `mutate_add_neuron`
+    /// does: disable it, add hidden neuron `hidden`, and add the incoming and
+    /// outgoing genes as consecutive innovation numbers.
+    fn split_connection(
+        genome: &mut Genome,
+        innovation: &mut InnovationCounter,
+        from: u64,
+        to: u64,
+        hidden: u64,
+    ) {
+        let old = genome
+            .connections
+            .iter_mut()
+            .find(|c| c.from == from && c.to == to)
+            .unwrap_or_else(|| panic!("no connection {from} -> {to}"));
+        old.enabled = false;
+        genome.neurons.push(NeuronGene {
+            id: hidden,
+            neuron_type: NeuronType::Hidden,
+            activation: ActivationFn::Tanh,
+            bias: 0.0,
+        });
+        for (from, to) in [(from, hidden), (hidden, to)] {
+            genome.connections.push(ConnectionGene {
+                innovation: innovation.next(),
+                from,
+                to,
+                weight: 1.0,
+                enabled: true,
+            });
+        }
+    }
+
+    /// The keying check that `re_keyed_brain_gives_exactly_the_same_outputs`
+    /// cannot make: that test proves the renaming is safe, and any consistent
+    /// renaming passes it. Here two unrelated genomes each split a connection
+    /// touching their own hidden neuron 35 (a nested split). The legacy key
+    /// `(35, out)` is the same in both, but 35 is a different gene in each,
+    /// so the nested neurons must get different keyed ids. A third genome
+    /// that repeats the first one's splits must share both keyed ids with it.
+    #[test]
+    fn nested_splits_are_keyed_on_re_keyed_endpoints() {
+        let out = NUM_INPUTS as u64;
+        let first = FIRST_HIDDEN_ID;
+        let nested = FIRST_HIDDEN_ID + 1;
+        let mut innovation = InnovationCounter(0);
+        let mut genomes = Vec::new();
+        // `a` and `c` split 1 -> out; `b` splits 2 -> out. Each then splits
+        // its own `first -> out`.
+        for (seed, input) in [(1, 1u64), (2, 2), (3, 1)] {
+            let mut g = founder_with(&mut innovation, seed, &[(1, out), (2, out)]);
+            split_connection(&mut g, &mut innovation, input, out, first);
+            split_connection(&mut g, &mut innovation, first, out, nested);
+            genomes.push(g);
+        }
+        let (keyed, table, report) = rekey_population(&genomes);
+        assert_eq!(report.hidden_keyed, 6);
+        let keyed_id = |g: usize, legacy: usize| keyed[g].neurons[legacy].id;
+        let first_at = genomes[0].neurons.len() - 2;
+        let nested_at = genomes[0].neurons.len() - 1;
+        assert_ne!(keyed_id(0, first_at), keyed_id(1, first_at));
+        assert_ne!(
+            keyed_id(0, nested_at),
+            keyed_id(1, nested_at),
+            "unrelated nested splits share a legacy key but not a keyed id"
+        );
+        assert_eq!(keyed_id(0, first_at), keyed_id(2, first_at));
+        assert_eq!(
+            keyed_id(0, nested_at),
+            keyed_id(2, nested_at),
+            "a shared nested split gets the same keyed id"
+        );
+        assert_eq!(table.split_keys(), 4);
+    }
+
+    #[test]
+    fn a_descendant_still_matches_its_ancestor_after_re_keying() {
+        let mut innovation = InnovationCounter(0);
+        let mut rng = StdRng::seed_from_u64(11);
+        let ancestor = Genome::new_minimal(&mut innovation, &mut rng);
+        let mut descendant = ancestor.clone();
+        for _ in 0..80 {
+            descendant.mutate(&mut innovation, &mut rng, 0.5, 0.5);
+        }
+        assert!(descendant
+            .neurons
+            .iter()
+            .any(|n| n.neuron_type == NeuronType::Hidden));
+        let legacy = ancestor.compatibility_terms(&descendant);
+        let (keyed, _, report) = rekey_population([&ancestor, &descendant]);
+        assert_eq!(report.hidden_unplaced + report.dangling_ids, 0);
+        let terms = keyed[0].compatibility_terms(&keyed[1]);
+        assert_eq!(terms.matching, legacy.matching);
+        assert_eq!(terms.matching, ancestor.connections.len());
+    }
+
+    #[test]
+    fn a_repeated_split_gets_a_fresh_hidden_id() {
+        let out = NUM_INPUTS as u64;
+        let mut innovation = InnovationCounter(0);
+        let mut g = founder_with(&mut innovation, 4, &[(1, out)]);
+        for hidden in [FIRST_HIDDEN_ID, FIRST_HIDDEN_ID + 1] {
+            g.neurons.push(NeuronGene {
+                id: hidden,
+                neuron_type: NeuronType::Hidden,
+                activation: ActivationFn::Relu,
+                bias: 0.0,
+            });
+            for (from, to) in [(1, hidden), (hidden, out)] {
+                g.connections.push(ConnectionGene {
+                    innovation: innovation.next(),
+                    from,
+                    to,
+                    weight: 1.0,
+                    enabled: true,
+                });
+            }
+        }
+        let (keyed, report) = rekey_genome(&g, &mut InnovationTable::default());
+        assert_eq!((report.hidden_keyed, report.hidden_repeat_splits), (1, 1));
+        let ids: std::collections::HashSet<u64> = keyed.neurons.iter().map(|n| n.id).collect();
+        assert_eq!(ids.len(), keyed.neurons.len(), "ids stay distinct");
+    }
+
+    #[test]
+    fn mean_normalisation_scores_unrelated_brains_at_one() {
+        let out = NUM_INPUTS as u64;
+        let mut innovation = InnovationCounter(0);
+        let a = founder_with(&mut innovation, 5, &[(1, out), (2, out)]);
+        let b = founder_with(
+            &mut innovation,
+            5,
+            &[(3, out), (4, out), (5, out), (6, out)],
+        );
+        let terms = a.compatibility_terms(&b);
+        assert!((terms.structural_term(StructuralNorm::Mean) - 1.0).abs() < 1e-6);
+        assert!((terms.structural_term(StructuralNorm::Larger) - 0.75).abs() < 1e-6);
+        assert_eq!(
+            terms.distance(StructuralNorm::Larger).to_bits(),
+            a.compatibility_distance(&b).to_bits()
+        );
     }
 }

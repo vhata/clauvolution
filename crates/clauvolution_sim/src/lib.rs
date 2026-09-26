@@ -2740,6 +2740,19 @@ fn ledger_system(
     }
 }
 
+/// What `choose_species` decided for one organism, and what it saw on the
+/// way, for the per-pass counts in `SpeciesPassCounts`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct SpeciesChoice {
+    /// The species the organism belongs to this pass, or `None` if it fits
+    /// no existing species and must found a new one.
+    species: Option<u64>,
+    /// Past the stay threshold from its own species' representative.
+    drifting: bool,
+    /// Within the join threshold of some other species' representative.
+    near_other: bool,
+}
+
 /// The species an organism belongs to this pass, or `None` if it fits no
 /// existing species and must found a new one.
 ///
@@ -2752,18 +2765,31 @@ fn ledger_system(
 /// between unrelated genomes near the join threshold, that moved about 45% of
 /// all organisms to a different species on every pass. See `docs/DECISIONS.md`,
 /// "Species classification".
+///
+/// For an organism that stays, `near_other` needs distances the choice does
+/// not: it scans the other representatives and stops at the first within
+/// `join_threshold`. The scan reads no RNG and changes no decision.
 fn choose_species(
     genome: &Genome,
     current_species: u64,
     species_reps: &[(u64, Genome)],
     join_threshold: f32,
     stay_threshold: f32,
-) -> Option<u64> {
+) -> SpeciesChoice {
+    let mut drifting = false;
     if current_species > 0 {
         if let Some((_, rep)) = species_reps.iter().find(|(id, _)| *id == current_species) {
             if genome.compatibility_distance(rep) < stay_threshold {
-                return Some(current_species);
+                let near_other = species_reps.iter().any(|(id, rep)| {
+                    *id != current_species && genome.compatibility_distance(rep) < join_threshold
+                });
+                return SpeciesChoice {
+                    species: Some(current_species),
+                    drifting: false,
+                    near_other,
+                };
             }
+            drifting = true;
         }
     }
     let mut best_species = None;
@@ -2778,7 +2804,11 @@ fn choose_species(
             best_species = Some(*species_id);
         }
     }
-    best_species
+    SpeciesChoice {
+        species: best_species,
+        drifting,
+        near_other: best_species.is_some(),
+    }
 }
 
 fn species_classification_system(
@@ -2833,14 +2863,24 @@ fn species_classification_system(
     let join_threshold = config.species_compat_threshold;
     let stay_threshold = join_threshold * SPECIES_HYSTERESIS_FACTOR;
 
+    let mut pass = SpeciesPassCounts {
+        tick: tick.0,
+        organisms: org_data.len() as u32,
+        ..SpeciesPassCounts::default()
+    };
+
     for (entity, genome, _old_species) in &org_data {
-        let best_species = choose_species(
+        let choice = choose_species(
             genome,
             *_old_species,
             &species_reps,
             join_threshold,
             stay_threshold,
         );
+        pass.near_other += u32::from(choice.near_other);
+        pass.drifting += u32::from(choice.drifting);
+        pass.isolated += u32::from(choice.drifting && choice.species.is_none());
+        let best_species = choice.species;
 
         let assigned = if let Some(id) = best_species {
             id
@@ -2946,6 +2986,7 @@ fn species_classification_system(
     // species_counts is still the quantity meant here, and species_reps is
     // rebuilt from living organisms every pass, so nothing needs pruning.
     stats.species_count = species_counts.len() as u32;
+    stats.species_pass = pass;
 
     // Detect convergent evolution. Each strategy is chronicled only when its
     // independent-lineage count exceeds the highest count already logged.
@@ -4213,9 +4254,15 @@ mod species_classification_tests {
         let (join, stay) = thresholds_between(other_dist, own_dist);
         let reps = vec![(1, own_rep), (2, other_rep)];
 
-        assert_eq!(choose_species(&member, 1, &reps, join, stay), Some(1));
+        assert_eq!(
+            choose_species(&member, 1, &reps, join, stay).species,
+            Some(1)
+        );
         // Past the stay threshold it moves to the nearer species instead.
-        assert_eq!(choose_species(&member, 1, &reps, join, own_dist), Some(2));
+        assert_eq!(
+            choose_species(&member, 1, &reps, join, own_dist).species,
+            Some(2)
+        );
     }
 
     /// Past the stay threshold with nothing else within the join threshold,
@@ -4230,10 +4277,16 @@ mod species_classification_tests {
         let db = member.compatibility_distance(&b);
         let reps = vec![(1, a), (2, b)];
         let lo = da.min(db);
-        assert_eq!(choose_species(&member, 1, &reps, lo * 0.5, lo * 0.5), None);
+        assert_eq!(
+            choose_species(&member, 1, &reps, lo * 0.5, lo * 0.5).species,
+            None
+        );
         let nearest = if da <= db { 1 } else { 2 };
         let join = da.max(db) + 0.01;
-        assert_eq!(choose_species(&member, 0, &reps, join, join), Some(nearest));
+        assert_eq!(
+            choose_species(&member, 0, &reps, join, join).species,
+            Some(nearest)
+        );
     }
 
     /// Species 2 was the highest id ever issued and has died out; species 1
