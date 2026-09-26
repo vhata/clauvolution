@@ -1,0 +1,11 @@
+== founders sessions/ik-main-s7-1/save.json: distinct keys 234
+  legacy: 413 founders, 85078 pairs; pairs sharing a gene 0.0% (weight term when shared: mean 0.085)
+    legacy/larger: pair distance median 1.003 (p10 0.856, p90 1.145); structural median 0.857; pairs under 1.0 49.1%
+      founding-pass species by join: 0.8:231 0.9:128 1.0:67 1.1:9 1.2:2 1.3:1 1.4:1 1.5:1 1.6:1 1.8:1
+    legacy/mean: pair distance median 1.143 (p10 1.084, p90 1.220); structural median 1.000; pairs under 1.0 0.0%
+      founding-pass species by join: 0.8:385 0.9:385 1.0:385 1.1:16 1.2:3 1.3:1 1.4:1 1.5:1 1.6:1 1.8:1
+  keyed: 413 founders, 85078 pairs; pairs sharing a gene 11.7% (weight term when shared: mean 0.666)
+    keyed/larger: pair distance median 1.014 (p10 0.858, p90 1.211); structural median 0.833; pairs under 1.0 45.7%
+      founding-pass species by join: 0.8:219 0.9:117 1.0:59 1.1:11 1.2:5 1.3:3 1.4:3 1.5:2 1.6:2 1.8:2
+    keyed/mean: pair distance median 1.150 (p10 1.083, p90 1.260); structural median 1.000; pairs under 1.0 0.6%
+      founding-pass species by join: 0.8:379 0.9:341 1.0:211 1.1:17 1.2:6 1.3:3 1.4:3 1.5:3 1.6:3 1.8:2
