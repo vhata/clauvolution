@@ -473,4 +473,66 @@ mod tests {
             "the fixture should exercise hidden neurons, got {seeds_with_hidden} of 20"
         );
     }
+
+    /// A small evolving population: founders, then rounds of crossover and
+    /// mutation between random members, so the genomes share descent the
+    /// way a saved world's do, carry hidden neurons, and include whatever
+    /// recurrent links and re-enabled splits mutation produces.
+    fn evolved_population(seed: u64) -> Vec<Genome> {
+        let mut innovation = InnovationCounter(0);
+        let mut rng = StdRng::seed_from_u64(seed);
+        let mut population: Vec<Genome> = (0..12)
+            .map(|_| Genome::new_minimal(&mut innovation, &mut rng))
+            .collect();
+        for _ in 0..400 {
+            let a = rng.gen_range(0..population.len());
+            let b = rng.gen_range(0..population.len());
+            let mut child = population[a].crossover(&population[b], &mut rng);
+            child.mutate(&mut innovation, &mut rng, 0.5, 0.5);
+            let slot = rng.gen_range(0..population.len());
+            population[slot] = child;
+        }
+        population
+    }
+
+    #[test]
+    fn re_keyed_brain_gives_exactly_the_same_outputs() {
+        let mut hidden_neurons = 0;
+        let mut keyed_hidden = 0;
+        for seed in 0..10 {
+            let population = evolved_population(seed);
+            let (keyed, _, report) = clauvolution_genome::rekey_population(&population);
+            keyed_hidden += report.hidden_keyed;
+            assert_eq!(report.hidden_unplaced, 0, "seed {seed}: {report:?}");
+            assert_eq!(report.dangling_ids, 0, "seed {seed}: {report:?}");
+
+            let mut rng = StdRng::seed_from_u64(2000 + seed);
+            for (legacy, keyed) in population.iter().zip(&keyed) {
+                hidden_neurons += legacy
+                    .neurons
+                    .iter()
+                    .filter(|n| n.neuron_type == NeuronType::Hidden)
+                    .count();
+                let old_brain = Brain::from_genome(legacy);
+                let new_brain = Brain::from_genome(keyed);
+                assert_eq!(old_brain.input_ids(), new_brain.input_ids());
+                assert_eq!(old_brain.output_ids(), new_brain.output_ids());
+                for _ in 0..30 {
+                    let mut inputs = [0.0f32; NUM_INPUTS];
+                    for value in inputs.iter_mut() {
+                        *value = rng.gen_range(-1.0..1.0);
+                    }
+                    assert_eq!(
+                        old_brain.evaluate(&inputs).map(f32::to_bits),
+                        new_brain.evaluate(&inputs).map(f32::to_bits),
+                        "seed {seed}: outputs differ after re-keying"
+                    );
+                }
+            }
+        }
+        assert!(
+            hidden_neurons > 100 && keyed_hidden > 100,
+            "the fixture should exercise hidden neurons, got {hidden_neurons} ({keyed_hidden} keyed)"
+        );
+    }
 }
