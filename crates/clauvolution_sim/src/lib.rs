@@ -122,7 +122,11 @@ const TERRAIN_MOVE_COST_FLOOR: f32 = 0.5;
 /// on water tiles and limbs on land tiles, and the result is floored at
 /// `TERRAIN_MOVE_COST_FLOOR`. See "Movement cost interpolates by aquatic
 /// adaptation" in DECISIONS.md.
+///
+/// `aquatic` is clamped to 0..1 first. Mutation keeps it in range, so this
+/// only guards against a hand-edited save extrapolating past either table.
 fn terrain_move_cost(terrain: TerrainType, aquatic: f32, fin_area: f32, limb_count: usize) -> f32 {
+    let aquatic = aquatic.clamp(0.0, 1.0);
     let land = terrain.land_move_cost();
     let water = terrain.water_move_cost();
     let base = land + aquatic * (water - land);
@@ -3966,6 +3970,10 @@ mod tests {
             // Bonuses cap at 0.4 (limbs) and 0.5 (fins); the floor is 0.5.
             (Grassland, 0.0, 0.0, 10, 0.6),
             (DeepWater, 1.0, 10.0, 0, 0.5),
+            // Out-of-range aquatic values are clamped to 0..1.
+            (DeepWater, 1.2, 0.0, 0, 1.0),
+            (Sand, 1.2, 0.0, 0, 5.0),
+            (DeepWater, -0.2, 0.0, 0, 10.0),
         ];
         for (terrain, aquatic, fins, limbs, expected) in cases {
             let got = terrain_move_cost(terrain, aquatic, fins, limbs);

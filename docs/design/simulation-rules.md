@@ -153,7 +153,7 @@ Two new genome traits: `heat_tolerance` in -1..1 and `aquatic` in 0..1. Every ti
 
 ### Terrain-aware movement
 
-The flat ten-times deep-water cost becomes a cost table by terrain and body: water cheap for high `aquatic` with fins and ruinous without, rock steep for large bodies, sand moderate and hot. Oceans and ranges become barriers for most lineages and habitat for the ones that pay to specialise. This replaces one special case with the general rule.
+The ten-times deep-water cost never ran: movement read its table by the tile, so deep water cost a land-adapted organism 1.0 (see "Movement cost interpolates by aquatic adaptation" in `docs/DECISIONS.md`). Step 2 replaced that with a cost interpolated between the land and water tables by `aquatic`. The rest of this section is the fuller goal, a cost table by terrain and body: water cheap for high `aquatic` with fins and ruinous without, rock steep for large bodies, sand moderate and hot. Oceans and ranges become barriers for most lineages and habitat for the ones that pay to specialise. This replaces one special case with the general rule.
 
 ### A world with continents
 

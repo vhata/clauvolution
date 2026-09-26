@@ -2,7 +2,8 @@
 
 Step 2 of `plans/2026-09-25-phase2-biomes.md`. `action_system` now charges `land + aquatic × (water − land)` from the two `TerrainType` movement tables on every tile, with the fin bonus on water, the limb bonus on land and the 0.5 floor as before, and `AQUATIC_MOVE_COST_WEIGHT` is removed. The rule and its reasoning are in `docs/DECISIONS.md` ("Movement cost interpolates by aquatic adaptation").
 
-- **Commit:** 023405f on `roadmap/phase2-movement-cost`, stacked on the step 1 instruments branch.
+- **Commit:** c30d4e3 on `roadmap/phase2-movement-cost`, stacked on the step 1 instruments branch.
+- **Runs made at:** 023405f, a pre-rebase commit whose sim code is identical to c30d4e3. The only differences are #86's review fixes to a summary label, a rate line, docs and a test helper, and a rerun of seed 7 at the PR head is byte-identical.
 - **Seeds:** 1, 2, 3, 7, 42, 99, 314, 1000, one run each (headless runs are deterministic), 15000 ticks, no overrides. Three at a time; wall times in the summaries are not comparable with the baseline's.
 - **How to repeat:** `cargo build --release`, then for each seed `./target/release/clauvolution --headless 15000 --seed S --dump-history seedS-run1.csv > seedS-run1.txt 2>&1`.
 - **Baseline:** `docs/audits/2026-09-25-phase2-baseline/` (same seeds and ticks, the instruments with the old rule). Definitions of regions, crossings, separation and aquatic bands are in its README.
@@ -27,7 +28,7 @@ Additional definitions used here:
 | 314 | 23% / 21% / 17% / (23%) -> 15% / 18% / 24% / (-) | 28,704 -> 19,931 | 2,195 -> 5,435 | 202 -> 124 | 0.986/0.986 -> 0.986/0.986 | 2718/2880 -> 3666/2331 | 129 -> 395 | 579..3657 | 114 -> 124 | 26/51 -> 16/26 | 0/0; 0/0 |
 | 1000 | 42% / 35% / 34% / (39%) -> 28% / 30% / 40% / 45% | 0 -> 0 | 0 -> 0 | 0 -> 0 | 1.000/1.000 -> 1.000/1.000 | 2231/3213 -> 4062/1935 | 562 -> 661 | 406..3144 | 152 -> 237 | 21/43 -> 29/76 | 0/0; 0/0 |
 
-| seed | consumer ticks by band aq0/aq1/aq2/aq3 (%), whole run | late band mix (%), ticks 14000-15000 | share of all organism-ticks on water | movement energy paid (M) | of it on deep water (M) | biome separation / null | omnivore samples after t3000 | last hunter tick |
+| seed | consumer ticks by band aq0/aq1/aq2/aq3 (%), whole run | late band mix (%), ticks 14000-15000 | share of all organism-ticks on water | movement energy paid (M) | consumers on deep water (M) | biome separation / null | omnivore samples after t3000 | last hunter tick |
 |---|---|---|---|---|---|---|---|---|
 | 1 | 17/47/36/0 -> 88/12/0/0 | 41/29/29/0 -> 90/10/0/0 | 47% -> 45% | 5.4 -> 8.2 | 1.12 -> 3.76 | 0.408/0.350 -> 0.419/0.335 | 0 -> 67 | 14611 -> 15001 |
 | 2 | 57/43/0/0 -> 78/22/0/0 | 93/7/0/0 -> 91/9/0/0 | 62% -> 62% | 5.3 -> 11.0 | 1.26 -> 5.17 | 0.410/0.368 -> 0.408/0.362 | 0 -> 20 | 12661 -> 14191 |
@@ -59,13 +60,13 @@ Plants / grazers every 1500 ticks from tick 1501, after the change:
 
 **Selection now acts on the aquatic trait.** This is the largest effect. On seeds 1 and 7 consumers converged on aq0 (90% and 99% of late consumer organism-ticks, from 41% and 2%). On seed 99, 73% water, they converged on aq3 (100%, from 99% aq0): the first population in any audit to become aquatic. Seeds 42, 314 and 1000 kept an aq1 majority, and seeds 2 and 3 an aq0 majority with a larger aq1 share than before.
 
-**Movement costs more.** Movement energy paid over the run rose by 50% to 108%, and on deep water about three to five times as much was paid (1.1 times on seed 99, whose consumers became aquatic).
+**Movement costs more.** Movement energy paid over the run rose by 50% to 108%, and consumers paid about three to five times as much on deep water (2.9 to 5.2 times; 1.1 times on seed 99, whose consumers became aquatic). The deep-water column counts consumers only; the total column is the whole ledger.
 
 **Plants and grazers persist and cycle on every seed.** Every plant floor rose (376 to 1058, from 129 to 627). Grazer minima after tick 1000 fell on every seed (292 to 1044, from 321 to 1214). Seed 99 ends at 2,999 organisms and never reached the ceiling; the eight-seed ceiling-sample sum went from 875 to 1010, with seed 7 (2 to 70) and seed 1000 (152 to 237) up and seeds 1 and 99 down.
 
 **Species at 15k** rose on five seeds and fell on three (99: 54 to 31, 314: 51 to 26, 2: 60 to 47). One run per seed, so these are single trajectories.
 
-**Hunters.** Seed 1 has one hunter alive at 15000, and hunters were alive at scattered samples from tick 13111 on (never more than two). The hunter label earned 498 energy from consumer kills over the whole run. These are single mutants of the kind the parked `hunter-emergence` entry already lists (the step 1 baseline had its last hunter at tick 14611 on seed 1, 12661 on seed 2 and 12421 on seed 99), but the reopen condition in the plan, "hunters alive at 15000 on some seed", is met by the letter on seed 1. Omnivores appear at more samples after tick 3000 on six seeds (up to 148 samples on seed 99, at most 10 alive at a time) and on no seed do they persist. No seed had a hunter at 5000.
+**Hunters.** On seed 1 single hunters appear intermittently from tick 4531 on: at samples 4531-4741, 6661-6721, 8161-8251 and 9841-11161, then from 13111. At most two are alive at once (14911-14971); one is alive at 15001 and none at 5011. The hunter label earned 498 energy from consumer kills over the whole run. These are single mutants of the kind the parked `hunter-emergence` entry already lists (the step 1 baseline had its last hunter at tick 14611 on seed 1, 12661 on seed 2 and 12421 on seed 99), but the reopen condition in the plan, "hunters alive at 15000 on some seed", is met on seed 1 only by its letter, by single mutants; whether to reopen `hunter-emergence` is the user's call. Omnivores appear at more samples after tick 3000 on six seeds (up to 148 samples on seed 99, at most 10 alive at a time) and on no seed do they persist. No seed had a hunter at 5000.
 
 ## Not measured here
 
