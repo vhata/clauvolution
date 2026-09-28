@@ -42,7 +42,7 @@ One-liner list of what Clauvolution does, grouped by area. For the design ration
 
 ## World & environment
 
-- **Procedural terrain** — seed-based value noise that tiles seamlessly across the torus, generating oceans, shallow water, sand, grassland, forest and rock. Sea level sits at a fixed land fraction (`LAND_FRACTION`, 40% of tiles) on every seed; Rock is the highest land (elevation band, whatever the moisture), and Sand, Grassland and Forest split the rest by moisture
+- **Procedural terrain** — seed-based value noise that tiles seamlessly across the torus, generating oceans, shallow water, sand, grassland, forest and rock. Four seeded continental centres (`CONTINENTS`) raise the noise inside their Voronoi cells and lower it along the domain-warped borders between them, so the land forms several continents separated by ocean. Sea level sits at a fixed land fraction (`LAND_FRACTION`, 40% of tiles) on every seed. Water within `SHELF_WIDTH` (8) tiles of land is a ShallowWater shelf and the rest is DeepWater; Rock is the highest land (elevation band, whatever the moisture), and Sand, Grassland and Forest split the rest by moisture
 - **Biome-aware food spawning** — food density proportional to tile nutrients + vegetation
 - **Terrain-dependent movement** — each biome has a land-adapted and a water-adapted movement cost, and an organism pays the interpolation between them by its `aquatic_adaptation` on every tile: deep water costs 10.0 at aquatic 0 and 1.0 at aquatic 1, sand 1.5 and 5.0. Fins cut the cost on water, limbs on land
 - **Seasonal cycles** — 60-second year with sinusoidal light + food regen multipliers; winter is harsh

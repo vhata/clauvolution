@@ -83,15 +83,41 @@ impl TerrainType {
 /// produces a different map from the same seed and world size. Version 1
 /// is every generator before the number was recorded; version 2 is the
 /// phase 2 step 3 generator (sea level at `LAND_FRACTION`, Rock as an
-/// elevation band, seamless noise).
-pub const TERRAIN_GENERATOR_VERSION: u32 = 2;
+/// elevation band, seamless noise); version 3 is phase 2 step 4
+/// (continental centres and shelves).
+pub const TERRAIN_GENERATOR_VERSION: u32 = 3;
 
 /// Share of the map's tiles that are land. `TileMap::generate` puts sea
 /// level at the elevation quantile that leaves this share above it, so land
 /// area is the same on every seed while where it lies still varies.
 pub const LAND_FRACTION: f32 = 0.40;
-/// Water below this elevation (on the -1..0 side of sea level) is deep.
-pub const DEEP_WATER_BELOW: f32 = -0.3;
+/// Number of continental centres. `TileMap::generate` raises the elevation
+/// noise inside the Voronoi cell of each centre and lowers it along the
+/// borders between cells, so the land gathers into up to this many
+/// landmasses with ocean between them.
+pub const CONTINENTS: usize = 4;
+/// Least torus distance between two continental centres, as a share of the
+/// world width. Centres are drawn by rejection until they are this far
+/// apart, so no two cells are so close that one swallows the other.
+pub const CONTINENT_MIN_SPACING: f32 = 0.3;
+/// Height of the continent term added to the 0..1 elevation noise. Where it
+/// is at full height (well inside a cell) land is likely; along a border it
+/// is 0 and only the noise can lift land there.
+pub const CONTINENT_WEIGHT: f32 = 0.8;
+/// Distance in tiles from a cell border over which the continent term ramps
+/// from 0 to its full height (smoothstep). The distance to the border is
+/// taken as half the difference between the distances to the nearest two
+/// centres.
+pub const CONTINENT_RAMP_TILES: f32 = 48.0;
+/// Largest displacement in tiles of the point at which the distances to the
+/// continental centres are taken (domain warping by two seamless noise
+/// maps), so cell borders, and the coasts that follow them, wander instead
+/// of running straight.
+pub const CONTINENT_WARP_TILES: f32 = 48.0;
+/// Water within this many tiles (4-neighbour steps, with the torus wrap) of
+/// land is ShallowWater, and all other water is DeepWater, whatever its
+/// elevation: a shelf around every coast and open ocean beyond it.
+pub const SHELF_WIDTH: u32 = 8;
 /// Land at or above this elevation (on the 0..1 side) is Rock, whatever its
 /// moisture, so the highest ground forms ranges.
 pub const ROCK_ABOVE: f32 = 0.75;
@@ -119,22 +145,21 @@ pub struct Tile {
     pub vegetation_density: f32,
 }
 
-impl Tile {
-    fn from_elevation_moisture(elevation: f32, moisture: f32) -> Self {
-        let terrain = if elevation < DEEP_WATER_BELOW {
-            TerrainType::DeepWater
-        } else if elevation < 0.0 {
-            TerrainType::ShallowWater
-        } else if elevation >= ROCK_ABOVE {
-            TerrainType::Rock
-        } else if moisture < SAND_BELOW_MOISTURE {
-            TerrainType::Sand
-        } else if moisture >= FOREST_ABOVE_MOISTURE {
-            TerrainType::Forest
-        } else {
-            TerrainType::Grassland
-        };
+/// Land biome for a tile at or above sea level (elevation 0..1).
+fn land_terrain(elevation: f32, moisture: f32) -> TerrainType {
+    if elevation >= ROCK_ABOVE {
+        TerrainType::Rock
+    } else if moisture < SAND_BELOW_MOISTURE {
+        TerrainType::Sand
+    } else if moisture >= FOREST_ABOVE_MOISTURE {
+        TerrainType::Forest
+    } else {
+        TerrainType::Grassland
+    }
+}
 
+impl Tile {
+    fn new(terrain: TerrainType, elevation: f32, moisture: f32) -> Self {
         let temperature = (1.0 - elevation.max(0.0) * 0.5).clamp(0.2, 1.0);
         let light_level = if terrain.is_water() { 0.6 } else { 1.0 };
         let nutrients = match terrain {
@@ -327,24 +352,60 @@ impl TileMap {
         self.regions.labels[self.index_at_pos(pos)]
     }
 
-    /// Generate a world from two layered value-noise maps.
+    /// Generate a world from two layered value-noise maps and a set of
+    /// continental centres.
     ///
-    /// Elevation is remapped to -1..1 so that water sits below zero; moisture
-    /// stays in the noise map's native 0..1 because the biome thresholds in
-    /// `Tile::from_elevation_moisture` and the vegetation carrying capacity in
-    /// `tile_dynamics_system` both assume that range.
+    /// Elevation is the 0..1 noise plus a continent term (see `CONTINENTS`),
+    /// remapped to -1..1 with sea level at the quantile that leaves
+    /// `LAND_FRACTION` of the tiles as land. Water within `SHELF_WIDTH` of
+    /// land is shallow and the rest deep. Moisture stays in the noise map's
+    /// native 0..1 because the biome thresholds in `land_terrain` and the
+    /// vegetation carrying capacity in `tile_dynamics_system` both assume
+    /// that range.
     pub fn generate(width: u32, height: u32, rng: &mut impl Rng) -> Self {
-        let mut elevation = generate_noise_map(width, height, 5, rng);
-        set_sea_level(&mut elevation, LAND_FRACTION);
-        let moisture = generate_noise_map(width, height, 4, rng);
+        Self::generate_with(width, height, rng, &TerrainParams::DEFAULT)
+    }
 
+    fn generate_with(width: u32, height: u32, rng: &mut impl Rng, p: &TerrainParams) -> Self {
+        let mut elevation = generate_noise_map(width, height, 5, rng);
+        let moisture = generate_noise_map(width, height, 4, rng);
+        let centres = place_continent_centres(width, height, p.continents, p.min_spacing, rng);
+        let warp_x = generate_noise_map(width, height, 4, rng);
+        let warp_y = generate_noise_map(width, height, 4, rng);
+        let warp: Vec<Vec2> = warp_x
+            .iter()
+            .zip(warp_y.iter())
+            .map(|(&wx, &wy)| Vec2::new(wx * 2.0 - 1.0, wy * 2.0 - 1.0) * p.warp)
+            .collect();
+        add_continent_term(
+            width,
+            height,
+            &mut elevation,
+            &centres,
+            &warp,
+            p.weight,
+            p.ramp,
+        );
+        set_sea_level(&mut elevation, LAND_FRACTION);
+
+        let is_land: Vec<bool> = elevation.iter().map(|&e| e >= 0.0).collect();
+        let to_land = distance_to_land(width, height, &is_land);
         let tiles: Vec<Tile> = elevation
             .iter()
             .zip(moisture.iter())
-            .map(|(&e, &m)| Tile::from_elevation_moisture(e, m))
+            .zip(to_land.iter())
+            .map(|((&e, &m), &d)| {
+                let terrain = if e >= 0.0 {
+                    land_terrain(e, m)
+                } else if d <= p.shelf {
+                    TerrainType::ShallowWater
+                } else {
+                    TerrainType::DeepWater
+                };
+                Tile::new(terrain, e, m)
+            })
             .collect();
 
-        let is_land: Vec<bool> = tiles.iter().map(|t| !t.terrain.is_water()).collect();
         let regions = Regions::compute(width, height, &is_land, MINOR_REGION_MAX_TILES);
 
         TileMap {
@@ -354,6 +415,139 @@ impl TileMap {
             regions,
         }
     }
+}
+
+/// The generator's continent and shelf settings, so a test can sweep them.
+/// `generate` always uses `DEFAULT`, built from the named constants.
+#[derive(Clone, Copy, Debug)]
+struct TerrainParams {
+    continents: usize,
+    min_spacing: f32,
+    weight: f32,
+    ramp: f32,
+    warp: f32,
+    shelf: u32,
+}
+
+impl TerrainParams {
+    const DEFAULT: TerrainParams = TerrainParams {
+        continents: CONTINENTS,
+        min_spacing: CONTINENT_MIN_SPACING,
+        weight: CONTINENT_WEIGHT,
+        ramp: CONTINENT_RAMP_TILES,
+        warp: CONTINENT_WARP_TILES,
+        shelf: SHELF_WIDTH,
+    };
+}
+
+/// Shortest distance between two points on a `width` x `height` torus.
+fn torus_distance(a: Vec2, b: Vec2, width: f32, height: f32) -> f32 {
+    let dx = (a.x - b.x).rem_euclid(width);
+    let dy = (a.y - b.y).rem_euclid(height);
+    Vec2::new(dx.min(width - dx), dy.min(height - dy)).length()
+}
+
+/// Draw `count` continental centres uniformly on the torus, rejecting a draw
+/// closer than `min_spacing` x width to a centre already placed. After 1000
+/// rejected draws for one centre the last draw is kept, so the function
+/// always returns `count` centres and always uses a bounded number of draws
+/// for a given seed.
+fn place_continent_centres(
+    width: u32,
+    height: u32,
+    count: usize,
+    min_spacing: f32,
+    rng: &mut impl Rng,
+) -> Vec<Vec2> {
+    let (w, h) = (width as f32, height as f32);
+    let spacing = min_spacing * w;
+    let mut centres: Vec<Vec2> = Vec::with_capacity(count);
+    for _ in 0..count {
+        let mut candidate = Vec2::ZERO;
+        for _ in 0..1000 {
+            candidate = Vec2::new(rng.gen_range(0.0..w), rng.gen_range(0.0..h));
+            if centres
+                .iter()
+                .all(|&c| torus_distance(c, candidate, w, h) >= spacing)
+            {
+                break;
+            }
+        }
+        centres.push(candidate);
+    }
+    centres
+}
+
+/// Add the continent term to a 0..1 elevation map: `weight` times a
+/// smoothstep of the tile's distance to the nearest Voronoi border between
+/// `centres`, reaching full height `ramp` tiles in from the border. The
+/// distance to the border is taken as half the difference between the
+/// distances to the nearest and second-nearest centre, on the torus, from
+/// the tile's centre displaced by its entry in `warp`. With fewer than two
+/// centres there is no border and the map is unchanged.
+fn add_continent_term(
+    width: u32,
+    height: u32,
+    elevation: &mut [f32],
+    centres: &[Vec2],
+    warp: &[Vec2],
+    weight: f32,
+    ramp: f32,
+) {
+    if centres.len() < 2 {
+        return;
+    }
+    let (w, h) = (width as f32, height as f32);
+    for y in 0..height {
+        for x in 0..width {
+            let i = (y * width + x) as usize;
+            let p = Vec2::new(x as f32 + 0.5, y as f32 + 0.5) + warp[i];
+            let (mut d1, mut d2) = (f32::MAX, f32::MAX);
+            for &c in centres {
+                let d = torus_distance(p, c, w, h);
+                if d < d1 {
+                    d2 = d1;
+                    d1 = d;
+                } else if d < d2 {
+                    d2 = d;
+                }
+            }
+            let t = ((d2 - d1) * 0.5 / ramp).clamp(0.0, 1.0);
+            let smooth = t * t * (3.0 - 2.0 * t);
+            elevation[i] += weight * smooth;
+        }
+    }
+}
+
+/// Distance from each tile to the nearest land tile, in 4-neighbour steps
+/// with the torus wrap (0 on land). A multi-source breadth-first search
+/// from every land tile; `u32::MAX` if the map has no land.
+fn distance_to_land(width: u32, height: u32, is_land: &[bool]) -> Vec<u32> {
+    let (w, h) = (width as usize, height as usize);
+    let mut dist = vec![u32::MAX; w * h];
+    let mut queue = std::collections::VecDeque::new();
+    for (i, &land) in is_land.iter().enumerate() {
+        if land {
+            dist[i] = 0;
+            queue.push_back(i);
+        }
+    }
+    while let Some(i) = queue.pop_front() {
+        let (x, y) = (i % w, i / w);
+        let next = dist[i] + 1;
+        for n in [
+            y * w + (x + 1) % w,
+            y * w + (x + w - 1) % w,
+            ((y + 1) % h) * w + x,
+            ((y + h - 1) % h) * w + x,
+        ] {
+            if dist[n] == u32::MAX {
+                dist[n] = next;
+                queue.push_back(n);
+            }
+        }
+    }
+    dist
 }
 
 /// Remap a 0..1 elevation map to -1..1 with sea level at 0, where sea level
@@ -761,8 +955,57 @@ mod tests {
         assert_eq!(regions.labels[1], REGION_WATER);
     }
 
+    /// Distance to land counts 4-neighbour steps and wraps the torus.
+    #[test]
+    fn distance_to_land_wraps_the_torus() {
+        // 5 x 3 torus, land at (0, 0) only.
+        let mut is_land = vec![false; 15];
+        is_land[0] = true;
+        let d = distance_to_land(5, 3, &is_land);
+        assert_eq!(d[0], 0);
+        assert_eq!(d[1], 1);
+        assert_eq!(d[4], 1, "across the x edge");
+        assert_eq!(d[10], 1, "across the y edge");
+        assert_eq!(d[2], 2);
+        assert_eq!(d[7], 3, "(2, 1): two steps in x, one in y");
+    }
+
+    /// Land sizes below which a major region does not count as a landmass
+    /// for `regions_on_the_audit_seeds`' continent assertion.
+    const LARGE_REGION_TILES: u32 = 10_000;
+
+    /// How many major land regions share a component of land and
+    /// ShallowWater with a larger region, i.e. are joined to it by a shelf
+    /// with no deep water in the way.
+    fn regions_bridged_by_shelves(map: &TileMap) -> usize {
+        let not_deep: Vec<bool> = map
+            .tiles
+            .iter()
+            .map(|t| t.terrain != TerrainType::DeepWater)
+            .collect();
+        let shelf = Regions::compute(map.width, map.height, &not_deep, 1);
+        let mut first_region_on: HashMap<u16, u16> = HashMap::new();
+        let mut seen = vec![false; map.regions.count()];
+        let mut bridged = 0;
+        for (i, &label) in map.regions.labels.iter().enumerate() {
+            let region = label as usize;
+            if region >= seen.len() || seen[region] {
+                continue;
+            }
+            seen[region] = true;
+            if first_region_on.insert(shelf.labels[i], label).is_some() {
+                bridged += 1;
+            }
+        }
+        bridged
+    }
+
     /// Region counts and sizes on the eight audit seeds at the default world
-    /// size, for the phase 2 audits. Run with `--nocapture` to read them.
+    /// size, for the phase 2 audits, with shelf and deep-water tile counts
+    /// and whether any shelf joins two major regions. Run with
+    /// `--nocapture` to read them. Asserts at least two large landmasses on
+    /// the default seed (42), and that no shelf bridges a strait on any of
+    /// the eight seeds, which is what `SHELF_WIDTH` was chosen for.
     #[test]
     fn regions_on_the_audit_seeds() {
         for seed in [1u64, 2, 3, 7, 42, 99, 314, 1000] {
@@ -770,12 +1013,20 @@ mod tests {
             let map = TileMap::generate(512, 512, &mut rng);
             let r = &map.regions;
             let land = map.tiles.iter().filter(|t| !t.terrain.is_water()).count();
+            let count = |t: TerrainType| map.tiles.iter().filter(|x| x.terrain == t).count();
+            let (deep, shallow) = (
+                count(TerrainType::DeepWater),
+                count(TerrainType::ShallowWater),
+            );
+            let bridged = regions_bridged_by_shelves(&map);
             println!(
-                "seed {seed}: land {land}, {} major regions {:?}, {} minor components ({} tiles)",
+                "seed {seed}: land {land}, {} major regions {:?}, {} minor components ({} tiles); \
+                 shelf {shallow}, deep {deep} ({:.1}% of water); regions bridged by shelves {bridged}",
                 r.count(),
                 r.sizes,
                 r.minor_components,
-                r.minor_tiles
+                r.minor_tiles,
+                100.0 * deep as f64 / (deep + shallow) as f64
             );
             let is_land: Vec<bool> = map.tiles.iter().map(|t| !t.terrain.is_water()).collect();
             let all = Regions::compute(512, 512, &is_land, 1);
@@ -807,6 +1058,85 @@ mod tests {
             let labelled: u32 = r.sizes.iter().sum::<u32>() + r.minor_tiles;
             assert_eq!(labelled as usize, land, "every land tile has a region");
             assert!(r.sizes.windows(2).all(|p| p[0] >= p[1]), "ranked by size");
+            // Covers the eight audit seeds only. About 9% of other seeds do
+            // bridge at the default shelf width (`shelf-bridges-on-some-seeds`
+            // in TODO.md), so this guards the audit maps, not every seed.
+            assert_eq!(bridged, 0, "seed {seed}: a shelf bridges a strait");
+            if seed == 42 {
+                let large = r.sizes.iter().filter(|&&n| n >= LARGE_REGION_TILES).count();
+                assert!(
+                    large >= 2,
+                    "seed 42 has {large} landmasses of {LARGE_REGION_TILES}+ tiles"
+                );
+            }
+        }
+    }
+
+    /// Sweep of the continent and shelf settings over the eight audit seeds,
+    /// for a tuning pass. Ignored; run with
+    /// `cargo test --release -p clauvolution_world sweep_continent_settings -- --ignored --nocapture`
+    /// and comma-separated values in `CONTINENTS`, `WEIGHT`, `RAMP`, `WARP`
+    /// and `SHELF` (each defaults to its constant). Prints, per setting, the
+    /// seeds with two or more landmasses of `LARGE_REGION_TILES`, the seeds
+    /// with a shelf bridge, and per seed the region sizes and deep share of
+    /// the water.
+    #[test]
+    #[ignore]
+    fn sweep_continent_settings() {
+        let values = |key: &str, default: f32| -> Vec<f32> {
+            std::env::var(key)
+                .map(|v| v.split(',').map(|x| x.trim().parse().unwrap()).collect())
+                .unwrap_or_else(|_| vec![default])
+        };
+        for &continents in &values("CONTINENTS", CONTINENTS as f32) {
+            for &weight in &values("WEIGHT", CONTINENT_WEIGHT) {
+                for &ramp in &values("RAMP", CONTINENT_RAMP_TILES) {
+                    for &warp in &values("WARP", CONTINENT_WARP_TILES) {
+                        for &shelf in &values("SHELF", SHELF_WIDTH as f32) {
+                            let p = TerrainParams {
+                                continents: continents as usize,
+                                min_spacing: CONTINENT_MIN_SPACING,
+                                weight,
+                                ramp,
+                                warp,
+                                shelf: shelf as u32,
+                            };
+                            let (mut multi, mut bridged_seeds) = (0, 0);
+                            let mut lines = String::new();
+                            for seed in [1u64, 2, 3, 7, 42, 99, 314, 1000] {
+                                let mut rng = StdRng::seed_from_u64(seed);
+                                let map = TileMap::generate_with(512, 512, &mut rng, &p);
+                                let large = map
+                                    .regions
+                                    .sizes
+                                    .iter()
+                                    .filter(|&&n| n >= LARGE_REGION_TILES)
+                                    .count();
+                                multi += usize::from(large >= 2);
+                                let bridged = regions_bridged_by_shelves(&map);
+                                bridged_seeds += usize::from(bridged > 0);
+                                let water =
+                                    map.tiles.iter().filter(|t| t.terrain.is_water()).count();
+                                let deep = map
+                                    .tiles
+                                    .iter()
+                                    .filter(|t| t.terrain == TerrainType::DeepWater)
+                                    .count();
+                                lines += &format!(
+                                    "  seed {seed}: {:?} + {} minor tiles, bridged {bridged}, deep {:.0}% of water\n",
+                                    map.regions.sizes,
+                                    map.regions.minor_tiles,
+                                    100.0 * deep as f64 / water as f64
+                                );
+                            }
+                            println!(
+                                "{p:?}: {multi}/8 seeds with 2+ large landmasses, \
+                                 {bridged_seeds}/8 with a shelf bridge\n{lines}"
+                            );
+                        }
+                    }
+                }
+            }
         }
     }
 }
