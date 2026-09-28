@@ -1425,7 +1425,14 @@ fn headless_tick_counter(
     save_report: Res<clauvolution_sim::SaveReport>,
     mut events: EventWriter<clauvolution_core::WorldEventRequest>,
     mut exit: EventWriter<AppExit>,
-    (geo, tile_map): (Res<GeographyStats>, Res<TileMap>),
+    // Grouped to stay within Bevy's 16-parameter limit for systems.
+    (geo, tile_map, organisms, food, fitness): (
+        Res<GeographyStats>,
+        Res<TileMap>,
+        clauvolution_sim::SnapshotOrganisms,
+        Query<&Food>,
+        Res<FitnessTracker>,
+    ),
     // 0 = running, 1 = summary printed + save requested, 2 = waited a frame
     // for save_system to run, 3 = exit sent
     mut phase: Local<u8>,
@@ -1442,6 +1449,25 @@ fn headless_tick_counter(
     }
     match *phase {
         0 => {
+            // The final figures describe the world at the target tick. The
+            // last 1 Hz history snapshot can be up to a second old, and a
+            // short run from a save may not have taken one at all.
+            let live = clauvolution_sim::population_snapshot_input(
+                tick.0,
+                &organisms,
+                food.iter().len() as u32,
+                fitness.avg_lifespan,
+                &config,
+                &tile_map,
+            );
+            // Species 0 is the unclassified bucket founders start in, not a
+            // species; classification never counts it either.
+            let live_species = organisms
+                .iter()
+                .map(|(.., species)| species.0)
+                .filter(|&id| id != 0)
+                .collect::<std::collections::HashSet<_>>()
+                .len();
             print_headless_summary(
                 &stats,
                 &predation,
@@ -1449,6 +1475,8 @@ fn headless_tick_counter(
                 &ledger,
                 &config,
                 founders.as_deref(),
+                &live,
+                live_species,
             );
             print_diet_band_summary(&bands, &predation, &history);
             print_species_pass_summary(&history, founders.is_some());
@@ -1833,20 +1861,19 @@ fn print_headless_summary(
     ledger: &clauvolution_core::EnergyLedger,
     config: &clauvolution_core::SimConfig,
     founders: Option<&clauvolution_sim::FounderReport>,
+    live: &clauvolution_core::PopSnapshotInput,
+    live_species: usize,
 ) {
     eprintln!();
-    // Population is read from the last 1Hz snapshot so it matches the
-    // strategy breakdown below exactly.
-    let latest = history.snapshots.last();
+    // Population, species, the strategy breakdown and the trait averages are
+    // all read from `live`, the world at the target tick, so they describe
+    // the same organisms.
     eprintln!("=== Headless summary ===");
     if let Some(f) = founders {
         eprintln!("{f}");
     }
-    eprintln!(
-        "Total organisms (final): {}",
-        latest.map(|s| s.organisms).unwrap_or(0)
-    );
-    eprintln!("Species (final):         {}", stats.species_count);
+    eprintln!("Total organisms (final): {}", live.organisms);
+    eprintln!("Species (final):         {}", live_species);
     eprintln!("Max generation:          {}", stats.max_generation);
     eprintln!("Total births:            {}", stats.total_births);
     eprintln!("Total deaths:            {}", stats.total_deaths);
@@ -1892,41 +1919,39 @@ fn print_headless_summary(
         "Population ceiling:      {} (engaged {} times, {} births blocked)",
         config.population_ceiling, stats.ceiling_episodes, stats.ceiling_blocked_births
     );
-    if let Some(latest) = latest {
-        eprintln!();
-        eprintln!("Final strategy breakdown:");
-        eprintln!("  Plants:              {}", latest.plants);
-        eprintln!("  Grazers:             {}", latest.grazers);
-        eprintln!("  Hunters:             {}", latest.hunters);
-        eprintln!("  Omnivores:           {}", latest.omnivores);
-        eprintln!("  Infected:            {}", latest.infected);
-        eprintln!();
-        eprintln!("Final trait averages:");
-        eprintln!("  Body size:           {:.2}", latest.avg_body_size);
-        eprintln!("  Speed:               {:.2}", latest.avg_speed);
-        eprintln!("  Attack:              {:.2}", latest.avg_attack);
-        eprintln!("  Armor:               {:.2}", latest.avg_armor);
-        eprintln!("  Photosynthesis:      {:.0}%", latest.avg_photo * 100.0);
-        eprintln!("  Diet (consumers):    {:+.2}", latest.avg_diet);
-        eprintln!("  Leaf area (plants):  {:.2}", latest.avg_photo_area);
-        eprintln!(
-            "  Speed plants/eaters: {:.3} / {:.3} per tick",
-            latest.avg_speed_plants, latest.avg_speed_eaters
-        );
-        eprintln!("  Light share (plants): {:.2}", latest.avg_light_share);
-        eprintln!(
-            "  Ready plants/eaters: {:.0}% / {:.0}%",
-            latest.ready_share_plants * 100.0,
-            latest.ready_share_eaters * 100.0
-        );
-        eprintln!(
-            "  Disease resistance:  {:.0}%",
-            latest.avg_disease_resistance * 100.0
-        );
-        eprintln!("  Symbiosis rate:      {:+.2}", latest.avg_symbiosis_rate);
-        eprintln!("  Symbiotic pairs:     {}", latest.symbiotic_pairs);
-        eprintln!("  Avg lifespan:        {:.0} ticks", latest.avg_lifespan);
-    }
+    eprintln!();
+    eprintln!("Final strategy breakdown:");
+    eprintln!("  Plants:              {}", live.plants);
+    eprintln!("  Grazers:             {}", live.grazers);
+    eprintln!("  Hunters:             {}", live.hunters);
+    eprintln!("  Omnivores:           {}", live.omnivores);
+    eprintln!("  Infected:            {}", live.infected);
+    eprintln!();
+    eprintln!("Final trait averages:");
+    eprintln!("  Body size:           {:.2}", live.avg_body_size);
+    eprintln!("  Speed:               {:.2}", live.avg_speed);
+    eprintln!("  Attack:              {:.2}", live.avg_attack);
+    eprintln!("  Armor:               {:.2}", live.avg_armor);
+    eprintln!("  Photosynthesis:      {:.0}%", live.avg_photo * 100.0);
+    eprintln!("  Diet (consumers):    {:+.2}", live.avg_diet);
+    eprintln!("  Leaf area (plants):  {:.2}", live.avg_photo_area);
+    eprintln!(
+        "  Speed plants/eaters: {:.3} / {:.3} per tick",
+        live.avg_speed_plants, live.avg_speed_eaters
+    );
+    eprintln!("  Light share (plants): {:.2}", live.avg_light_share);
+    eprintln!(
+        "  Ready plants/eaters: {:.0}% / {:.0}%",
+        live.ready_share_plants * 100.0,
+        live.ready_share_eaters * 100.0
+    );
+    eprintln!(
+        "  Disease resistance:  {:.0}%",
+        live.avg_disease_resistance * 100.0
+    );
+    eprintln!("  Symbiosis rate:      {:+.2}", live.avg_symbiosis_rate);
+    eprintln!("  Symbiotic pairs:     {}", live.symbiotic_pairs);
+    eprintln!("  Avg lifespan:        {:.0} ticks", live.avg_lifespan);
     print_grazer_timeline(history, config);
     eprintln!();
     eprintln!("Predation funnel:");
