@@ -18,6 +18,8 @@ permissions:
 
 jobs:
   markers:
+    # Editing the description of a merged or closed PR does not re-check it.
+    if: github.event.pull_request.state == 'open'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
