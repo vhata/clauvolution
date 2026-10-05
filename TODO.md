@@ -17,12 +17,15 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
   - Source: docs/ROADMAP.md (Backlog), 2026-09-16
   - Related: `gpu-brain-compute-shader`, `gpu-instanced-rendering`
 - [TOOLING] `ci-scripted-tour-software-renderer` — **Try running the scripted tour in CI under a software renderer.** The smoke job exercises headless mode only, so a change that breaks the window, egui panels, or screenshot path is caught by nobody until a human runs a release build.
-  - Starting point: Mesa's `llvmpipe` (`LIBGL_ALWAYS_SOFTWARE=1` or Vulkan `lavapipe`) on `ubuntu-latest`, running `--script tours/demo.json` and asserting the PNGs were written. Expect flakiness; `docs/QUALITY.md` lists it as out of scope for the first CI pass.
+  - Starting point: Mesa's `llvmpipe` (`LIBGL_ALWAYS_SOFTWARE=1` or Vulkan `lavapipe`) on `ubuntu-latest`, running `--script tours/demo.json` and asserting the PNGs were written. Expect flakiness; `docs/QUALITY.md` ("What stays manual") keeps GUI verification manual for now.
   - Source: tooling/quality-gates branch, 2026-09-18
   - Related: `screenshot-tour-egui-path` (review backlog)
 
 ### Unprioritized
 
+- [TOOLING] `cargo-audit-advisory-job` — **Run `cargo audit` weekly as an advisory job in the probe workflow.** Known advisories in dependencies would surface without anyone looking, at almost no runner cost.
+  - Starting point: Decide whether advisories are worth watching at all for a simulator with no network surface; if so, a non-blocking job in `.github/workflows/probe.yml` on the weekly schedule, reporting to the job summary.
+  - Source: task/workflow-docs-repair, 2026-10-04 (suggested in the previous `docs/QUALITY.md`, dropped from it when it was rewritten to describe current state)
 - [TOOLING] `headless-save-ticks-past-summary` — **A headless run saves several ticks after the tick its summary describes.** The summary is printed when the target tick is reached, but the save is requested by event and written by `save_system` in `Update` a frame or two later, while `FixedUpdate` keeps ticking, so the save and the summary disagree.
   - Evidence: on seed 42, `--headless 300 --save-as review-a` prints its summary at tick 301 (1,636 organisms) and saves at tick 310 (1,719); `--load sessions/review-a --headless 10 --save-as review-b` prints 1,786 and saves 1,837 at tick 330. A `--load X --headless N` chain therefore runs more than N ticks per link.
   - Starting point: `headless_tick_counter` in `crates/clauvolution_app/src/main.rs`. Options are writing the save synchronously at the summary, or stopping the sim at the target tick while the save and exit phases run; either changes what a save holds, so check the headless smoke and any saved-session workflows.

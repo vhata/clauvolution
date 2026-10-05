@@ -11,6 +11,10 @@
 # Claude Code local state (agent worktrees, local settings)
 /.claude/
 
+# Unattended-work records: draft PR bodies and the decision audit log (see AGENTS.md)
+/.feral/
+/AUDIT.md
+
 # Quality gate outputs (scripts/smoke.sh, scripts/probe.sh)
 /smoke.txt
 /probe-out/

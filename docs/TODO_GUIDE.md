@@ -112,7 +112,7 @@ Recheck worktrees and branches after creating yours; if another one took the sam
 
 ### Claim a roadmap item
 
-A roadmap item is claimed directly and needs no `TODO.md` entry. Derive a short kebab-case slug from its heading, so `### Species range heatmap` becomes `species-range-heatmap`, then run the same claim checks against that slug and branch as `roadmap/<slug>`. When the work lands, update the roadmap section in the same pull request so the roadmap reflects what is now true.
+A roadmap item is claimed directly and needs no `TODO.md` entry. Derive a short kebab-case slug from its heading, so `### Species range heatmap` becomes `species-range-heatmap`, then run the same claim checks against that slug and branch as `roadmap/<slug>`. Work on one step of a plan in `plans/` uses that step's slug: the plan's own slug for the step if it names one, otherwise the kebab-case of the step heading without its number, so `### 4. Continents and shallow shelves` becomes `continents-and-shallow-shelves`. The branch is `roadmap/<step-slug>` and the markers use the same slug, which is what the marker check enforces. The draft pull request carries `Claims roadmap: <slug>` with the branch slug, as described under [Claim markers](#claim-markers). When the work lands, update the roadmap section, or the step's status in the plan, in the same pull request so both reflect what is now true; see [Resolution markers](#resolution-markers).
 
 ### Write the pull request description as a commit message
 
@@ -126,12 +126,15 @@ Order the description as follows.
 2. What changed, at the level of behavior and structure rather than a file-by-file diff summary.
 3. Claim or resolution markers.
 4. Validation instructions: what to run or watch to confirm the change works.
+5. `## Review`: the record of the separate reviewer agent's review, as described in [`AGENTS.md`](../AGENTS.md) and the pull request template.
 
 Keep `## Why` first as the draft evolves. The user merges. The agent merges only when told to in that same turn, using a squash merge that preserves the full description as the commit body, and confirms afterwards that the resulting commit body is not just the subject line.
 
 ### Claim markers
 
-Once the branch has its first meaningful commit, open a draft pull request. For a `TODO.md` entry, include `Claims TODO: <slug>`. For a `review/BACKLOG.md` entry, include `Claims review backlog: <slug>` plus `Claims review finding: <finding-slug>` for each raw finding in scope. For a raw finding selected under the direct-selection exception in [`CODE_REVIEW_GUIDE.md`](CODE_REVIEW_GUIDE.md), include only `Claims review finding: <finding-slug>`. Leave the source entry intact while work is underway. If a draft pull request cannot be created, report that the claim is not globally visible and do not remove the entry. If the work is abandoned, close the draft pull request so the entry is visibly available again.
+Once the branch has its first meaningful commit, open a draft pull request. For a `TODO.md` entry, include `Claims TODO: <slug>`. For a `review/BACKLOG.md` entry, include `Claims review backlog: <slug>` plus `Claims review finding: <finding-slug>` for each raw finding in scope. For a raw finding selected under the direct-selection exception in [`CODE_REVIEW_GUIDE.md`](CODE_REVIEW_GUIDE.md), include only `Claims review finding: <finding-slug>`. For a roadmap item on a `roadmap/<slug>` branch, include `Claims roadmap: <slug>`, using the branch slug; for a plan step that is the step's slug. Leave the source entry intact while work is underway. If a draft pull request cannot be created, report that the claim is not globally visible and do not remove the entry. If the work is abandoned, close the draft pull request so the entry is visibly available again.
+
+Claim and resolution markers are searched for as plain text, so write each one on its own line, in the exact text given in this guide, with no backticks or other formatting and nothing after the slug.
 
 ### Focus a batched review backlog entry
 
@@ -152,6 +155,7 @@ Before marking the pull request ready for review, verify the implementation agai
 - For a partial `TODO.md` resolution, remove the original entry and add a new entry describing only the remaining work. Give it a new slug, reassess its workflow stage, priority, and area, and add `Remaining from: <original-slug>`. Include `Partially resolves TODO: <original-slug>` and `Remaining TODO: <new-slug>` in the pull request description.
 - For a full `review/BACKLOG.md` resolution, remove the entry and change its claim marker to `Resolves review backlog: <slug>`.
 - For a partial `review/BACKLOG.md` resolution, replace the original with a newly prioritized remainder that lists only the open findings, has a new slug, and includes `Remaining from: <original-slug>`. Use `Partially resolves review backlog: <original-slug>` and `Remaining review backlog: <new-slug>` in the pull request description.
+- For a roadmap item, update the roadmap section, or the plan's step status for a plan step, in the same pull request and change the claim marker to `Resolves roadmap: <slug>`.
 - Remove a rejected or obsolete entry only when the reason is documented in the associated pull request.
 - Whenever an entry is removed, search both backlogs for its slug and update or remove the `Related` lines that name it. Deleted entries otherwise leave dangling references that only an incremental review catches.
 
