@@ -23,7 +23,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # The script reads the queues at the base branch and at the PR head.
+          # The script reads the queues at the base branch and at HEAD, the
+          # merge commit of the PR into its base.
           fetch-depth: 0
 
       - name: Check markers
@@ -34,11 +35,10 @@ jobs:
           BODY: ${{ github.event.pull_request.body }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           printf '%s\n' "$BODY" | tr -d '\r' > "$RUNNER_TEMP/pr-body.md"
           bash scripts/workflow/check-pr-markers.sh \
             --body "$RUNNER_TEMP/pr-body.md" \
             --base "origin/$BASE_REF" \
-            --head "$HEAD_SHA" \
+            --head HEAD \
             --branch "$HEAD_REF"
