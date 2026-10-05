@@ -17,7 +17,7 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
   - Source: docs/ROADMAP.md (Backlog), 2026-09-16
   - Related: `gpu-brain-compute-shader`, `gpu-instanced-rendering`
 - [TOOLING] `ci-scripted-tour-software-renderer` — **Try running the scripted tour in CI under a software renderer.** The smoke job exercises headless mode only, so a change that breaks the window, egui panels, or screenshot path is caught by nobody until a human runs a release build.
-  - Starting point: Mesa's `llvmpipe` (`LIBGL_ALWAYS_SOFTWARE=1` or Vulkan `lavapipe`) on `ubuntu-latest`, running `--script tours/demo.json` and asserting the PNGs were written. Expect flakiness; `docs/QUALITY.md` lists it as out of scope for the first CI pass.
+  - Starting point: Mesa's `llvmpipe` (`LIBGL_ALWAYS_SOFTWARE=1` or Vulkan `lavapipe`) on `ubuntu-latest`, running `--script tours/demo.json` and asserting the PNGs were written. Expect flakiness; `docs/QUALITY.md` ("What stays manual") keeps GUI verification manual for now.
   - Source: tooling/quality-gates branch, 2026-09-18
   - Related: `screenshot-tour-egui-path` (review backlog)
 
