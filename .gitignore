@@ -11,6 +11,9 @@
 # Claude Code local state (agent worktrees, local settings)
 /.claude/
 
+# Worktrees created by scripts/workflow/start-work.sh
+/.worktrees/
+
 # Unattended-work records: draft PR bodies and the decision audit log (see AGENTS.md)
 /.feral/
 /AUDIT.md
