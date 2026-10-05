@@ -126,6 +126,7 @@ Order the description as follows.
 2. What changed, at the level of behavior and structure rather than a file-by-file diff summary.
 3. Claim or resolution markers.
 4. Validation instructions: what to run or watch to confirm the change works.
+5. `## Review`: the record of the separate reviewer agent's review, as described in [`AGENTS.md`](../AGENTS.md) and the pull request template.
 
 Keep `## Why` first as the draft evolves. The user merges. The agent merges only when told to in that same turn, using a squash merge that preserves the full description as the commit body, and confirms afterwards that the resulting commit body is not just the subject line.
 
