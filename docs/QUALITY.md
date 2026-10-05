@@ -29,7 +29,7 @@ Every check is a standalone shell script in `scripts/`, runnable on its own and 
 
 "Yes" in the CI on PR column means the job is a required check that must pass before the PR can merge (see [Branch protection](#branch-protection)). "Yes" in the CI on `main` column means the job runs again on each push to `main`; by then the change is merged, so a red run there is a signal to act on, not a block. Everything in the pre-commit and pre-push columns is a fast local mirror of the same gate, so a red CI run should be a surprise, not a discovery. Each local gate runs at one hook, not both: the format check and clippy already run on every commit, so a push normally carries only commits that already passed them, and repeating them at push time would add wait for little gain. A commit made with the hooks bypassed (`LEFTHOOK=0` or `--no-verify`) is caught by CI instead. The authoritative list of what runs where is `lefthook.yml`.
 
-With a warm cache the format check takes well under a second and clippy after editing a root crate takes about one second, which is what keeps both inside the commit hook's budget. A cold cache (after a toolchain change or `cargo clean`) takes minutes once.
+With a warm cache the format check takes well under a second and clippy after editing a root crate takes about one second, which is what keeps both inside the commit hook's budget of about two seconds. A cold cache (after a toolchain change or `cargo clean`) takes minutes once.
 
 ### Formatting
 
