@@ -702,7 +702,6 @@ Bands in brackets held under 100,000 consumer organism-ticks over the run.
 **Why:** a save and an exported creature are the only ways to carry a lineage across a code change, and the migration is one function with an exact behavioural guarantee.
 **Accepted tradeoff:** hidden neuron ids in a migrated genome differ from those in the file. Hidden ids are per-genome (`max + 1` at the split), so the shift applies to every genome in a loaded world alike and matching between them is kept. The rule assumes inputs are appended; a future change that inserts an input in the middle, or adds outputs, needs its own migration step.
 
-
 ## Tooling & workflow
 
 ### Quality gates: standalone scripts, lefthook hooks, an exact toolchain pin
