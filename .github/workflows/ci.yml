@@ -1,6 +1,5 @@
 # Merge-blocking checks. Every job runs the scripts in scripts/, so a local
-# scripts/check.sh, scripts/smoke.sh and the scripts/workflow/ checks
-# reproduce them. See docs/QUALITY.md.
+# scripts/check.sh and scripts/smoke.sh reproduce them. See docs/QUALITY.md.
 name: CI
 
 on:
