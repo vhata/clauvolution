@@ -41,7 +41,7 @@ Requires Rust (the version pinned in `rust-toolchain.toml`, installed by `rustup
 
 ```bash
 scripts/setup.sh      # install the git hooks (needs lefthook: brew install lefthook)
-scripts/check.sh      # format check, clippy with warnings denied, tests; same gates as CI
+scripts/check.sh      # queue and link checks, format check, clippy with warnings denied, tests; same gates as CI
 scripts/smoke.sh      # release build plus a short headless run, as CI runs it
 ```
 
