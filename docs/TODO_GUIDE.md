@@ -112,7 +112,7 @@ Recheck worktrees and branches after creating yours; if another one took the sam
 
 ### Claim a roadmap item
 
-A roadmap item is claimed directly and needs no `TODO.md` entry. Derive a short kebab-case slug from its heading, so `### Species range heatmap` becomes `species-range-heatmap`, then run the same claim checks against that slug and branch as `roadmap/<slug>`. Work on one step of a plan in `plans/` uses that step's slug. The draft pull request carries `Claims roadmap: <slug>` with the branch slug, as described under [Claim markers](#claim-markers). When the work lands, update the roadmap section, or the step's status in the plan, in the same pull request so both reflect what is now true; see [Resolution markers](#resolution-markers).
+A roadmap item is claimed directly and needs no `TODO.md` entry. Derive a short kebab-case slug from its heading, so `### Species range heatmap` becomes `species-range-heatmap`, then run the same claim checks against that slug and branch as `roadmap/<slug>`. Work on one step of a plan in `plans/` uses that step's slug: the plan's own slug for the step if it names one, otherwise the kebab-case of the step heading without its number, so `### 4. Continents and shallow shelves` becomes `continents-and-shallow-shelves`. The branch is `roadmap/<step-slug>` and the markers use the same slug, which is what the marker check enforces. The draft pull request carries `Claims roadmap: <slug>` with the branch slug, as described under [Claim markers](#claim-markers). When the work lands, update the roadmap section, or the step's status in the plan, in the same pull request so both reflect what is now true; see [Resolution markers](#resolution-markers).
 
 ### Write the pull request description as a commit message
 
