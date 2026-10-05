@@ -15,7 +15,7 @@ An evolution simulator built in Rust and Bevy 0.15. Organisms with NEAT neural n
 - **Concurrent work uses git worktrees**, one per branch, named after the work's slug. Check open PRs, `git worktree list`, and `git branch -a` before claiming anything.
 - **Parallel agents** may take independent items, each in its own worktree with disjoint file ownership. The coordinating agent serialises edits to the queue files and holds push and merge. At most four heavy builds or headless runs at once.
 - **Warn the user before anything that opens a window** (any non-headless run). Sub-agents never open a GUI; they use headless mode.
-- **Unattended work** under a broad autonomy grant, with no explicit ask to open PRs, stays on local branches. Finished PR bodies go in `.feral/pr-<slug>.md`, and each load-bearing decision goes in `AUDIT.md` with an undo line. Both paths are excluded from git locally. No pushes, merges, or tags without the user's word.
+- **Unattended work** under a broad autonomy grant, with no explicit ask to open PRs, stays on local branches. Finished PR bodies go in `.feral/pr-<slug>.md`, and each load-bearing decision goes in `AUDIT.md` with an undo line. Both are git-ignored. No pushes, merges, or tags without the user's word.
 - Commit regularly within the branch. No leaving work uncommitted.
 - **Run `scripts/check.sh` before opening or updating a pull request.** It runs the same format, lint, and test gates as CI. `scripts/setup.sh` installs the git hooks that run them automatically. See `docs/QUALITY.md` for what is gated and why.
 - No `Co-Authored-By` trailers in commit messages. Credits live in the README.
