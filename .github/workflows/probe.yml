@@ -190,3 +190,28 @@ jobs:
           path: probe-out/
           retention-days: 90
           if-no-files-found: warn
+
+  review-due:
+    # Says whether a codebase review is due, from churn under crates/ since the
+    # last review recorded in review/README.md. A report, not a gate: the script
+    # exits 0 whatever its verdict and fails only on its own errors.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The script measures commits and churn since the reviewed commit.
+          fetch-depth: 0
+
+      - name: Review due
+        run: |
+          bash scripts/workflow/review-due.sh --paths crates > review-due.txt
+          cat review-due.txt
+          {
+            echo '## Codebase review due check'
+            echo
+            echo '```'
+            cat review-due.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
