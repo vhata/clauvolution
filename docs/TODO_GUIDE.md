@@ -102,11 +102,15 @@ Before starting, check both places where another worker may already have claimed
 
 For an entry in `review/BACKLOG.md`, repeat both checks for every slug in its `Findings` line. A worker may have been explicitly assigned one raw finding without claiming the mapped batch entry. Also follow each raw finding to any other review backlog entry that names it, then search for that entry's slug; the mapped backlog branch is the normal provisional claim even when its name does not contain every underlying finding slug.
 
+`bash scripts/workflow/claim-check.sh <slug>` runs both checks, plus a search of merged pull requests for work that already carried the slug, and exits 1 when it finds any claim. For a review backlog slug it also checks every slug in the entry's `Findings` line. It does not follow a raw finding to other backlog entries that name it; do that step by hand.
+
 If either search finds another claim, pause and ask the user before duplicating the work. After selecting an unclaimed entry, immediately create the branch and its worktree, before investigating or implementing, so later workers can discover the provisional claim. Name the branch after the queue and the slug:
 
 - `todo/<slug>` for a `TODO.md` entry.
 - `review/<slug>` for a `review/BACKLOG.md` entry.
 - `roadmap/<slug>` for a roadmap item.
+
+`bash scripts/workflow/start-work.sh <queue> <slug>`, with queue `todo`, `review` or `roadmap`, runs the claim check and then creates the branch `<queue>/<slug>` from `origin/main` and its worktree at `.worktrees/<queue>-<slug>`.
 
 Recheck worktrees and branches after creating yours; if another one took the same slug concurrently, pause before either proceeds.
 
@@ -135,6 +139,8 @@ Keep `## Why` first as the draft evolves. The user merges. The agent merges only
 Once the branch has its first meaningful commit, open a draft pull request. For a `TODO.md` entry, include `Claims TODO: <slug>`. For a `review/BACKLOG.md` entry, include `Claims review backlog: <slug>` plus `Claims review finding: <finding-slug>` for each raw finding in scope. For a raw finding selected under the direct-selection exception in [`CODE_REVIEW_GUIDE.md`](CODE_REVIEW_GUIDE.md), include only `Claims review finding: <finding-slug>`. For a roadmap item on a `roadmap/<slug>` branch, include `Claims roadmap: <slug>`, using the branch slug; for a plan step that is the step's slug. Leave the source entry intact while work is underway. If a draft pull request cannot be created, report that the claim is not globally visible and do not remove the entry. If the work is abandoned, close the draft pull request so the entry is visibly available again.
 
 Claim and resolution markers are searched for as plain text, so write each one on its own line, in the exact text given in this guide, with no backticks or other formatting and nothing after the slug.
+
+CI validates the description. `.github/workflows/pr-markers.yml` runs `scripts/workflow/check-pr-markers.sh` whenever an open pull request is opened, edited, reopened, pushed to, or marked ready. It requires `## Why` as the first heading, rejects malformed marker lines, checks each marker against `TODO.md` and `review/BACKLOG.md` at the base branch and at the merge commit (a claimed entry must still exist; a resolved entry must have existed at the base and be gone), and fails a `todo/`, `review/` or `roadmap/` branch whose description has no marker for the branch slug. Editing the description re-runs only this check. To run it locally from the branch: `bash scripts/workflow/check-pr-markers.sh --pr <number>`.
 
 ### Focus a batched review backlog entry
 

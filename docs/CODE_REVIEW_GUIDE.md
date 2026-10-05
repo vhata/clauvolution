@@ -78,7 +78,7 @@ One finding is one thing that can be independently fixed and independently verif
 Both kinds of review start from the same checks. Run them at the reviewed commit and record each result in the header table.
 
 ```bash
-scripts/check.sh                                   # format check, clippy with warnings denied, cargo test
+scripts/check.sh                                   # queue and link checks, format check, clippy with warnings denied, cargo test
 cargo build --release
 cargo run --release -- --headless 1000 --seed 42
 cargo run --release -- --screenshot

@@ -1,0 +1,46 @@
+# Checks a PR description against the work queues: "## Why" first, exact
+# marker lines, markers consistent with TODO.md and review/BACKLOG.md at base
+# and head, and a marker on todo/, review/ and roadmap/ branches. Separate
+# from CI so that editing the description re-runs only this check.
+# Local equivalent: scripts/workflow/check-pr-markers.sh. See docs/QUALITY.md.
+name: PR markers
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize, ready_for_review]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  markers:
+    # Editing the description of a merged or closed PR does not re-check it.
+    if: github.event.pull_request.state == 'open'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The script reads the queues at the base branch and at HEAD, the
+          # merge commit of the PR into its base.
+          fetch-depth: 0
+
+      - name: Check markers
+        # The body and branch name are untrusted input: pass them through the
+        # environment, never interpolated into the script. Bodies edited on
+        # the web carry CRLF line endings, which the exact marker match rejects.
+        env:
+          BODY: ${{ github.event.pull_request.body }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          printf '%s\n' "$BODY" | tr -d '\r' > "$RUNNER_TEMP/pr-body.md"
+          bash scripts/workflow/check-pr-markers.sh \
+            --body "$RUNNER_TEMP/pr-body.md" \
+            --base "origin/$BASE_REF" \
+            --head HEAD \
+            --branch "$HEAD_REF"

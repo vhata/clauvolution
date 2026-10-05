@@ -1,4 +1,4 @@
-# Merge-blocking checks. Both jobs run the scripts in scripts/, so a local
+# Merge-blocking checks. Every job runs the scripts in scripts/, so a local
 # scripts/check.sh and scripts/smoke.sh reproduce them. See docs/QUALITY.md.
 name: CI
 
@@ -7,11 +7,26 @@ on:
   push:
     branches: [main]
 
+# A new push to a PR cancels the superseded run. Pushes to main get a group
+# per commit, so a burst of merges neither cancels nor replaces a queued run.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  queues:
+    # Queue structure and relative Markdown links. Shell and awk only, no toolchain.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Queues
+        run: bash scripts/workflow/check-queues.sh --strict
+
+      - name: Links
+        run: bash scripts/workflow/check-links.sh
+
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 60
