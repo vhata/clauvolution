@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  workflow:
+  queues:
     # Queue structure and relative Markdown links. Shell and awk only, no toolchain.
     runs-on: ubuntu-latest
     timeout-minutes: 5
