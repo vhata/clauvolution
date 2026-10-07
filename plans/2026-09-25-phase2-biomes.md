@@ -1,6 +1,6 @@
 # Plan: phase 2, biomes as pressure and barrier, on the two-level pyramid
 
-**Status:** planned 2026-09-25. Not started.
+**Status:** planned 2026-09-25. In progress: steps 1-4 landed (#86, #87, #89, #92); step 5 started 2026-10-06.
 **Scope:** phase 2 of `docs/design/simulation-rules.md` ("Phase 2: biomes as pressure and barrier"), started on the plants-and-grazers pyramid as the design's "Pyramid-top outcome" allows. Takes `move-cost-table-by-tile`, `oceans-as-habitat` and `biome-threshold-retune` from `TODO.md`. Parks `hunter-emergence`; see "Decisions to take". Re-measures `consumer-ceiling-regulation` and `species-count-above-tuned-band` in its audits but does not work them.
 
 ## Why
