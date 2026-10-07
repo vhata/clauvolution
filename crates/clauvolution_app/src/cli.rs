@@ -533,6 +533,7 @@ mod tests {
             ("--diet-exponent", config.diet_efficiency_exponent),
             ("--max-energy", config.max_organism_energy),
             ("--max-food-density", config.max_food_density),
+            ("--water-vegetation", config.water_vegetation),
         ];
         for f in FLAGS {
             if !matches!(f.value, Value::Float(_)) || f.name == "--speed" {
