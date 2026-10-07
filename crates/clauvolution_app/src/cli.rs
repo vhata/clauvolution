@@ -232,6 +232,12 @@ pub const FLAGS: &[Flag] = &[
         "N",
         "override population_ceiling",
     ),
+    flag(
+        "--water-vegetation",
+        Value::Float(Range::NonNegative),
+        "M",
+        "override water_vegetation (shallow-water vegetation capacity; above 0 also founds life there)",
+    ),
 ];
 
 /// What `main` should do after the check.

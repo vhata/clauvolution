@@ -13,7 +13,7 @@ use clauvolution_render::{MainCamera, RenderPlugin};
 use clauvolution_sim::save;
 use clauvolution_sim::{SimPlugin, SimTick};
 use clauvolution_ui::UiPlugin;
-use clauvolution_world::{self, TileMap, WorldPlugin};
+use clauvolution_world::{self, TerrainType, TileMap, WorldPlugin};
 use rand::SeedableRng;
 use script::{load_script, script_runner_system, ScriptState};
 
@@ -1188,6 +1188,37 @@ fn print_geography_summary(run: &GeographyStats, history: &PopulationHistory, ti
         pct(run.food_eaten_on_water[0] as f64, run.food_eaten as f64),
         pct(run.food_eaten_on_water[1] as f64, run.food_eaten as f64)
     );
+    // Water vegetation comes from niche construction and, with
+    // `--water-vegetation`, from tile dynamics on shallow water; it feeds
+    // the food-item spawn chance read above.
+    const TERRAINS: [TerrainType; 6] = [
+        TerrainType::DeepWater,
+        TerrainType::ShallowWater,
+        TerrainType::Sand,
+        TerrainType::Grassland,
+        TerrainType::Forest,
+        TerrainType::Rock,
+    ];
+    let veg: Vec<String> = TERRAINS
+        .iter()
+        .map(|&terrain| {
+            let (mut sum, mut tiles, mut above) = (0.0f64, 0u32, 0u32);
+            for tile in tile_map.tiles.iter().filter(|t| t.terrain == terrain) {
+                sum += tile.vegetation_density as f64;
+                tiles += 1;
+                above += u32::from(tile.vegetation_density > 0.0);
+            }
+            format!(
+                "{terrain:?} {:.3} ({:.1}% of tiles above 0)",
+                sum / tiles.max(1) as f64,
+                pct(above as f64, tiles as f64)
+            )
+        })
+        .collect();
+    eprintln!(
+        "  Vegetation at the end, mean by terrain: {}",
+        veg.join(", ")
+    );
 
     let settled: Vec<&PopSnapshot> = history
         .snapshots
@@ -1284,6 +1315,7 @@ struct ConfigOverrides {
     max_energy: Option<f32>,
     max_food_density: Option<f32>,
     population_ceiling: Option<u32>,
+    water_vegetation: Option<f32>,
 }
 
 impl ConfigOverrides {
@@ -1311,6 +1343,7 @@ impl ConfigOverrides {
             max_energy: flag(args, "--max-energy"),
             max_food_density: flag(args, "--max-food-density"),
             population_ceiling: flag(args, "--population-ceiling"),
+            water_vegetation: flag(args, "--water-vegetation"),
         }
     }
 }
@@ -1393,6 +1426,11 @@ fn apply_config_overrides(overrides: Res<ConfigOverrides>, mut config: ResMut<Si
         &mut config.population_ceiling,
         overrides.population_ceiling,
         "population_ceiling",
+    );
+    set(
+        &mut config.water_vegetation,
+        overrides.water_vegetation,
+        "water_vegetation",
     );
 }
 

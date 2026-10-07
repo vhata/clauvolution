@@ -320,6 +320,16 @@ pub struct SimConfig {
     /// as the historical cap until 2026-09-20; see DECISIONS.md "Emergent
     /// carrying capacity".
     pub population_ceiling: u32,
+    /// Multiplier on the vegetation carrying capacity (`nutrients ×
+    /// moisture`) of ShallowWater tiles in `tile_dynamics_system`. 0, the
+    /// default, leaves water out of tile dynamics as before, so water
+    /// vegetation comes only from niche construction and never decays; any
+    /// value above 0 makes shallow water relax toward `water_vegetation ×
+    /// nutrients × moisture` like land does, and adds ShallowWater to the
+    /// founding biomes. Deep water stays out of tile dynamics at every
+    /// value. See `docs/DECISIONS.md`, "Water vegetation as a knob".
+    /// Overridable with `--water-vegetation`.
+    pub water_vegetation: f32,
 }
 
 impl Default for SimConfig {
@@ -359,6 +369,7 @@ impl Default for SimConfig {
             species_compat_threshold: 1.0,
             terrain_seed: rand::random(),
             population_ceiling: 6000,
+            water_vegetation: 0.0,
         }
     }
 }
