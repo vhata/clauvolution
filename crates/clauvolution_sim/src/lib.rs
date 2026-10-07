@@ -3552,10 +3552,10 @@ pub fn founding_biomes(config: &SimConfig) -> &'static [TerrainType] {
 }
 
 /// Minimum share of the founding population a biome receives once its area
-/// is meaningful, so no land biome starts empty.
+/// is meaningful, so no founding biome starts empty.
 const FOUNDER_FLOOR_SHARE: f32 = 0.05;
 
-/// A biome's share of founding-biome land must reach this for the floor to
+/// A biome's share of the founding area must reach this for the floor to
 /// apply; smaller patches take only their proportional share.
 const FOUNDER_MEANINGFUL_AREA_SHARE: f32 = 0.01;
 
@@ -3572,11 +3572,12 @@ pub fn reproduction_threshold(config: &SimConfig, body_size: f32) -> f32 {
 }
 
 /// Split `total` founders across biomes in proportion to `areas` (tile counts,
-/// one per entry of `FOUNDING_BIOMES`). Shares are rounded by largest
+/// one per entry of `founding_biomes(config)`). Shares are rounded by largest
 /// remainder so the result sums to `total`. A biome with no tiles gets none;
 /// a biome holding at least `FOUNDER_MEANINGFUL_AREA_SHARE` of the counted
-/// land is raised to `FOUNDER_FLOOR_SHARE` of `total`, taking the difference
-/// from the most populous biomes. Returns all zeros when there is no land.
+/// founding area (land, plus shallow water when it is habitat) is raised to
+/// `FOUNDER_FLOOR_SHARE` of `total`, taking the difference from the most
+/// populous biomes. Returns all zeros when there is no founding area.
 pub fn founder_allocation(areas: &[usize], total: u32) -> Vec<u32> {
     let total_area: usize = areas.iter().sum();
     if total_area == 0 {

@@ -1189,8 +1189,9 @@ fn print_geography_summary(run: &GeographyStats, history: &PopulationHistory, ti
         pct(run.food_eaten_on_water[1] as f64, run.food_eaten as f64)
     );
     // Water vegetation comes from niche construction and, with
-    // `--water-vegetation`, from tile dynamics on shallow water; it feeds
-    // the food-item spawn chance read above.
+    // `--water-vegetation`, from tile dynamics on shallow water. Nutrients
+    // only rise (niche construction, meteor impacts). Both feed the
+    // food-item spawn chance read above.
     const TERRAINS: [TerrainType; 6] = [
         TerrainType::DeepWater,
         TerrainType::ShallowWater,
@@ -1202,21 +1203,24 @@ fn print_geography_summary(run: &GeographyStats, history: &PopulationHistory, ti
     let veg: Vec<String> = TERRAINS
         .iter()
         .map(|&terrain| {
-            let (mut sum, mut tiles, mut above) = (0.0f64, 0u32, 0u32);
+            let (mut veg, mut nutrients, mut tiles, mut above) = (0.0f64, 0.0f64, 0u32, 0u32);
             for tile in tile_map.tiles.iter().filter(|t| t.terrain == terrain) {
-                sum += tile.vegetation_density as f64;
+                veg += tile.vegetation_density as f64;
+                nutrients += tile.nutrients as f64;
                 tiles += 1;
                 above += u32::from(tile.vegetation_density > 0.0);
             }
+            let tiles_f = tiles.max(1) as f64;
             format!(
-                "{terrain:?} {:.3} ({:.1}% of tiles above 0)",
-                sum / tiles.max(1) as f64,
+                "{terrain:?} {:.3} / {:.3} ({:.1}% of tiles with vegetation above 0)",
+                veg / tiles_f,
+                nutrients / tiles_f,
                 pct(above as f64, tiles as f64)
             )
         })
         .collect();
     eprintln!(
-        "  Vegetation at the end, mean by terrain: {}",
+        "  Vegetation / nutrients at the end, mean by terrain: {}",
         veg.join(", ")
     );
 
