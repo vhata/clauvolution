@@ -1,0 +1,324 @@
+Compute pool capped at 6 workers (set CLAU_WORKERS to override)
+Headless run: 15000 ticks, seed 99 at 10× virtual-time
+Config override: water_vegetation = 1
+
+=== Headless summary ===
+Founders by biome: Sand 42 (tiles 12967), Grassland 80 (tiles 24633), Forest 151 (tiles 46245), Rock 68 (tiles 21013), ShallowWater 59 (tiles 18038); strategies: 133 plants, 74 grazers, 90 hunters, 103 omnivores; imported 0; starting energy 41.0..78.7
+Total organisms (final): 6000
+Species (final):         40
+Max generation:          115
+Total births:            169936
+Total deaths:            164336
+  by Starvation:         32758
+  by Predation:          47013
+    kills of consumers / plants: 18951 / 28062
+    by grazers (diet < 0):       36809 (16535 of consumers)
+    plants killed by consumers:  19905 (kept 44860.1 energy)
+    plants killed by hunters:    13 (kept 3.7 energy)
+  by Old age:            590
+  by Disease:            83975
+  by Event:              0
+Founding hunters died:   90 of 90 (mean age 187 ticks, oldest 492)
+Population ceiling:      6000 (engaged 7 times, 3875564 births blocked)
+
+Final strategy breakdown:
+  Plants:              3494
+  Grazers:             2506
+  Hunters:             0
+  Omnivores:           0
+  Infected:            4269
+
+Final trait averages:
+  Body size:           0.77
+  Speed:               0.81
+  Attack:              0.07
+  Armor:               0.15
+  Photosynthesis:      58%
+  Diet (consumers):    -0.97
+  Leaf area (plants):  2.98
+  Speed plants/eaters: 0.257 / 2.517 per tick
+  Light share (plants): 0.31
+  Ready plants/eaters: 12% / 35%
+  Disease resistance:  17%
+  Symbiosis rate:      -0.02
+  Symbiotic pairs:     200
+  Avg lifespan:        462 ticks
+
+Grazer timeline (every 500 ticks; eat reach = 1 x body size):
+   tick  plants  grazers  hunters  grazer size  grazer armour  eat grazes  per grazer-s
+    511     286      755        0         0.95           0.15         989          0.10
+   1021    1464     1447        0         1.04           0.12        9923          0.48
+   1501    2510      806        0         1.07           0.08       25938          1.38
+   2011    2354      582        0         0.74           0.06       14119          1.59
+   2521    3544     2455        1         0.84           0.05       24963          0.96
+   3001    3047     2953        0         0.97           0.05       48247          1.13
+   3511    2665      976        0         1.02           0.06       39847          1.17
+   4021    2925     1712        0         1.04           0.06       20554          1.18
+   4501    2970     3026        0         1.16           0.07       54057          1.29
+   5011    2229     1948        0         1.27           0.08       62156          1.30
+   5521    1931      706        0         1.32           0.09       23138          1.26
+   6001    2682     2393        0         1.37           0.09       34526          1.46
+   6511    2625     3122        0         1.48           0.12       90638          1.75
+   7021    2149     1229        0         1.51           0.10       72502          1.97
+   7501    2479     1245        0         1.32           0.10       23518          1.65
+   8011    3250     2749        0         1.45           0.10       84485          2.16
+   8521    2807     3193        0         1.51           0.10      112183          2.17
+   9001    2240      835        0         1.48           0.10       53639          2.15
+   9511    3173     2295        0         1.50           0.10       43904          1.99
+  10021    2970     3030        0         1.57           0.09      115188          2.46
+  10501    2632     1774        0         1.58           0.09      102399          2.24
+  11011    2473     1030        0         1.55           0.09       39113          2.17
+  11521    3354     2645        0         1.57           0.09       86337          2.43
+  12001    2776     3224        0         1.59           0.09      114223          2.44
+  12511    2339     1078        0         1.56           0.09       85554          2.28
+  13021    3117     2083        0         1.43           0.10       38575          1.88
+  13501    3139     2860        1         1.54           0.10      100839          2.39
+  14011    2612     2889        0         1.55           0.10      120192          2.23
+  14521    2369     1008        0         1.32           0.14       46991          1.98
+  15001    3494     2506        0         1.33           0.13       56816          1.84
+
+Predation funnel:
+  Attack intents:      19508247
+  Targets considered:  7199164
+  Rejected (size):     1008004
+  Rejected (damage):   7111576
+  Kills:               47013
+  Strikes (paid):      4400003 (142928.0 energy)
+  No plant in reach:   16691030
+  Grazes (eat/attack): 1745553 / 0
+    eat bites by plants: 115151
+
+Consumer-prey gates (attacks with a consumer in reach):
+  band            intents  strikes  in reach    kill  plant  size-only  damage-only  both  mixed
+  diet >= 0          8122     1087       858      43      0          5          754    56      0
+  hunters            5370      620       490      37      0          5          423    25      0
+  founding hunt.     4892      568       473      36      0          3          422    12      0
+  Hunter intents by age (<100/<200/<300/<500/<1000/older):
+    all:         2582 / 1844 / 672 / 272 / 0 / 0
+    in reach:    277 / 160 / 49 / 4 / 0 / 0
+  Founding hunters that fired: 35 (first at mean age 3); with a consumer in reach: 32 (first at mean age 38)
+  Founding hunters that killed a consumer: 9
+
+Energy ledger:
+  Baseline energy:     23382.1
+  Final live energy:   259608.0
+  Cumulative flows:
+    + photosynthesis             17122203.4
+    + food                       16537040.7
+    + predation                     52451.6
+      grazing                     8673647.6
+      symbiosis                     39372.4
+    - metabolism                 14315032.4
+    - movement                   11294706.9
+    - disease                     2108695.6
+    - reproduction_spent          6787955.0
+    + reproduction_received       5430364.1
+    - death                       1951108.2
+    - clamp                       1724421.6
+    - digestion                    723914.4
+  Net of flows:        +236225.7
+  Largest |residual|:  0.000787 per tick (tolerance 0.1)
+  Final residual:      +0.000222
+  Cumulative residual: +0.213665
+  Ticks over tolerance: 0
+
+Diet-band timeline (every 500 ticks; consumers in halves of each strategy label):
+  to tick 511 (crossings 20; omnivore -> grazer 3, omnivore -> hunter 1, grazer -> omnivore 12, hunter -> omnivore 0)
+    band            alive  in/tick cost/tick taken/tick   eff  food%  bite% ckill% pkill%  births  deaths  starv   pred    dis   old  mean age
+    grazer <-2/3    185.3    0.850     0.576      1.108  0.77   98.8    1.1    0.0    0.1     888     693    427    262      4     0        98
+    grazer >=-2/3   354.5    0.943     0.639      1.564  0.60   98.0    1.9    0.0    0.1    1663    1166    793    372      1     0       103
+    omniv. <0        26.8    0.406     0.430      1.191  0.34   97.5    1.7    0.6    0.3      27      68     50     18      0     0       155
+    omniv. >=0       24.0    0.170     0.427      0.984  0.17   98.9    0.6    0.4    0.1       3      64     53     11      0     0       191
+    hunter <2/3      14.6    0.094     0.388      1.149  0.08   94.2    2.4    3.1    0.2       1      41     32      9      0     0       182
+    hunter >=2/3     19.4    0.020     0.347      0.802  0.01   51.5    0.3   48.1    0.1       1      54     45      9      0     0       183
+  to tick 1021 (crossings 10; omnivore -> grazer 1, omnivore -> hunter 0, grazer -> omnivore 4, hunter -> omnivore 0)
+    band            alive  in/tick cost/tick taken/tick   eff  food%  bite% ckill% pkill%  births  deaths  starv   pred    dis   old  mean age
+    grazer <-2/3    381.6    0.829     0.619      1.099  0.75   93.2    6.6    0.0    0.2    1658    1290    855    416     19     0       116
+    grazer >=-2/3   799.9    0.916     0.721      1.507  0.61   93.7    6.0    0.0    0.2    3050    2721   1759    934     28     0       125
+    omniv. <0         4.2    0.488     0.574      1.371  0.34   85.8   10.7    1.0    2.4       4      10     10      0      0     0       307
+    hunter <2/3       0.3    0.000     0.152      0.000  0.00    0.0    0.0    0.0    0.0       0       1      1      0      0     0       152
+  to tick 1501 (crossings 4; omnivore -> grazer 2, omnivore -> hunter 0, grazer -> omnivore 1, hunter -> omnivore 0)
+    band            alive  in/tick cost/tick taken/tick   eff  food%  bite% ckill% pkill%  births  deaths  starv   pred    dis   old  mean age
+    grazer <-2/3    533.8    0.805     0.688      1.054  0.76   82.4   16.9    0.0    0.6    1776    1883   1265    474    144     0       138
+    grazer >=-2/3   663.5    0.797     0.751      1.292  0.61   79.3   20.2    0.0    0.5    1574    2108   1437    460    211     0       175
+    omniv. <0         4.0    0.466     0.550      1.099  0.42   84.5   14.8    0.3    0.4       8      11      9      1      1     0       364
+  to tick 2011 (crossings 1; omnivore -> grazer 0, omnivore -> hunter 0, grazer -> omnivore 0, hunter -> omnivore 0)
+    band            alive  in/tick cost/tick taken/tick   eff  food%  bite% ckill% pkill%  births  deaths  starv   pred    dis   old  mean age
+    grazer <-2/3    408.0    0.773     0.644      0.965  0.80   84.4   14.8    0.0    0.7    1662    1517    785    313    419     0       142
+    grazer >=-2/3   121.9    0.592     0.727      0.931  0.63   70.2   28.6    0.0    1.1     157     526    290     48    188     0       255
+    omniv. <0         0.2    0.331     0.781      0.762  0.43   79.0   21.0    0.0    0.0       0       2      1      0      1     0       122
+    hunter <2/3       0.4    0.012     0.088      0.211  0.05   61.9   38.1    0.0    0.0       0       1      0      0      1     0       191
+  to tick 2521 (crossings 3; omnivore -> grazer 0, omnivore -> hunter 0, grazer -> omnivore 0, hunter -> omnivore 0)
+    band            alive  in/tick cost/tick taken/tick   eff  food%  bite% ckill% pkill%  births  deaths  starv   pred    dis   old  mean age
+    grazer <-2/3   1442.5    0.808     0.569      0.911  0.88   79.7   19.4    0.0    0.9    6382    4471   1367   1489   1615     0       115
+    grazer >=-2/3    20.5    0.697     0.664      1.035  0.66   83.1   14.5    0.1    2.3      60      99     40     26     33     0       145
+    hunter <2/3       0.6    0.007     0.116      0.104  0.06   72.7   27.3    0.0    0.0       0       1      1      0      0     0       200
+  to tick 3001 (crossings 1; omnivore -> grazer 0, omnivore -> hunter 0, grazer -> omnivore 0, hunter -> omnivore 0)
+    band            alive  in/tick cost/tick taken/tick   eff  food%  bite% ckill% pkill%  births  deaths  starv   pred    dis   old  mean age
+    grazer <-2/3   2647.4    0.857     0.592      0.917  0.93   69.9   29.4    0.0    0.7    6358    5856    826   2218   2812     0       163
+    grazer >=-2/3     3.8    0.679     0.649      0.999  0.67   66.0   33.3    0.1    0.7       5       9      2      1      6     0       278
+    omniv. >=0        0.2    0.000     0.234      0.000  0.00    0.0    0.0    0.0    0.0       0       1      1      0      0     0       104
+    hunter <2/3       0.2    0.000     0.140      0.000  0.00    0.0    0.0    0.0    0.0       0       1      0      0      1     0       210
+  to tick 3511 (crossings 0; omnivore -> grazer 0, omnivore -> hunter 0, grazer -> omnivore 0, hunter -> omnivore 0)
+    band            alive  in/tick cost/tick taken/tick   eff  food%  bite% ckill% pkill%  births  deaths  starv   pred    dis   old  mean age
+    grazer <-2/3   2073.5    0.594     0.587      0.630  0.94   67.9   31.7    0.0    0.3    4280    6255   1385    783   4087     0       227
+    grazer >=-2/3     0.3    0.114     0.597      0.164  0.69    0.0  100.0    0.0    0.0       0       2      0      0      2     0       648
+  to tick 4021 (crossings 0; omnivore -> grazer 0, omnivore -> hunter 0, grazer -> omnivore 0, hunter -> omnivore 0)
+    band            alive  in/tick cost/tick taken/tick   eff  food%  bite% ckill% pkill%  births  deaths  starv   pred    dis   old  mean age
+    grazer <-2/3   1003.0    0.740     0.576      0.773  0.95   73.1   26.5    0.0    0.4    3143    2406    891    421   1094     0       210
+    grazer >=-2/3     0.1    0.076     0.758      0.115  0.66    0.0  100.0    0.0    0.0       0       1      0      0      1     0        43
+  to tick 4501 (crossings 1; omnivore -> grazer 0, omnivore -> hunter 0, grazer -> omnivore 0, hunter -> omnivore 0)
+    band            alive  in/tick cost/tick taken/tick   eff  food%  bite% ckill% pkill%  births  deaths  starv   pred    dis   old  mean age
+    grazer <-2/3   2583.3    0.856     0.617      0.886  0.96   69.5   30.0    0.0    0.5    7267    5953    918   2147   2888     0       161
+    hunter <2/3       0.2    0.000     0.189      0.000  0.00    0.0    0.0    0.0    0.0       0       1      0      1      0     0        81
+  to tick 5011 (crossings 0; omnivore -> grazer 0, omnivore -> hunter 0, grazer -> omnivore 0, hunter -> omnivore 0)
+    band            alive  in/tick cost/tick taken/tick   eff  food%  bite% ckill% pkill%  births  deaths  starv   pred    dis   old  mean age
+    grazer <-2/3   2856.4    0.779     0.655      0.804  0.96   68.5   31.0    0.0    0.4    6938    8016   1267   2679   4070     0       199
+  to tick 5521 (crossings 0; omnivore -> grazer 0, omnivore -> hunter 0, grazer -> omnivore 0, hunter -> omnivore 0)
+    band            alive  in/tick cost/tick taken/tick   eff  food%  bite% ckill% pkill%  births  deaths  starv   pred    dis   old  mean age
+    grazer <-2/3   1122.3    0.679     0.667      0.701  0.97   70.4   29.2    0.0    0.4    2103    3345   1207    446   1692     0       237
+  to tick 6001 (crossings 2; omnivore -> grazer 0, omnivore -> hunter 0, grazer -> omnivore 0, hunter -> omnivore 0)
+    band            alive  in/tick cost/tick taken/tick   eff  food%  bite% ckill% pkill%  births  deaths  starv   pred    dis   old  mean age
+    grazer <-2/3   1419.7    0.931     0.692      0.963  0.96   70.2   29.4    0.0    0.4    4462    2776   1026    864    886     0       178
+    hunter <2/3       0.3    0.013     0.162      0.000  0.00    0.0    0.0    0.0  100.0       0       1      1      0      0     0       151
+  to tick 6511 (crossings 4; omnivore -> grazer 0, omnivore -> hunter 0, grazer -> omnivore 0, hunter -> omnivore 0)
+    band            alive  in/tick cost/tick taken/tick   eff  food%  bite% ckill% pkill%  births  deaths  starv   pred    dis   old  mean age
+    grazer <-2/3   3015.6    0.881     0.724      0.911  0.96   68.1   31.6    0.0    0.3    8135    7410   1355   1986   4069     0       181
+  to tick 7021 (crossings 1; omnivore -> grazer 0, omnivore -> hunter 0, grazer -> omnivore 0, hunter -> omnivore 0)
+    band            alive  in/tick cost/tick taken/tick   eff  food%  bite% ckill% pkill%  births  deaths  starv   pred    dis   old  mean age
+    grazer <-2/3   2219.7    0.762     0.732      0.789  0.96   66.9   32.9    0.0    0.2    4128    6022   1275    630   4117     0       231
+    grazer >=-2/3     2.0    0.757     0.651      1.124  0.67   87.0   13.0    0.0    0.0       4       3      1      1      1     0       164
+    omniv. >=0        0.2    0.000     0.168      0.000  0.00    0.0    0.0    0.0    0.0       0       1      1      0      0     0       124
+  to tick 7501 (crossings 0; omnivore -> grazer 0, omnivore -> hunter 0, grazer -> omnivore 0, hunter -> omnivore 0)
+    band            alive  in/tick cost/tick taken/tick   eff  food%  bite% ckill% pkill%  births  deaths  starv   pred    dis   old  mean age
+    grazer <-2/3    888.7    0.785     0.705      0.826  0.95   68.6   31.4    0.0    0.0    1880    1865    873     53    939     0       274
+    grazer >=-2/3     4.5    0.689     0.625      1.012  0.68   83.1   16.9    0.0    0.0       7       6      4      1      1     0       217
+  to tick 8011 (crossings 3; omnivore -> grazer 0, omnivore -> hunter 0, grazer -> omnivore 1, hunter -> omnivore 0)
+    band            alive  in/tick cost/tick taken/tick   eff  food%  bite% ckill% pkill%  births  deaths  starv   pred    dis   old  mean age
+    grazer <-2/3   2253.8    0.987     0.722      1.040  0.95   62.8   37.2    0.0    0.0    4836    3327    779    244   2304     0       201
+    grazer >=-2/3     4.2    0.626     0.603      0.930  0.67   70.2   29.8    0.0    0.0       7      12      2      1      9     0       290
+    omniv. <0         0.1    0.000     0.656      0.000  0.00    0.0    0.0    0.0    0.0       0       1      0      0      1     0        33
+    omniv. >=0        0.0    0.000     0.229      0.000  0.00    0.0    0.0    0.0    0.0       0       0      0      0      0     0         0
+  to tick 8521 (crossings 2; omnivore -> grazer 0, omnivore -> hunter 0, grazer -> omnivore 0, hunter -> omnivore 0)
+    band            alive  in/tick cost/tick taken/tick   eff  food%  bite% ckill% pkill%  births  deaths  starv   pred    dis   old  mean age
+    grazer <-2/3   3028.6    0.967     0.772      1.014  0.95   59.6   40.4    0.0    0.0    3971    3525    498    200   2827     0       339
+    grazer >=-2/3     0.6    0.366     0.559      0.810  0.45   88.5   11.5    0.0    0.0       0       2      0      0      2     0       157
+    omniv. >=0        0.4    0.034     0.217      0.274  0.12   49.8   50.2    0.0    0.0       0       1      0      0      1     0       184
+  to tick 9001 (crossings 0; omnivore -> grazer 0, omnivore -> hunter 0, grazer -> omnivore 0, hunter -> omnivore 0)
+    band            alive  in/tick cost/tick taken/tick   eff  food%  bite% ckill% pkill%  births  deaths  starv   pred    dis   old  mean age
+    grazer <-2/3   1630.8    0.705     0.764      0.737  0.96   62.8   37.2    0.0    0.0    2076    4434   1150     71   3213     0       361
+  to tick 9511 (crossings 2; omnivore -> grazer 0, omnivore -> hunter 0, grazer -> omnivore 0, hunter -> omnivore 0)
+    band            alive  in/tick cost/tick taken/tick   eff  food%  bite% ckill% pkill%  births  deaths  starv   pred    dis   old  mean age
+    grazer <-2/3   1254.6    0.928     0.750      0.970  0.96   64.9   35.1    0.0    0.0    3373    1913    847     52   1014     0       244
+    omniv. <0         0.1    0.000     0.821      0.000  0.00    0.0    0.0    0.0    0.0       0       1      1      0      0     0        23
+  to tick 10021 (crossings 0; omnivore -> grazer 0, omnivore -> hunter 0, grazer -> omnivore 0, hunter -> omnivore 0)
+    band            alive  in/tick cost/tick taken/tick   eff  food%  bite% ckill% pkill%  births  deaths  starv   pred    dis   old  mean age
+    grazer <-2/3   2729.5    1.119     0.783      1.169  0.96   60.4   39.6    0.0    0.0    3559    2824    446     63   2315     0       251
+    omniv. <0         0.1    0.000     0.384      0.000  0.00    0.0    0.0    0.0    0.0       0       1      0      0      1     0        71
+  to tick 10501 (crossings 0; omnivore -> grazer 0, omnivore -> hunter 0, grazer -> omnivore 0, hunter -> omnivore 0)
+    band            alive  in/tick cost/tick taken/tick   eff  food%  bite% ckill% pkill%  births  deaths  starv   pred    dis   old  mean age
+    grazer <-2/3   2899.0    0.830     0.790      0.865  0.96   60.0   40.0    0.0    0.0    3570    4826    809     40   3977     0       397
+  to tick 11011 (crossings 0; omnivore -> grazer 0, omnivore -> hunter 0, grazer -> omnivore 0, hunter -> omnivore 0)
+    band            alive  in/tick cost/tick taken/tick   eff  food%  bite% ckill% pkill%  births  deaths  starv   pred    dis   old  mean age
+    grazer <-2/3   1081.5    0.784     0.768      0.814  0.96   62.3   37.7    0.0    0.0    1704    2448    986     18   1444     0       352
+  to tick 11521 (crossings 0; omnivore -> grazer 0, omnivore -> hunter 0, grazer -> omnivore 0, hunter -> omnivore 0)
+    band            alive  in/tick cost/tick taken/tick   eff  food%  bite% ckill% pkill%  births  deaths  starv   pred    dis   old  mean age
+    grazer <-2/3   2037.0    1.019     0.773      1.059  0.96   61.8   38.2    0.0    0.0    4353    2738    710     32   1996     0       232
+  to tick 12001 (crossings 2; omnivore -> grazer 0, omnivore -> hunter 0, grazer -> omnivore 1, hunter -> omnivore 0)
+    band            alive  in/tick cost/tick taken/tick   eff  food%  bite% ckill% pkill%  births  deaths  starv   pred    dis   old  mean age
+    grazer <-2/3   2905.2    1.153     0.791      1.199  0.96   58.9   41.1    0.0    0.0    2465    1885    201     35   1649     0       348
+    omniv. <0         0.2    0.083     0.254      0.240  0.35  100.0    0.0    0.0    0.0       0       1      0      0      1     0       104
+    omniv. >=0        0.2    0.196     0.536      1.103  0.18   63.6   36.4    0.0    0.0       0       1      0      0      1     0       107
+  to tick 12511 (crossings 0; omnivore -> grazer 0, omnivore -> hunter 0, grazer -> omnivore 0, hunter -> omnivore 0)
+    band            alive  in/tick cost/tick taken/tick   eff  food%  bite% ckill% pkill%  births  deaths  starv   pred    dis   old  mean age
+    grazer <-2/3   2271.9    0.730     0.783      0.757  0.96   60.3   39.7    0.0    0.0    3198    5344   1202     54   4088     0       414
+  to tick 13021 (crossings 0; omnivore -> grazer 0, omnivore -> hunter 0, grazer -> omnivore 0, hunter -> omnivore 0)
+    band            alive  in/tick cost/tick taken/tick   eff  food%  bite% ckill% pkill%  births  deaths  starv   pred    dis   old  mean age
+    grazer <-2/3   1175.4    0.868     0.719      0.900  0.96   64.7   35.3    0.0    0.0    2975    1970    854     46   1070     0       284
+  to tick 13501 (crossings 2; omnivore -> grazer 0, omnivore -> hunter 0, grazer -> omnivore 0, hunter -> omnivore 0)
+    band            alive  in/tick cost/tick taken/tick   eff  food%  bite% ckill% pkill%  births  deaths  starv   pred    dis   old  mean age
+    grazer <-2/3   2613.0    1.110     0.747      1.152  0.96   61.2   38.8    0.0    0.0    3887    3109    510    366   2233     0       225
+    omniv. <0         0.2    0.000     0.201      0.000  0.00    0.0    0.0    0.0    0.0       0       1      0      0      1     0       107
+    hunter <2/3       0.1    0.000     0.200      0.000  0.00    0.0    0.0    0.0    0.0       0       0      0      0      0     0         0
+  to tick 14011 (crossings 0; omnivore -> grazer 0, omnivore -> hunter 0, grazer -> omnivore 0, hunter -> omnivore 0)
+    band            alive  in/tick cost/tick taken/tick   eff  food%  bite% ckill% pkill%  births  deaths  starv   pred    dis   old  mean age
+    grazer <-2/3   3167.6    0.950     0.772      0.985  0.96   59.0   41.0    0.0    0.0    3913    3884    569    342   2973     0       394
+    hunter <2/3       0.2    0.000     0.207      0.000  0.00    0.0    0.0    0.0    0.0       0       1      0      0      1     0       167
+  to tick 14521 (crossings 0; omnivore -> grazer 0, omnivore -> hunter 0, grazer -> omnivore 0, hunter -> omnivore 0)
+    band            alive  in/tick cost/tick taken/tick   eff  food%  bite% ckill% pkill%  births  deaths  starv   pred    dis   old  mean age
+    grazer <-2/3   1450.3    0.686     0.711      0.710  0.97   63.2   36.8    0.0    0.0    2118    3999   1144    122   2733     0       375
+  to tick 15001 (crossings 0; omnivore -> grazer 0, omnivore -> hunter 0, grazer -> omnivore 0, hunter -> omnivore 0)
+    band            alive  in/tick cost/tick taken/tick   eff  food%  bite% ckill% pkill%  births  deaths  starv   pred    dis   old  mean age
+    grazer <-2/3   1882.2    0.905     0.650      0.934  0.97   63.8   36.2    0.0    0.0    4129    2631    750    192   1689     0       215
+
+Diet bands, whole run:
+    band            alive  in/tick cost/tick taken/tick   eff  food%  bite% ckill% pkill%  births  deaths  starv   pred    dis   old  mean age
+    grazer <-2/3   1835.4    0.882     0.713      0.926  0.95   64.8   35.1    0.0    0.2  111187  108615  27177  17058  64380     0       248
+    grazer >=-2/3    65.9    0.858     0.715      1.403  0.61   89.1   10.6    0.0    0.3    6527    6655   4328   1844    483     0       148
+    omniv. <0         1.2    0.414     0.459      1.180  0.35   94.3    4.6    0.6    0.6      39      96     71     19      6     0       189
+    omniv. >=0        0.9    0.165     0.421      0.957  0.17   98.5    1.1    0.4    0.1       3      68     55     11      2     0       188
+    hunter <2/3       0.6    0.082     0.355      1.004  0.08   93.8    2.6    3.1    0.5       1      48     35     10      3     0       180
+    hunter >=2/3      0.7    0.020     0.347      0.802  0.01   51.5    0.3   48.1    0.1       1      54     45      9      0     0       183
+    grazers        1901.2    0.881     0.713      0.942  0.93   65.6   34.2    0.0    0.2  117714  115270  31505  18902  64863     0       242
+    omnivores         2.1    0.311     0.444      1.088  0.28   95.2    3.8    0.5    0.5      42     164    126     30      8     0       189
+    hunters           1.2    0.049     0.351      0.897  0.05   84.5    2.1   12.9    0.4       2     102     80     19      3     0       181
+  Energy kept / paid by label (whole run):
+    label           food items      eat bites  consumer kills   plant kills     metabolism     movement     strikes
+    grazers         16478655.0      8601063.8           442.2       44811.8     10041249.6   10217859.9     85344.7
+    omnivores           9165.1          367.1            52.4          44.5         6782.5       6797.3       140.0
+    hunters              765.6           19.3           117.1           3.7         3752.2       2680.5        59.5
+  Mean age at death by cause (starvation / predation / disease / old age):
+    grazers    221 / 161 / 277 / 0
+    omnivores  216 / 93 / 114 / 0
+    hunters    196 / 117 / 189 / 0
+  Births by the reproducing parent's label (rows) and the child's (columns):
+                   plant    grazer  omnivore    hunter
+    plant          52155        10         7         6
+    grazer             6    117686        19         3
+    omnivore           0         6        35         1
+    hunter             0         0         0         2
+  Crossings: 58 of 169936 births; 113 births had a mate of another label
+  Omnivore attacks: 6880 intents, 1313 strikes, 959 with a consumer in reach: 75 kills, 6 plant instead, 22 size-only, 765 damage-only, 91 both, 0 mixed
+
+
+Species classification passes (plans/2026-09-24-innovation-keying.md):
+  passes: 100 (first at tick 151, founding 868 organisms)
+  within join of another species' rep: mean 98.6%, min 88.8%, max 100.0% of organisms per pass
+  past stay from own rep: 7657 over the passes; of them past join from every other rep: 96
+  last pass (tick 15001): 6000 organisms, 5863 near another rep, 87 drifting, 0 isolated
+Geography (phase 2 step 1 instruments):
+  Regions: 4 major [40707, 35245, 25447, 3459], 0 minor components (0 tiles), land 104858 tiles
+  Timeline (every 1000 ticks; plants and consumers by region r0..r3 / minor / water at the sample; separation observed/null (species counted, confined observed/null); crossings plant/consumer and new-region events in the window):
+    tick  1021: plants 260/269/192/18/0/725 consumers 313/268/109/10/0/753 | region 0.641/0.459 (20, 2/0) biome 0.520/0.435 (25, 1/0) | crossings 179/4205 new-region 43
+    tick  2011: plants 410/316/295/35/0/1298 consumers 111/107/44/12/0/308 | region 0.484/0.416 (11, 0/0) biome 0.500/0.472 (17, 0/0) | crossings 1140/4881 new-region 18
+    tick  3001: plants 444/541/356/37/0/1669 consumers 559/482/245/55/0/1612 | region 0.465/0.430 (14, 0/0) biome 0.486/0.487 (17, 0/0) | crossings 1761/12716 new-region 4
+    tick  4021: plants 555/434/437/37/0/1462 consumers 318/334/111/24/0/925 | region 0.508/0.407 (14, 0/0) biome 0.451/0.474 (14, 0/0) | crossings 1981/8679 new-region 6
+    tick  5011: plants 374/328/295/20/0/1212 consumers 360/410/132/37/0/1009 | region 0.521/0.435 (14, 0/0) biome 0.512/0.458 (18, 1/0) | crossings 1621/11722 new-region 13
+    tick  6001: plants 477/313/359/44/0/1489 consumers 401/459/165/30/0/1338 | region 0.548/0.419 (20, 1/0) biome 0.492/0.504 (28, 0/0) | crossings 1231/4599 new-region 6
+    tick  7021: plants 366/295/283/49/0/1156 consumers 226/274/101/31/0/597 | region 0.544/0.430 (21, 0/0) biome 0.519/0.458 (31, 0/0) | crossings 1578/6926 new-region 28
+    tick  8011: plants 605/382/422/15/0/1826 consumers 566/572/219/75/0/1318 | region 0.567/0.435 (20, 3/0) biome 0.494/0.453 (23, 0/0) | crossings 1854/2329 new-region 5
+    tick  9001: plants 381/306/348/21/0/1184 consumers 162/204/62/14/0/393 | region 0.484/0.397 (17, 0/0) biome 0.460/0.446 (19, 0/0) | crossings 1859/4036 new-region 5
+    tick 10021: plants 488/395/386/26/0/1675 consumers 614/727/239/104/0/1346 | region 0.468/0.437 (19, 0/0) biome 0.503/0.444 (20, 0/0) | crossings 1765/2995 new-region 6
+    tick 11011: plants 431/372/373/15/0/1282 consumers 203/239/71/20/0/497 | region 0.491/0.415 (17, 0/0) biome 0.474/0.457 (20, 0/0) | crossings 1516/3390 new-region 4
+    tick 12001: plants 456/376/352/34/0/1558 consumers 614/734/234/67/0/1575 | region 0.496/0.456 (20, 0/0) biome 0.465/0.449 (25, 0/0) | crossings 1687/3706 new-region 18
+    tick 13021: plants 555/365/449/24/0/1724 consumers 446/471/154/55/0/957 | region 0.539/0.437 (19, 0/0) biome 0.483/0.461 (24, 1/0) | crossings 1256/3064 new-region 4
+    tick 14011: plants 397/362/373/32/0/1448 consumers 517/641/238/59/0/1434 | region 0.517/0.445 (23, 2/0) biome 0.491/0.461 (32, 0/0) | crossings 1471/4810 new-region 22
+    tick 15001: plants 650/442/419/23/0/1960 consumers 508/528/167/57/0/1246 | region 0.508/0.443 (26, 0/0) biome 0.489/0.462 (33, 0/0) | crossings 1165/3034 new-region 12
+  Crossings (whole run): plants 22064, consumers 81092 (206.72 per second); new-region events 194
+  Organism-ticks on water by aquatic band (share of the band's organism-ticks on deep / shallow water):
+    plant     aq0 11397313 ticks 47.84% / 7.01% | aq1 25277071 ticks 47.42% / 6.96% | aq2 1699214 ticks 47.75% / 7.07% | aq3 8506 ticks 50.98% / 7.37%
+    consumer  aq0 773578 ticks 44.27% / 7.39% | aq1 20981821 ticks 41.24% / 7.67% | aq2 6053318 ticks 46.29% / 7.66% | aq3 760939 ticks 48.67% / 7.59%
+  Movement energy paid on deep / shallow water: plants 666596.1 / 31118.3, consumers 4772380.8 / 310036.8
+  Food items regenerated: 727434 (31.3% on deep water, 8.8% on shallow); eaten from any source 738016 (31.90% by eaters on deep water, 8.52% on shallow)
+  Vegetation at the end, mean by terrain: DeepWater 0.131 (100.0% of tiles above 0), ShallowWater 0.334 (100.0% of tiles above 0), Sand 0.056 (100.0% of tiles above 0), Grassland 0.329 (100.0% of tiles above 0), Forest 0.751 (100.0% of tiles above 0), Rock 0.075 (100.0% of tiles above 0)
+  region separation from tick 1000: mean 0.506 against null 0.430 over 18.0 species counted; confined 0.3 against 0.0 under the null
+    dominant-share histogram, species-samples in 0.05 bins from 0:
+      observed: 0 0 0 0 0 4 290 1184 1767 1362 1377 698 578 315 243 188 150 92 96 45
+      null:     0 0 0 0 0 5 353 2641 2827 1151 903 245 182 41 29 7 5 0 0 0
+  biome separation from tick 1000: mean 0.483 against null 0.460 over 21.7 species counted; confined 0.2 against 0.0 under the null
+    dominant-share histogram, species-samples in 0.05 bins from 0:
+      observed: 0 0 0 2 18 146 459 1310 2011 2307 1806 801 583 261 163 86 68 25 40 53
+      null:     0 0 0 0 8 88 451 1138 2961 3029 1549 480 267 88 52 17 9 1 1 0
+
+Wrote 500 snapshots to docs/audits/2026-10-06-phase2-water-vegetation/shallow-habitat/seed99-run1.csv
+Headless run complete in 488.26s
