@@ -9,7 +9,7 @@ Two settings, the two the plan asks for:
 
 Run details:
 
-- **Commit:** 52e5297 on `todo/oceans-as-habitat`, the binary copied aside so later builds could not change it mid-audit. Later commits on the branch change only documentation.
+- **Commit:** 52e5297 on `todo/oceans-as-habitat`, the binary copied aside so later builds could not change it mid-audit. Later commits on the branch change only documentation and a CLI test.
 - **Seeds:** 1, 2, 3, 7, 42, 99, 314, 1000, one run each (headless runs are deterministic), 15000 ticks, four at a time on a loaded machine. Wall times (412 to 752 s) are not comparable with other audits.
 - **How to repeat:** `cargo build --release`, then for each seed `./target/release/clauvolution --headless 15000 --seed S --dump-history seedS-run1.csv > seedS-run1.txt 2>&1`, adding `--water-vegetation 1` for the habitat setting.
 - **Before:** `docs/audits/2026-09-26-phase2-continents/` (step 4, same seeds and ticks). Definitions of regions, crossings, separation and aquatic bands are in `docs/audits/2026-09-25-phase2-baseline/`.
