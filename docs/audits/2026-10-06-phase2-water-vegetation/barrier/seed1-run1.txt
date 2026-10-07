@@ -289,7 +289,7 @@ Geography (phase 2 step 1 instruments):
     consumer  aq0 183269 ticks 38.98% / 8.68% | aq1 14848719 ticks 43.32% / 8.15% | aq2 9237244 ticks 46.23% / 8.13% | aq3 49909 ticks 54.35% / 7.09%
   Movement energy paid on deep / shallow water: plants 853485.6 / 49301.9, consumers 4556103.2 / 299777.7
   Food items regenerated: 605934 (36.5% on deep water, 8.2% on shallow); eaten from any source 615714 (36.86% by eaters on deep water, 8.18% on shallow)
-  Vegetation at the end, mean by terrain: DeepWater 0.127 (100.0% of tiles above 0), ShallowWater 0.149 (100.0% of tiles above 0), Sand 0.060 (100.0% of tiles above 0), Grassland 0.325 (100.0% of tiles above 0), Forest 0.693 (100.0% of tiles above 0), Rock 0.089 (100.0% of tiles above 0)
+  Vegetation / nutrients at the end, mean by terrain: DeepWater 0.127 / 0.321 (100.0% of tiles with vegetation above 0), ShallowWater 0.149 / 0.525 (100.0% of tiles with vegetation above 0), Sand 0.060 / 0.178 (100.0% of tiles with vegetation above 0), Grassland 0.325 / 0.629 (100.0% of tiles with vegetation above 0), Forest 0.693 / 0.829 (100.0% of tiles with vegetation above 0), Rock 0.089 / 0.127 (100.0% of tiles with vegetation above 0)
   region separation from tick 1000: mean 0.525 against null 0.409 over 17.5 species counted; confined 0.7 against 0.0 under the null
     dominant-share histogram, species-samples in 0.05 bins from 0:
       observed: 0 0 0 0 0 26 599 1242 1397 1020 1156 565 560 285 313 273 256 131 169 165
@@ -300,4 +300,4 @@ Geography (phase 2 step 1 instruments):
       null:     0 0 0 2 45 291 731 1275 3021 2560 1706 549 337 116 90 28 19 1 1 0
 
 Wrote 500 snapshots to docs/audits/2026-10-06-phase2-water-vegetation/barrier/seed1-run1.csv
-Headless run complete in 466.90s
+Headless run complete in 225.92s

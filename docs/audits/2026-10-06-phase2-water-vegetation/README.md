@@ -9,20 +9,20 @@ Two settings, the two the plan asks for:
 
 Run details:
 
-- **Commit:** 52e5297 on `todo/oceans-as-habitat`, the binary copied aside so later builds could not change it mid-audit. Later commits on the branch change only documentation and a CLI test.
+- **Commit:** 52e5297 on `todo/oceans-as-habitat` (c8d2c30 after the branch was rebased onto d1a1ae9, a plan-only commit), the binary copied aside so later builds could not change it mid-audit. The `barrier/` summaries were rerun at 086784f, which adds mean nutrients to the summary's vegetation line; their history CSVs are byte-identical to the 52e5297 runs on all eight seeds. Other later commits change only documentation and a CLI test.
 - **Seeds:** 1, 2, 3, 7, 42, 99, 314, 1000, one run each (headless runs are deterministic), 15000 ticks, four at a time on a loaded machine. Wall times (412 to 752 s) are not comparable with other audits.
 - **How to repeat:** `cargo build --release`, then for each seed `./target/release/clauvolution --headless 15000 --seed S --dump-history seedS-run1.csv > seedS-run1.txt 2>&1`, adding `--water-vegetation 1` for the habitat setting.
 - **Before:** `docs/audits/2026-09-26-phase2-continents/` (step 4, same seeds and ticks). Definitions of regions, crossings, separation and aquatic bands are in `docs/audits/2026-09-25-phase2-baseline/`.
 
 ## The barrier setting is behaviour-neutral
 
-On all eight seeds the `barrier/` history CSVs are byte-identical to step 4's, and the summaries are identical apart from the new "Vegetation at the end" line and the wall-time and path lines. So the barrier columns below are step 4's numbers, re-read, and the step 4 note's cycling and per-band tables apply to it unchanged.
+On all eight seeds the `barrier/` history CSVs are byte-identical to step 4's, and the summaries are identical apart from the new "Vegetation / nutrients at the end" line and the wall-time and path lines. So the barrier columns below are step 4's numbers, re-read, and the step 4 note's cycling and per-band tables apply to it unchanged.
 
 ## How much of the food-item flow lands on water
 
 The plan asks for this before choosing. With the barrier setting, 28.5% to 38.1% of regenerated food items land on deep water and 6.5% to 9.8% on shallow, 35.2% to 46.2% on water in all, and eaters on water take the same shares of what is eaten to within half a point (step 4 note). Water is 60% of the map's tiles, and food lands there at about half the land rate per tile.
 
-The new line in the summary shows why water is fed at all under the barrier setting: **water is not barren.** At tick 15000 every water tile on every seed has vegetation above 0, at a mean of 0.119 to 0.194 on deep water and 0.132 to 0.221 on shallow. This is niche construction: a photosynthesiser deposits 0.001 of vegetation per tick on its tile (`NICHE_VEGETATION_DEPOSIT`), plants live on water (deep water holds the most plants of any biome on every seed), and nothing takes water vegetation back down, because tile dynamics, the only decay, skips water. A food item's spawn chance is `(vegetation + nutrients) × 0.5`, so deep water's 0.15 from its nutrients alone becomes about 0.21 to 0.25, and roughly a third of the food on deep water is owed to vegetation that plants put there and that never decays.
+The new line in the summary shows why water is fed at all under the barrier setting: **water is not barren.** At tick 15000 every water tile on every seed has vegetation above 0, at a mean of 0.119 to 0.194 on deep water and 0.132 to 0.221 on shallow. This is niche construction: a photosynthesiser deposits 0.001 of vegetation per tick on its tile (`NICHE_VEGETATION_DEPOSIT`), plants live on water (deep water holds the most plants of any biome on every seed), and nothing takes water vegetation back down, because tile dynamics, the only decay, skips water. Nutrients accrue undecayed too, on every tile: `NICHE_NUTRIENT_DEPOSIT` (0.0001 per organism per tick) and a meteor's +0.5, with nothing taking them back. At tick 15000 deep water's mean nutrients are 0.318 to 0.327, from the 0.3 it starts at, and shallow water's 0.523 to 0.531, from 0.5 (`barrier/` summaries, rerun at 086784f with the nutrient column; the history CSVs are byte-identical to the 52e5297 runs). A food item's spawn chance is `(vegetation + nutrients) × 0.5`, so at the end of the run deep water's chance is 0.22 to 0.26 against the 0.15 it starts at, and 27% to 37% of it is owed to deposited vegetation. That share is for the end of the run only. Water vegetation starts at 0 and builds up (the review's 3000-tick seed 42 run had deep water at a mean of 0.029), so its share of the run's total food on deep water is smaller, and was not measured; the history CSV has no vegetation column.
 
 | seed | vegetation deep / shallow, barrier | vegetation deep / shallow, habitat | food items on deep / shallow, barrier | habitat |
 |---|---|---|---|---|
@@ -128,4 +128,5 @@ Founders in the habitat setting: 59 to 74 of the 400 in ShallowWater (18,038 to 
 
 - A second run per seed, and the same trajectory with only the knob changed. Because the fifth founding biome reshuffles every founder, the habitat runs differ from the barrier runs by their founding draw as well as by the knob; a run with `water_vegetation` above 0 and the land-only founding biomes would separate the two, and was not run since the plan pairs them as one setting.
 - Any value other than 1, and the all-water setting (the plan's option (c)), which the knob does not offer.
-- Water vegetation over time. The new summary line is the end state; the history CSV has no vegetation column.
+- Water vegetation and nutrients over time. The summary line is the end state; the history CSV has no vegetation or nutrient column, so how much of the run's food on water the deposits account for is not known.
+- Nutrients in the `shallow-habitat/` runs. Their summaries predate the nutrient column and were not rerun.
