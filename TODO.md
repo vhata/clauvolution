@@ -23,6 +23,10 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 
 ### Unprioritized
 
+- [PERF] `serial-tick-hotspots` — **Find out why grazing, action and disease transmission dominate the serial part of the tick.** Per-system timing on seed 42 puts these three far above the systems the parallelisation entry named, so they are where any further per-tick saving has to come from.
+  - Evidence: temporary `Instant` timers around each `FixedUpdate` system (not committed), seed 42, 5000 ticks, main at 1313d28, a loaded M4 Max: `sensing_and_brain_system` 13.6 s (already parallel), `grazing_system` 13.2 s, `action_system` 4.9 s, `disease_transmission_system` 4.0 s, `predation_system` 2.6 s, `symbiosis_tracking_system` 2.3 s (already parallel), every other system under 1.5 s, in a 47.9 s run. `niche_construction_system` (0.18 s) and `disease_effects_system` (0.09 s) were too small to parallelise.
+  - Starting point: Profile `grazing_system` first; it is serial and nearly as costly as sensing. Its first-come bite claims, like predation's kill claims, mean a parallel version would need a parallel scan and a serial resolve in iteration order to keep seeded runs byte-identical (the pattern `predation_system` now uses).
+  - Source: todo/rayon-remaining-systems branch, 2026-10-08
 - [TOOLING] `cargo-audit-advisory-job` — **Run `cargo audit` weekly as an advisory job in the probe workflow.** Known advisories in dependencies would surface without anyone looking, at almost no runner cost.
   - Starting point: Decide whether advisories are worth watching at all for a simulator with no network surface; if so, a non-blocking job in `.github/workflows/probe.yml` on the weekly schedule, reporting to the job summary.
   - Source: task/workflow-docs-repair, 2026-10-04 (suggested in the previous `docs/QUALITY.md`, dropped from it when it was rewritten to describe current state)
@@ -110,7 +114,6 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 - [PERF] `gpu-brain-compute-shader` — **Evaluate every brain in a single compute shader dispatch.** The largest available throughput win, but only worth it at 10k or more organisms.
   - Starting point: Pad all NEAT networks to a uniform maximum size and flatten them into GPU buffers. Confirm the padding cost does not erase the win before committing.
   - Source: docs/ROADMAP.md (Backlog), 2026-09-16
-  - Related: `rayon-remaining-systems`
 
 ### Unprioritized
 
@@ -125,10 +128,6 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 
 ### P3 Low
 
-- [PERF] `rayon-remaining-systems` — **Parallelise the remaining O(n) simulation systems.** `sensing_and_brain_system`, `metabolism_system`, and the photosynthesis second pass already use `par_iter_mut`, but predation, disease effects, and niche construction still run serially.
-  - Starting point: `disease_effects_system` takes `SimRng` and `Commands`, and `niche_construction_system` mutates the shared `TileMap` (several organisms can hit one tile), so each needs restructuring before `par_iter_mut` is safe. Benchmark with `--headless N --speed 10`, which runs FixedUpdate as fast as the CPU allows (about 85 ticks/sec on an M4 Max at 2000 organisms), so wall time does track per-tick cost. The compute pool is capped at 6 workers by default and overridable via `CLAU_WORKERS`.
-  - Source: docs/ROADMAP.md (Backlog), 2026-09-16
-  - Related: `gpu-brain-compute-shader`, `split-sensing-and-brain-system`
 
 ### Unprioritized
 
@@ -143,7 +142,6 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 - [SIM] `split-sensing-and-brain-system` — **Split the sensing pass from the brain evaluation pass.** `sensing_and_brain_system` runs about 114 lines covering spatial querying, input assembly, social sensing, and brain evaluation in one loop.
   - Starting point: Splitting along those concerns also opens up further Rayon parallelism.
   - Source: docs/ROADMAP.md (Known tech debt), 2026-09-16
-  - Related: `rayon-remaining-systems`
 - [SIM] `split-reproduction-system` — **Split reproduction into its three concerns.** `reproduction_system` runs about 114 lines mixing mate finding, genome crossover and mutation, and child spawning.
   - Starting point: The three concerns are a natural split boundary.
   - Source: docs/ROADMAP.md (Known tech debt), 2026-09-16
