@@ -132,10 +132,10 @@ Not gated. `Cargo.lock` is committed, which is correct for a binary. No `cargo a
 - Linear history is required.
 - All conversations must be resolved before merging.
 - Force pushes and deletions are blocked.
+- Changes reach `main` through a pull request; zero approving reviews are required.
 - The rule is not enforced for administrators.
-- Zero approving reviews are required.
 
-Required checks also apply to commits pushed directly, so without an exemption a plan committed straight to `main` would be rejected. Not enforcing the rule for administrators is what keeps the direct-to-main exceptions in `AGENTS.md` working for the repository owner, whose credentials every push here uses. The same exemption means the merge button offers an administrator a bypass on a red pull request; it is an extra deliberate click with a warning, not the default.
+The pull request requirement and the required checks both apply to commits pushed directly, so without an exemption a plan committed straight to `main` would be rejected. Not enforcing the rule for administrators is what keeps the direct-to-main exceptions in `AGENTS.md` working for the repository owner: such a push bypasses the rule. Agents push with the owner's credentials, so the exemption covers them too; what keeps agent work on pull requests is the rule in `AGENTS.md`, not the protection. The same exemption means the merge button offers an administrator a bypass on a red pull request; it is an extra deliberate click with a warning, not the default.
 
 No approvals are required because the reviewers are agents the forge cannot see. The `## Review` section of the PR body is the record of review.
 
