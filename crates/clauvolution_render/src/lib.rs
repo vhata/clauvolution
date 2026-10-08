@@ -1053,7 +1053,12 @@ fn lod_change_system(
     // Also despawn child entities (body parts, outlines). Despawning a child
     // does not remove it from its parent's `Children` in Bevy 0.15, so the
     // list is removed too; otherwise every LOD switch would leave the dead
-    // ids behind and the list would grow with each switch.
+    // ids behind and the list would grow with each switch. This is not
+    // `try_despawn_descendants`: in bevy_hierarchy 0.15 that calls
+    // `World::entity_mut` on the organism and panics if it is already gone,
+    // which happens when `mass_extinction_input_system` (also in `Update`,
+    // unordered with this system) despawns it first in the same frame.
+    // `remove` and `try_despawn` both skip a missing entity.
     for (entity, children) in &organisms {
         commands
             .entity(entity)

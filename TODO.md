@@ -61,7 +61,8 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
   - Starting point: Options are decaying water vegetation toward 0 (or toward the knob's capacity) at the land rate, not depositing on water, a decay or ceiling for nutrients, or counting food items on water under the same knob, the plan's open question "Food items on water". Each changes the barrier setting, so it needs its own audit against `docs/audits/2026-10-06-phase2-water-vegetation/`. Decide before reading phase 2 separation as final.
   - Source: todo/oceans-as-habitat branch (phase 2 step 5), 2026-10-06
   - Related: `shelf-bridges-on-some-seeds`
-- [RENDER] `lod-switch-skips-childless-sprites` — **Plants already on screen stay circles when zooming in to the detailed LOD.** `lod_change_system` only matches organisms that have a `Children` component, and a plant's simple sprite has no outline child, so it is never rebuilt; plants born after the zoom get body parts, so the two kinds sit side by side.
+- [RENDER] `lod-switch-skips-childless-sprites` — **Plants already on screen stay circles when zooming in to the detailed LOD.** Plants born after the zoom get body parts, so the two kinds sit side by side.
+  - Cause: `lod_change_system` only matches organisms that have a `Children` component, and a plant's simple sprite has no outline child, so it is never rebuilt.
   - Starting point: Decide first whether plants should show body parts at close zoom at all. If so, query `Option<&Children>` in `lod_change_system`; if not, keep plants simple at both LODs in `sync_organism_transforms`. Every detailed sprite has had at least one child since body parts started sharing one mesh per type (2026-10-08), so the detailed-to-simple direction already rebuilds everything.
   - Source: todo/shared-segment-mesh-handles branch, 2026-10-08
 
