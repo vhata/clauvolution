@@ -5,6 +5,7 @@
 pub mod save;
 
 use bevy::prelude::*;
+use bevy::tasks::{ComputeTaskPool, ParallelSlice};
 use clauvolution_brain::Brain;
 use clauvolution_core::*;
 use clauvolution_genome::{Genome, InnovationCounter, NUM_INPUTS, NUM_MEMORY};
@@ -155,6 +156,12 @@ const ATTACK_REACH: f32 = 4.0;
 /// Share of the target's defence (`armour × body size`) subtracted from the
 /// attacker's strike force (`claw power × body size`) to give the damage.
 const DEFENCE_WEIGHT: f32 = 0.5;
+/// `predation_system` scans attackers' reach on the compute pool in about
+/// this many chunks per worker, so one dense patch of attackers does not
+/// leave the other workers idle.
+const PREDATION_CHUNKS_PER_THREAD: usize = 4;
+/// Smallest chunk of attackers worth a task of its own.
+const PREDATION_MIN_CHUNK: usize = 32;
 /// Size gate: the attacker's body size must exceed the target's times this.
 /// Below 1.0, so an attacker can take prey somewhat larger than itself.
 const PREY_SIZE_RATIO: f32 = 0.6;
@@ -1469,6 +1476,87 @@ struct PreyView {
     is_plant: bool,
 }
 
+/// A living organism within one attacker's reach, gated, as the parallel
+/// scan in `predation_system` found it. Whether it is still unclaimed is
+/// decided afterwards, in the serial pass.
+#[derive(Clone, Copy)]
+struct ReachHit {
+    entity: Entity,
+    /// Distance from the attacker.
+    dist: f32,
+    is_plant: bool,
+    /// The attacker is big enough for it.
+    size_ok: bool,
+    /// The attacker's claws get past its armour.
+    damage_ok: bool,
+    /// Its energy when it was gated.
+    energy: f32,
+}
+
+/// One attacker's share of a `ReachScan`.
+#[derive(Clone, Copy)]
+struct AttackerReach {
+    /// One past this attacker's last hit in `ReachScan::hits`; its first hit
+    /// is the previous attacker's end, or 0.
+    hits_end: usize,
+    /// A living plant was within reach, claimed or not.
+    plant_in_reach: bool,
+    /// Anything living was within reach: a strike, not a flail.
+    anyone_in_reach: bool,
+}
+
+/// The reach scans for one chunk of attackers, in attacker order.
+#[derive(Default)]
+struct ReachScan {
+    hits: Vec<ReachHit>,
+    reaches: Vec<AttackerReach>,
+}
+
+impl ReachScan {
+    /// Append one attacker's scan: every living organism other than itself
+    /// within `attack_range`, in the grid's visit order, with both gates
+    /// evaluated. Reads nothing that changes during predation.
+    fn scan(
+        &mut self,
+        grid: &CellGrid<PreyView>,
+        hash: &SpatialHash,
+        attacker: Entity,
+        attacker_pos: Vec2,
+        attack_str: f32,
+        attack_range: f32,
+        attacker_size: f32,
+    ) {
+        let mut plant_in_reach = false;
+        let mut anyone_in_reach = false;
+        grid.for_each_near(hash, attacker_pos, attack_range, |target| {
+            if target.entity == attacker {
+                return;
+            }
+            let dist = (target.pos - attacker_pos).length();
+            if dist > attack_range {
+                return;
+            }
+            plant_in_reach |= target.is_plant;
+            anyone_in_reach = true;
+            let damage = (attack_str - target.defense * DEFENCE_WEIGHT).max(0.0);
+            self.hits.push(ReachHit {
+                entity: target.entity,
+                dist,
+                is_plant: target.is_plant,
+                // A plant is prey like any other: the size gate applies.
+                size_ok: attacker_size > target.size * PREY_SIZE_RATIO,
+                damage_ok: damage > MIN_KILL_DAMAGE,
+                energy: target.energy,
+            });
+        });
+        self.reaches.push(AttackerReach {
+            hits_end: self.hits.len(),
+            plant_in_reach,
+            anyone_in_reach,
+        });
+    }
+}
+
 /// A neighbour that passed every gate for one attacker (or eater) this tick.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct StrikeCandidate {
@@ -1838,7 +1926,43 @@ fn predation_system(
         })
     });
 
-    for (attacker_entity, attacker_pos, attack_str, attack_range, attacker_size, band) in &attackers
+    // Scan every attacker's reach in parallel. The scan reads only the grid
+    // and the hash, both fixed for the tick, so it is the same whichever
+    // thread runs it; claims are what make the attackers depend on each
+    // other, and they are resolved below, serially and in attacker order.
+    let grid = &*prey_grid;
+    let hash = &*spatial_hash;
+    let pool = ComputeTaskPool::get();
+    let chunk_size = attackers
+        .len()
+        .div_ceil(pool.thread_num() * PREDATION_CHUNKS_PER_THREAD)
+        .max(PREDATION_MIN_CHUNK);
+    let scans: Vec<ReachScan> = attackers.par_chunk_map(pool, chunk_size, |_, chunk| {
+        let mut scan = ReachScan::default();
+        for (attacker_entity, attacker_pos, attack_str, attack_range, attacker_size, _) in chunk {
+            scan.scan(
+                grid,
+                hash,
+                *attacker_entity,
+                *attacker_pos,
+                *attack_str,
+                *attack_range,
+                *attacker_size,
+            );
+        }
+        scan
+    });
+    let reaches = scans.iter().flat_map(|scan| {
+        let mut start = 0;
+        scan.reaches.iter().map(move |reach| {
+            let hits = &scan.hits[start..reach.hits_end];
+            start = reach.hits_end;
+            (reach, hits)
+        })
+    });
+
+    for ((attacker_entity, _, attack_str, _, _, band), (reach, hits)) in
+        attackers.iter().zip(reaches)
     {
         candidates.clear();
         // Instrument only: which gates the unclaimed consumers in reach
@@ -1849,54 +1973,41 @@ fn predation_system(
         let mut consumer_both_ok = false;
         // Instrument only: whether any living plant was within reach,
         // claimed or not. It does not affect which target is struck.
-        let mut plant_in_reach = false;
+        let plant_in_reach = reach.plant_in_reach;
         // Whether anything alive was within reach: a strike, not a flail.
-        let mut anyone_in_reach = false;
+        let anyone_in_reach = reach.anyone_in_reach;
 
-        prey_grid.for_each_near(&spatial_hash, *attacker_pos, *attack_range, |target| {
-            if target.entity == *attacker_entity {
-                return;
-            }
-            let dist = (target.pos - *attacker_pos).length();
-            if dist > *attack_range {
-                return;
-            }
-            let is_plant = target.is_plant;
-            plant_in_reach |= is_plant;
-            anyone_in_reach = true;
-            if claimed_victims.contains(&target.entity) {
-                return;
+        // The hits are in the order the grid visited them, which is the
+        // order the serial scan used, so claims and ties resolve as they did.
+        for hit in hits {
+            if claimed_victims.contains(&hit.entity) {
+                continue;
             }
 
             predation_stats.targets_considered += 1;
 
-            let damage = (attack_str - target.defense * DEFENCE_WEIGHT).max(0.0);
-            // A plant is prey like any other: the size gate applies.
-            let size_ok = *attacker_size > target.size * PREY_SIZE_RATIO;
-            let damage_ok = damage > MIN_KILL_DAMAGE;
-
-            if !size_ok {
+            if !hit.size_ok {
                 predation_stats.rejected_size_gate += 1;
             }
-            if !damage_ok {
+            if !hit.damage_ok {
                 predation_stats.rejected_damage += 1;
             }
-            if !is_plant {
+            if !hit.is_plant {
                 consumer_in_reach = true;
-                consumer_size_ok |= size_ok;
-                consumer_damage_ok |= damage_ok;
-                consumer_both_ok |= size_ok && damage_ok;
+                consumer_size_ok |= hit.size_ok;
+                consumer_damage_ok |= hit.damage_ok;
+                consumer_both_ok |= hit.size_ok && hit.damage_ok;
             }
 
-            if damage_ok && size_ok {
+            if hit.damage_ok && hit.size_ok {
                 candidates.push(StrikeCandidate {
-                    entity: target.entity,
-                    dist,
-                    is_plant,
-                    energy: target.energy,
+                    entity: hit.entity,
+                    dist: hit.dist,
+                    is_plant: hit.is_plant,
+                    energy: hit.energy,
                 });
             }
-        });
+        }
 
         // The neighbour list is in hash bucket order, not distance order, so
         // the first passing neighbour is an arbitrary one. The attacker
