@@ -5,7 +5,7 @@
 pub mod save;
 
 use bevy::prelude::*;
-use bevy::tasks::{ComputeTaskPool, ParallelSlice, TaskPool};
+use bevy::tasks::{ComputeTaskPool, TaskPool};
 use clauvolution_brain::Brain;
 use clauvolution_core::*;
 use clauvolution_genome::{Genome, InnovationCounter, NUM_INPUTS, NUM_MEMORY};
@@ -1505,7 +1505,8 @@ struct AttackerReach {
     anyone_in_reach: bool,
 }
 
-/// The reach scans for one chunk of attackers, in attacker order.
+/// The reach scans for one chunk of attackers, in attacker order. Kept
+/// between ticks in a `Local`, so the buffers are reused.
 #[derive(Default)]
 struct ReachScan {
     hits: Vec<ReachHit>,
@@ -1863,6 +1864,7 @@ fn record_band_attack(
 fn predation_system(
     spatial_hash: Res<SpatialHash>,
     mut prey_grid: Local<CellGrid<PreyView>>,
+    mut reach_scans: Local<Vec<ReachScan>>,
     config: Res<SimConfig>,
     mut organisms: Query<
         (
@@ -1939,20 +1941,34 @@ fn predation_system(
         .len()
         .div_ceil(pool.thread_num() * PREDATION_CHUNKS_PER_THREAD)
         .max(PREDATION_MIN_CHUNK);
-    let scans: Vec<ReachScan> = attackers.par_chunk_map(pool, chunk_size, |_, chunk| {
-        let mut scan = ReachScan::default();
-        for (attacker_entity, attacker_pos, attack_str, attack_range, attacker_size, _) in chunk {
-            scan.scan(
-                grid,
-                hash,
-                *attacker_entity,
-                *attacker_pos,
-                *attack_str,
-                *attack_range,
-                *attacker_size,
-            );
+    // One scan buffer per chunk, kept between ticks like the grids. Chunk i
+    // writes only buffer i, so the buffers read back in attacker order
+    // whichever task finishes first.
+    let chunks = attackers.len().div_ceil(chunk_size);
+    if reach_scans.len() < chunks {
+        reach_scans.resize_with(chunks, ReachScan::default);
+    }
+    let scans = &mut reach_scans[..chunks];
+    pool.scope(|s| {
+        for (chunk, scan) in attackers.chunks(chunk_size).zip(scans.iter_mut()) {
+            s.spawn(async move {
+                scan.hits.clear();
+                scan.reaches.clear();
+                for (attacker_entity, attacker_pos, attack_str, attack_range, attacker_size, _) in
+                    chunk
+                {
+                    scan.scan(
+                        grid,
+                        hash,
+                        *attacker_entity,
+                        *attacker_pos,
+                        *attack_str,
+                        *attack_range,
+                        *attacker_size,
+                    );
+                }
+            });
         }
-        scan
     });
     let reaches = scans.iter().flat_map(|scan| {
         let mut start = 0;
@@ -5296,6 +5312,63 @@ mod grazing_tests {
 
     /// A strike costs the attacker whether it lands or bounces; firing with
     /// nobody in reach is free, and the cost is booked as movement.
+    #[test]
+    fn a_victim_contested_across_chunks_goes_to_the_first_attacker() {
+        // More attackers than one scan chunk holds, so the reach scan runs as
+        // several tasks. The first `FAR` attackers ring an empty spot; the
+        // rest ring a plant, and they straddle the chunk boundary, so the
+        // serial pass has to read the chunks back in attacker order for the
+        // right one to win and the rest to find the plant claimed.
+        const FAR: usize = PREDATION_MIN_CHUNK - 2;
+        const NEAR: usize = 10;
+        let mut world = feeding_world();
+        // Armoured past their own claws: each attacker is in reach of the
+        // others on its ring but fails the damage gate on them, so the plant
+        // is the only candidate anyone has.
+        let mut armoured = genome(false, false, -1.0, 1.0);
+        armoured.armor = 10.0;
+        let ring = |world: &mut World, centre: Vec2, count: usize| -> Vec<Entity> {
+            (0..count)
+                .map(|i| {
+                    let angle = i as f32 * std::f32::consts::TAU / count as f32;
+                    let pos = centre + 1.5 * Vec2::new(angle.cos(), angle.sin());
+                    spawn(world, pos, 50.0, armoured.clone(), 1.0, attacking())
+                })
+                .collect()
+        };
+        let far = ring(&mut world, Vec2::new(200.0, 200.0), FAR);
+        let near = ring(&mut world, Vec2::new(50.0, 50.0), NEAR);
+        let plant = spawn(
+            &mut world,
+            Vec2::new(50.0, 50.0),
+            80.0,
+            genome(true, false, 0.0, 0.0),
+            1.0,
+            idle(),
+        );
+
+        world.run_system_once(predation_system).unwrap();
+
+        // The first near attacker in query order takes the plant: a tenth of
+        // 80 at plant efficiency 1.0. Everyone after it finds it claimed.
+        assert!(world.get::<Killed>(plant).is_some());
+        assert!((energy(&world, near[0]) - 58.0).abs() < 1e-4);
+        for &other in far.iter().chain(&near[1..]) {
+            assert_eq!(energy(&world, other), 50.0);
+            assert!(world.get::<Killed>(other).is_none());
+        }
+        let stats = world.resource::<PredationStats>();
+        assert_eq!(stats.kills, 1);
+        assert_eq!(stats.attacks_attempted, (FAR + NEAR) as u64);
+        // Each attacker weighs the others on its ring; the first near one
+        // also weighs the plant, which is claimed for the rest.
+        let (far, near) = (FAR as u64, NEAR as u64);
+        let ring_pairs = far * (far - 1) + near * (near - 1);
+        assert_eq!(stats.targets_considered, ring_pairs + 1);
+        assert_eq!(stats.rejected_damage, ring_pairs);
+        assert_eq!(stats.rejected_size_gate, 0);
+    }
+
     #[test]
     fn a_strike_costs_the_attacker_and_a_flail_does_not() {
         let mut world = feeding_world();
