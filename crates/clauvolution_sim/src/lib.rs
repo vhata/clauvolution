@@ -5310,8 +5310,6 @@ mod grazing_tests {
         assert_eq!(strike_cost(2.0, 0.0), 0.0);
     }
 
-    /// A strike costs the attacker whether it lands or bounces; firing with
-    /// nobody in reach is free, and the cost is booked as movement.
     #[test]
     fn a_victim_contested_across_chunks_goes_to_the_first_attacker() {
         // More attackers than one scan chunk holds, so the reach scan runs as
@@ -5369,6 +5367,8 @@ mod grazing_tests {
         assert_eq!(stats.rejected_size_gate, 0);
     }
 
+    /// A strike costs the attacker whether it lands or bounces; firing with
+    /// nobody in reach is free, and the cost is booked as movement.
     #[test]
     fn a_strike_costs_the_attacker_and_a_flail_does_not() {
         let mut world = feeding_world();
