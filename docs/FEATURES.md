@@ -94,7 +94,7 @@ One-liner list of what Clauvolution does, grouped by area. For the design ration
 
 - **Frustum culling** — organisms and food outside camera viewport get Visibility::Hidden (skipped by GPU)
 - **Food hidden at far zoom** — individual food items invisible at zoom > 2.0, so don't render
-- **Shared mesh handles** — one circle/material reused across thousands of entities
+- **Shared mesh handles** — one circle/material reused across thousands of entities, and one unit mesh per body part type scaled per part at the detailed LOD
 - **Virtual time cap (100ms)** — prevents death spiral after lag spikes
 - **Pause via virtual time** — paused sim doesn't accumulate ticks; unpause is instant
 - **Incremental release builds** — enabled in Cargo.toml; much faster iteration

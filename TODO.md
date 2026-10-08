@@ -61,6 +61,9 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
   - Starting point: Options are decaying water vegetation toward 0 (or toward the knob's capacity) at the land rate, not depositing on water, a decay or ceiling for nutrients, or counting food items on water under the same knob, the plan's open question "Food items on water". Each changes the barrier setting, so it needs its own audit against `docs/audits/2026-10-06-phase2-water-vegetation/`. Decide before reading phase 2 separation as final.
   - Source: todo/oceans-as-habitat branch (phase 2 step 5), 2026-10-06
   - Related: `shelf-bridges-on-some-seeds`
+- [RENDER] `lod-switch-skips-childless-sprites` — **Plants already on screen stay circles when zooming in to the detailed LOD.** `lod_change_system` only matches organisms that have a `Children` component, and a plant's simple sprite has no outline child, so it is never rebuilt; plants born after the zoom get body parts, so the two kinds sit side by side.
+  - Starting point: Decide first whether plants should show body parts at close zoom at all. If so, query `Option<&Children>` in `lod_change_system`; if not, keep plants simple at both LODs in `sync_organism_transforms`. Every detailed sprite has had at least one child since body parts started sharing one mesh per type (2026-10-08), so the detailed-to-simple direction already rebuilds everything.
+  - Source: todo/shared-segment-mesh-handles branch, 2026-10-08
 
 ## Needs proof of concept
 
@@ -106,7 +109,6 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 - [RENDER] `gpu-instanced-rendering` — **Draw all organisms in one instanced draw call.** Each organism currently gets its own `ColorMaterial`, so the draw call count scales with population.
   - Starting point: Pack per-instance data into a single buffer. A feature bitmask per instance lets the shader scale absent parts to zero, which removes entity churn on LOD changes. Prove the bitmask approach on a subset before converting the renderer.
   - Source: docs/ROADMAP.md (Backlog), 2026-09-16
-  - Related: `shared-segment-mesh-handles`
 - [PERF] `gpu-brain-compute-shader` — **Evaluate every brain in a single compute shader dispatch.** The largest available throughput win, but only worth it at 10k or more organisms.
   - Starting point: Pad all NEAT networks to a uniform maximum size and flatten them into GPU buffers. Confirm the padding cost does not erase the win before committing.
   - Source: docs/ROADMAP.md (Backlog), 2026-09-16
@@ -150,7 +152,3 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 - [RENDER] `creature-portrait-v2-polish` — **Polish the creature portrait.** V1 reads the anatomy correctly but looks rough, and the portrait is one of the main places the sim is looked at closely.
   - Starting point: Curved or jointed limbs instead of single line segments, layered fin art with veins or gradients, a subtly shaded torso, an idle breathing animation synced to Age, visibly stacking armor plates for multiple ArmorPlate genes, and proper bilateral-pair alignment along a centre axis rather than jittering on attachment slot offsets. Metaballs and L-systems remain optional future work. See `docs/design/creature-portrait.md`.
   - Source: docs/ROADMAP.md (Cool ideas to try), 2026-09-16
-- [RENDER] `shared-segment-mesh-handles` — **Share body part meshes across organisms.** Meshes are built per organism today, which is the main cost behind the LOD roughness at close zoom.
-  - Starting point: One shared mesh handle per segment type.
-  - Source: CLAUDE.md (Known rough edges), 2026-09-16
-  - Related: `gpu-instanced-rendering`
