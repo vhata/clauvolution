@@ -3520,7 +3520,8 @@ fn record_trail_history(
 }
 
 /// Land biomes the founding population is seeded into, in the order the
-/// per-biome counts are reported. Water is not a founding habitat.
+/// per-biome counts are reported. Water is not a founding habitat unless
+/// shallow water is (see `founding_biomes`).
 pub const FOUNDING_BIOMES: [TerrainType; 4] = [
     TerrainType::Sand,
     TerrainType::Grassland,
@@ -3528,11 +3529,33 @@ pub const FOUNDING_BIOMES: [TerrainType; 4] = [
     TerrainType::Rock,
 ];
 
+/// `FOUNDING_BIOMES` with ShallowWater after the land biomes, used when
+/// shallow water is habitat (`SimConfig::water_vegetation` above 0).
+pub const FOUNDING_BIOMES_WITH_SHALLOW: [TerrainType; 5] = [
+    TerrainType::Sand,
+    TerrainType::Grassland,
+    TerrainType::Forest,
+    TerrainType::Rock,
+    TerrainType::ShallowWater,
+];
+
+/// The biomes the founders are seeded into under `config`: the land biomes,
+/// plus ShallowWater when `water_vegetation` makes it habitat. Deep water
+/// is never a founding biome. See `docs/DECISIONS.md`, "Water vegetation
+/// as a knob".
+pub fn founding_biomes(config: &SimConfig) -> &'static [TerrainType] {
+    if config.water_vegetation > 0.0 {
+        &FOUNDING_BIOMES_WITH_SHALLOW
+    } else {
+        &FOUNDING_BIOMES
+    }
+}
+
 /// Minimum share of the founding population a biome receives once its area
-/// is meaningful, so no land biome starts empty.
+/// is meaningful, so no founding biome starts empty.
 const FOUNDER_FLOOR_SHARE: f32 = 0.05;
 
-/// A biome's share of founding-biome land must reach this for the floor to
+/// A biome's share of the founding area must reach this for the floor to
 /// apply; smaller patches take only their proportional share.
 const FOUNDER_MEANINGFUL_AREA_SHARE: f32 = 0.01;
 
@@ -3549,11 +3572,12 @@ pub fn reproduction_threshold(config: &SimConfig, body_size: f32) -> f32 {
 }
 
 /// Split `total` founders across biomes in proportion to `areas` (tile counts,
-/// one per entry of `FOUNDING_BIOMES`). Shares are rounded by largest
+/// one per entry of `founding_biomes(config)`). Shares are rounded by largest
 /// remainder so the result sums to `total`. A biome with no tiles gets none;
 /// a biome holding at least `FOUNDER_MEANINGFUL_AREA_SHARE` of the counted
-/// land is raised to `FOUNDER_FLOOR_SHARE` of `total`, taking the difference
-/// from the most populous biomes. Returns all zeros when there is no land.
+/// founding area (land, plus shallow water when it is habitat) is raised to
+/// `FOUNDER_FLOOR_SHARE` of `total`, taking the difference from the most
+/// populous biomes. Returns all zeros when there is no founding area.
 pub fn founder_allocation(areas: &[usize], total: u32) -> Vec<u32> {
     let total_area: usize = areas.iter().sum();
     if total_area == 0 {
@@ -3612,7 +3636,7 @@ pub fn founder_allocation(areas: &[usize], total: u32) -> Vec<u32> {
 /// resource so the headless summary can print it; a loaded save has none.
 #[derive(Resource, Debug, Clone)]
 pub struct FounderReport {
-    /// Founders and land tiles per entry of `FOUNDING_BIOMES`.
+    /// Founders and tiles per founding biome (`founding_biomes`).
     pub by_biome: Vec<(TerrainType, u32, usize)>,
     pub plants: u32,
     pub grazers: u32,
@@ -3651,7 +3675,8 @@ impl std::fmt::Display for FounderReport {
 
 /// Spawn the founding population.
 ///
-/// Founders are placed on land in proportion to each biome's area (see
+/// Founders are placed on land, and on shallow water when it is habitat,
+/// in proportion to each biome's area (see
 /// `founder_allocation`), and every founder starts just below its own
 /// reproduction threshold, so the opening is colonisation from modest
 /// beginnings rather than a burst of births on free energy. The genome
@@ -3690,9 +3715,10 @@ pub fn spawn_initial_population(
     }
 
     // Tile indices per founding biome.
-    let mut biome_tiles: Vec<Vec<u32>> = vec![Vec::new(); FOUNDING_BIOMES.len()];
+    let biomes = founding_biomes(config);
+    let mut biome_tiles: Vec<Vec<u32>> = vec![Vec::new(); biomes.len()];
     for (idx, tile) in tile_map.tiles.iter().enumerate() {
-        if let Some(b) = FOUNDING_BIOMES.iter().position(|t| *t == tile.terrain) {
+        if let Some(b) = biomes.iter().position(|t| *t == tile.terrain) {
             biome_tiles[b].push(idx as u32);
         }
     }
@@ -3783,7 +3809,7 @@ pub fn spawn_initial_population(
     }
 
     FounderReport {
-        by_biome: FOUNDING_BIOMES
+        by_biome: biomes
             .iter()
             .zip(counts.iter().zip(areas.iter()))
             .map(|(t, (n, a))| (*t, *n, *a))
@@ -4105,10 +4131,34 @@ mod tests {
     /// below its own reproduction threshold.
     #[test]
     fn founders_land_in_allocated_biomes_below_reproduction_threshold() {
-        let config = SimConfig {
+        let report = check_founders(SimConfig {
             terrain_seed: 42,
             ..SimConfig::default()
-        };
+        });
+        assert_eq!(report.by_biome.len(), FOUNDING_BIOMES.len());
+    }
+
+    /// With shallow water as habitat, ShallowWater is a founding biome after
+    /// the land biomes and receives founders; deep water still receives none.
+    #[test]
+    fn shallow_water_is_a_founding_biome_when_it_is_habitat() {
+        let report = check_founders(SimConfig {
+            terrain_seed: 42,
+            water_vegetation: 1.0,
+            ..SimConfig::default()
+        });
+        assert_eq!(report.by_biome.len(), FOUNDING_BIOMES_WITH_SHALLOW.len());
+        let (terrain, founders, tiles) = report.by_biome[4];
+        assert_eq!(terrain, TerrainType::ShallowWater);
+        assert!(
+            founders > 0 && tiles > 0,
+            "no shallow founders: {founders} on {tiles} tiles"
+        );
+    }
+
+    /// Spawns the founders for `config` on its seed's map and checks them
+    /// against `founding_biomes` and `founder_allocation`.
+    fn check_founders(config: SimConfig) -> FounderReport {
         let mut terrain_rng = StdRng::seed_from_u64(config.terrain_seed);
         let tile_map = TileMap::generate(config.world_width, config.world_height, &mut terrain_rng);
         let mut innovation = InnovationCounter(0);
@@ -4137,15 +4187,18 @@ mod tests {
         assert_eq!(report.plants, config.initial_population / 3);
         assert!(report.by_biome.iter().all(|(_, n, a)| *a > 0 || *n == 0));
 
-        let mut areas = vec![0usize; FOUNDING_BIOMES.len()];
+        let mut areas = vec![0usize; founding_biomes(&config).len()];
         for tile in &tile_map.tiles {
-            if let Some(b) = FOUNDING_BIOMES.iter().position(|t| *t == tile.terrain) {
+            if let Some(b) = founding_biomes(&config)
+                .iter()
+                .position(|t| *t == tile.terrain)
+            {
                 areas[b] += 1;
             }
         }
         let expected = founder_allocation(&areas, config.initial_population);
 
-        let mut per_biome = vec![0u32; FOUNDING_BIOMES.len()];
+        let mut per_biome = vec![0u32; founding_biomes(&config).len()];
         let mut plants = 0u32;
         let mut total = 0u32;
         let mut query =
@@ -4154,11 +4207,14 @@ mod tests {
             total += 1;
             let terrain = tile_map.tile_at_pos(pos.0).terrain;
             assert!(
-                !terrain.is_water(),
-                "founder placed in water at {:?}",
+                terrain != TerrainType::DeepWater,
+                "founder placed in deep water at {:?}",
                 pos.0
             );
-            let b = FOUNDING_BIOMES.iter().position(|t| *t == terrain).unwrap();
+            let b = founding_biomes(&config)
+                .iter()
+                .position(|t| *t == terrain)
+                .unwrap();
             per_biome[b] += 1;
             assert!(
                 energy.0 < reproduction_threshold(&config, body.0),
@@ -4174,6 +4230,7 @@ mod tests {
         assert_eq!(total, config.initial_population);
         assert_eq!(per_biome, expected, "founders per biome (areas {areas:?})");
         assert_eq!(plants, config.initial_population / 3);
+        report
     }
 
     /// Imported genomes are extra founders: the population grows by their

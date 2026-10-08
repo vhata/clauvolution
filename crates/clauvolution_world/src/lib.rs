@@ -647,11 +647,28 @@ fn generate_noise_map(width: u32, height: u32, octaves: u32, rng: &mut impl Rng)
 
 // --- Tile dynamics: vegetation growth, nutrient cycling ---
 
-pub fn tile_dynamics_system(mut tile_map: ResMut<TileMap>) {
+/// Multiplier on a tile's vegetation carrying capacity (`nutrients ×
+/// moisture`), or `None` when the tile takes no part in tile dynamics and
+/// its vegetation changes only through niche construction. Land always
+/// takes 1. ShallowWater takes `water_vegetation` (`SimConfig`) when that
+/// is above 0 and is left out at 0, as all water was before the knob.
+/// DeepWater is always left out.
+pub fn vegetation_capacity_scale(terrain: TerrainType, water_vegetation: f32) -> Option<f32> {
+    match terrain {
+        TerrainType::DeepWater => None,
+        TerrainType::ShallowWater if water_vegetation > 0.0 => Some(water_vegetation),
+        TerrainType::ShallowWater => None,
+        TerrainType::Sand | TerrainType::Grassland | TerrainType::Forest | TerrainType::Rock => {
+            Some(1.0)
+        }
+    }
+}
+
+pub fn tile_dynamics_system(config: Res<SimConfig>, mut tile_map: ResMut<TileMap>) {
     for tile in &mut tile_map.tiles {
-        if !tile.terrain.is_water() {
+        if let Some(scale) = vegetation_capacity_scale(tile.terrain, config.water_vegetation) {
             // Vegetation grows toward nutrient-determined carrying capacity
-            let capacity = tile.nutrients * tile.moisture;
+            let capacity = tile.nutrients * tile.moisture * scale;
             let growth_rate = 0.001;
             tile.vegetation_density += (capacity - tile.vegetation_density) * growth_rate;
             tile.vegetation_density = tile.vegetation_density.clamp(0.0, 1.0);
@@ -854,6 +871,72 @@ mod tests {
 
         let indexed: usize = hash.cells.values().map(Vec::len).sum();
         assert_eq!(indexed, 2, "only the two organisms should be indexed");
+    }
+
+    /// Runs `tile_dynamics_system` `ticks` times on a copy of `map` with
+    /// the given `water_vegetation` and returns the tiles' vegetation.
+    fn vegetation_after(map: &TileMap, water_vegetation: f32, ticks: usize) -> Vec<f32> {
+        let mut world = World::new();
+        world.insert_resource(SimConfig {
+            water_vegetation,
+            ..SimConfig::default()
+        });
+        world.insert_resource(TileMap {
+            width: map.width,
+            height: map.height,
+            tiles: map.tiles.clone(),
+            regions: map.regions.clone(),
+        });
+        let mut schedule = Schedule::default();
+        schedule.add_systems(tile_dynamics_system);
+        for _ in 0..ticks {
+            schedule.run(&mut world);
+        }
+        world
+            .resource::<TileMap>()
+            .tiles
+            .iter()
+            .map(|t| t.vegetation_density)
+            .collect()
+    }
+
+    /// At `water_vegetation` 0 water takes no part in tile dynamics, so its
+    /// vegetation (here a niche-construction deposit) neither grows nor
+    /// decays. Above 0 ShallowWater relaxes toward `water_vegetation ×
+    /// nutrients × moisture` while DeepWater stays put and land is the same
+    /// as at 0.
+    #[test]
+    fn water_vegetation_scales_shallow_capacity_only() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut map = TileMap::generate(128, 128, &mut rng);
+        for tile in &mut map.tiles {
+            if tile.terrain.is_water() {
+                tile.vegetation_density = 0.05;
+            }
+        }
+        let has = |t: TerrainType| map.tiles.iter().any(|tile| tile.terrain == t);
+        assert!(has(TerrainType::DeepWater) && has(TerrainType::ShallowWater));
+
+        let off = vegetation_after(&map, 0.0, 5000);
+        let on = vegetation_after(&map, 1.5, 5000);
+        for (i, tile) in map.tiles.iter().enumerate() {
+            match tile.terrain {
+                TerrainType::DeepWater => {
+                    assert_eq!(off[i], 0.05);
+                    assert_eq!(on[i], 0.05);
+                }
+                TerrainType::ShallowWater => {
+                    assert_eq!(off[i], 0.05);
+                    let capacity = (1.5 * tile.nutrients * tile.moisture).min(1.0);
+                    assert!(
+                        (on[i] - capacity).abs() < 0.01 + 0.05 * capacity,
+                        "shallow tile {i}: {} after 5000 ticks, capacity {capacity}",
+                        on[i]
+                    );
+                }
+                _ => assert_eq!(on[i], off[i], "land tile {i} changed with the knob"),
+            }
+        }
     }
 
     /// Moisture must span 0..1 (the biome thresholds and the vegetation

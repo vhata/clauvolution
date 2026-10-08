@@ -232,6 +232,12 @@ pub const FLAGS: &[Flag] = &[
         "N",
         "override population_ceiling",
     ),
+    flag(
+        "--water-vegetation",
+        Value::Float(Range::NonNegative),
+        "M",
+        "override water_vegetation (shallow-water vegetation capacity; above 0 also founds life there)",
+    ),
 ];
 
 /// What `main` should do after the check.
@@ -527,6 +533,7 @@ mod tests {
             ("--diet-exponent", config.diet_efficiency_exponent),
             ("--max-energy", config.max_organism_energy),
             ("--max-food-density", config.max_food_density),
+            ("--water-vegetation", config.water_vegetation),
         ];
         for f in FLAGS {
             if !matches!(f.value, Value::Float(_)) || f.name == "--speed" {

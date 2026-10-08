@@ -1,0 +1,1 @@
+commit fe3ab26 for the history CSVs; summaries rerun at 2779429, which adds mean nutrients to the vegetation line, with history CSVs byte-identical to the fe3ab26 run on all eight seeds; ticks 15000, seeds 1 2 3 7 42 99 314 1000, 1 run each, four at a time, extra args: none (water_vegetation 0)

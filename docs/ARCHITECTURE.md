@@ -39,7 +39,7 @@ Systems run in Bevy's standard schedules:
 
 ```
 tick_counter_system           ← advance tick counter, advance season
-tile_dynamics_system          ← vegetation grows toward each tile's carrying capacity (defined in world, scheduled here)
+tile_dynamics_system          ← vegetation grows toward each tile's carrying capacity, land always and shallow water when water_vegetation > 0 (defined in world, scheduled here)
 food_regeneration_system      ← spawn food toward the seasonal density ceiling (defined in world, scheduled here; consumes SimRng)
 update_spatial_hash           ← rebuild the spatial hash from every organism Position; food is not indexed (defined in world, scheduled here)
 update_food_snapshot          ← collect (entity, position, energy) of all food into FoodSnapshot
