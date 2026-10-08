@@ -5,7 +5,7 @@
 pub mod save;
 
 use bevy::prelude::*;
-use bevy::tasks::{ComputeTaskPool, ParallelSlice};
+use bevy::tasks::{ComputeTaskPool, ParallelSlice, TaskPool};
 use clauvolution_brain::Brain;
 use clauvolution_core::*;
 use clauvolution_genome::{Genome, InnovationCounter, NUM_INPUTS, NUM_MEMORY};
@@ -1932,7 +1932,9 @@ fn predation_system(
     // other, and they are resolved below, serially and in attacker order.
     let grid = &*prey_grid;
     let hash = &*spatial_hash;
-    let pool = ComputeTaskPool::get();
+    // The app's pool, sized by `CLAU_WORKERS`; a default one where nothing
+    // set it up, as in a unit test's bare `World`.
+    let pool = ComputeTaskPool::get_or_init(TaskPool::default);
     let chunk_size = attackers
         .len()
         .div_ceil(pool.thread_num() * PREDATION_CHUNKS_PER_THREAD)
