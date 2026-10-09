@@ -17,7 +17,7 @@ clauvolution_ui         ← bevy_egui panels (header + tabbed right panel)
 clauvolution_app        ← Binary crate that wires it all together
 ```
 
-Dependencies flow in one direction: `app → render/ui → sim → world/brain/body → genome → core`. None of the sim crates depend on render or ui, which is how headless mode stays tractable.
+Dependencies flow one way. `app` depends on every crate. `render` (core, genome, body, phylogeny, world) and `ui` (core, genome, brain, phylogeny, world) never depend on `sim`. `sim` depends on world, brain, phylogeny, genome and core; `brain` and `phylogeny` on genome and core; `body` on genome; `genome` and `world` on core. None of the sim crates depend on render or ui, which is how headless mode stays tractable.
 
 ## The simulation tick
 
@@ -32,8 +32,8 @@ Systems run in Bevy's standard schedules:
 - `mass_extinction_input_system` — consume `WorldEventRequest` to trigger asteroid/ice/volcano/blooms
 - `save_system` — consume `WorldEventRequest::Save` to serialise the world; logs and chronicles the outcome and records it in `SaveReport` for the headless runner
 - `export_organism_system` — consume `WorldEventRequest::ExportOrganism(entity)` to write one creature file; outcome goes to the log, the chronicle and `OrganismExportReport` for the Inspect panel
-- Rendering-adjacent Update systems: click-select, speed control, toggle minimap/trails, screenshot, LOD change, minimap click
-- UI systems (`header_bar_system`, `right_panel_system`) — draw the egui overlays
+- Rendering-adjacent Update systems (render): click-select, speed control, toggle minimap mode and trails, manual screenshot and the egui screenshot capture, LOD change, minimap draw and click-to-navigate (`draw_minimap_egui`), species-member cycling, random select
+- UI systems (`header_bar_system`, `right_panel_system`) — draw the egui overlays; `tab_shortcut_system` — number keys jump to a tab
 
 **FixedUpdate** (strictly chained, always 30Hz of virtual time — this is the simulation tick; speed scales the virtual clock, not the timestep)
 
@@ -47,7 +47,7 @@ sensing_and_brain_system      ← copy organisms and food into per-tick cell gri
 action_system                 ← execute brain outputs (move, eat food items, signal, update memory)
 grazing_system                ← `eat` bites the nearest living plant in reach (skipping anyone fed on a food item this tick); one bite per plant per tick
 predation_system              ← attack intents → size and damage gates → kills of plants or animals (energy pyramid: 10%, digested by tissue); victim gets `Killed(Predation)`; every attacker with a living organism in reach pays the strike cost (reach scan on the compute pool, claims resolved serially)
-photosynthesis_system         ← sun energy for plants, factoring plant density competition (second pass par_iter_mut)
+photosynthesis_system         ← sun energy for plants, scaled by each plant's canopy light share (`CanopyGrid` summed-area table, written to `LightShare`; second pass par_iter_mut)
 niche_construction_system     ← organisms modify the tiles they occupy
 disease_transmission_system   ← background infections + proximity spread
 disease_effects_system        ← per-tick drain, direct mortality chance, timer countdown
@@ -76,7 +76,7 @@ sync_organism_transforms      ← position, scale, LOD, frustum cull
 sync_selection_ring           ← one ring on SelectedOrganism, whatever set it
 sync_food_transforms          ← position; hidden at far zoom
 update_death_markers          ← fade/despawn death flash entities
-draw_trails_system            ← gizmos linestrips for visible organisms (if trails on)
+draw_trails_system            ← gizmos linestrip for the selected organism (if trails on)
 draw_infection_indicators_system ← pulsing purple halo around infected organisms
 camera_control_system         ← pan/zoom/drag
 update_minimap                ← repaint the minimap image every 0.5s
