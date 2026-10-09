@@ -99,9 +99,9 @@ jobs:
         if: always()
         run: |
           {
-            echo '| label | seed | ticks | population | plants | foragers | predators | species | verdict |'
-            echo '| --- | --- | --- | --- | --- | --- | --- | --- | --- |'
-            cat probe-out/summary-row.md 2>/dev/null || echo '| (no summary row produced) | | | | | | | | |'
+            echo '| label | seed | ticks | population | plants | grazers | hunters | omnivores | species | verdict |'
+            echo '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |'
+            cat probe-out/summary-row.md 2>/dev/null || echo '| (no summary row produced) | | | | | | | | | |'
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
@@ -196,8 +196,8 @@ jobs:
             echo "Runs: **$runs**. Summaries: **$verdict**. History CSVs: $csv."
             if [ "$runs" != ok ] && [ -f probe-out/summary-row.md ]; then
               echo
-              echo '| label | seed | ticks | population | plants | foragers | predators | species | verdict |'
-              echo '| --- | --- | --- | --- | --- | --- | --- | --- | --- |'
+              echo '| label | seed | ticks | population | plants | grazers | hunters | omnivores | species | verdict |'
+              echo '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |'
               cat probe-out/summary-row.md
             fi
             if [ "$verdict" != match ]; then
