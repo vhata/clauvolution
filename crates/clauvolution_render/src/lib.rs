@@ -52,6 +52,28 @@ fn organism_sprite_scale(body_size: f32, detailed: bool, energy_factor: f32, fla
     size * 2.0 * energy_factor * flash
 }
 
+/// This frame's sprite scale for an organism: `organism_sprite_scale` with
+/// its energy and action-flash pulse applied. Both the spawn and the
+/// per-frame update use it, so a new sprite does not change size on its
+/// second frame.
+fn current_sprite_scale(
+    body_size: f32,
+    detailed: bool,
+    energy: f32,
+    max_energy: f32,
+    flash: &ActionFlash,
+) -> f32 {
+    let energy_factor = (energy / max_energy).clamp(0.5, 1.0);
+    // Flash pulse: organisms briefly grow when eating, attacking or
+    // reproducing, up to 1.45x.
+    let flash_pulse = if flash.timer > 0.0 {
+        1.0 + flash.timer * 1.5
+    } else {
+        1.0
+    };
+    organism_sprite_scale(body_size, detailed, energy_factor, flash_pulse)
+}
+
 /// Logical window size assumed when the primary window cannot be read. It is
 /// the resolution the app requests at startup.
 const FALLBACK_WINDOW_SIZE: Vec2 = Vec2::new(1920.0, 1080.0);
@@ -568,7 +590,16 @@ fn sync_organism_transforms(
     mut materials: ResMut<Assets<ColorMaterial>>,
     shared_meshes: Res<SharedMeshes>,
     organisms_without_sprite: Query<
-        (Entity, &Position, &Genome, &BodyPlan, &SpeciesId),
+        (
+            Entity,
+            &Position,
+            &Genome,
+            &BodyPlan,
+            &SpeciesId,
+            &Energy,
+            &BodySize,
+            &ActionFlash,
+        ),
         (With<Organism>, Without<OrganismSprite>),
     >,
     mut organisms_with_sprite: Query<
@@ -615,20 +646,28 @@ fn sync_organism_transforms(
 
     let use_detailed = zoom_scale < 0.6;
 
-    for (entity, pos, genome, body_plan, species_id) in &organisms_without_sprite {
+    for (entity, pos, genome, body_plan, species_id, energy, body_size, flash) in
+        &organisms_without_sprite
+    {
         let is_plant = genome.is_photosynthesiser();
         let z_level = if is_plant { 0.3 } else { 1.0 };
+        let detailed = use_detailed && !body_plan.parts.is_empty();
+        let scale = current_sprite_scale(
+            body_size.0,
+            detailed,
+            energy.0,
+            config.max_organism_energy,
+            flash,
+        );
 
-        if use_detailed && !body_plan.parts.is_empty() {
+        if detailed {
             // The organism entity carries no mesh at this LOD. Its scale is
             // the sprite scale shared by every part, so each part, the first
             // included, is a child that draws its type's shared unit mesh at
             // its own size through its child `Transform` scale. The first
             // part sits at the origin unrotated, behind the others.
             commands.entity(entity).insert((
-                Transform::from_xyz(pos.0.x, pos.0.y, z_level).with_scale(Vec3::splat(
-                    organism_sprite_scale(genome.body_size, true, 1.0, 1.0),
-                )),
+                Transform::from_xyz(pos.0.x, pos.0.y, z_level).with_scale(Vec3::splat(scale)),
                 Visibility::default(),
                 OrganismSprite,
                 DetailedSprite,
@@ -647,33 +686,14 @@ fn sync_organism_transforms(
                 commands.entity(entity).add_child(child);
             }
         } else {
-            let base_color = species_colors.get_or_create(species_id.0);
-            let base_rgba = base_color.to_srgba();
-
-            let photo = genome.photosynthesis_rate;
-            let predator = genome.claw_power().min(1.0);
-            let is_plant = genome.is_photosynthesiser();
-
-            let (r, g, b, z_level, scale_mult) = if is_plant {
-                // Plants: bright yellow-green, distinct from terrain, behind active organisms
-                let bright = 0.5 + photo * 0.5;
-                (0.5 * bright, 0.9 * bright, 0.15, 0.3, 1.5)
-            } else {
-                // Active organisms: species colour with predator red shift
-                let r = (base_rgba.red * (1.0 - photo * 0.6) + predator * 0.4).clamp(0.1, 1.0);
-                let g = (base_rgba.green * (1.0 - predator * 0.4) + photo * 0.4).clamp(0.1, 1.0);
-                let b = (base_rgba.blue * (1.0 - photo * 0.3 - predator * 0.3)).clamp(0.05, 1.0);
-                (r, g, b, 1.0, 2.0)
-            };
-
+            let color = simple_sprite_color(genome, species_colors.get_or_create(species_id.0));
             let mesh = shared_meshes.circle.clone().unwrap();
-            let material = materials.add(ColorMaterial::from(Color::srgb(r, g, b)));
+            let material = materials.add(ColorMaterial::from(color));
 
             commands.entity(entity).insert((
                 Mesh2d(mesh.clone()),
                 MeshMaterial2d(material),
-                Transform::from_xyz(pos.0.x, pos.0.y, z_level)
-                    .with_scale(Vec3::splat(genome.body_size * scale_mult)),
+                Transform::from_xyz(pos.0.x, pos.0.y, z_level).with_scale(Vec3::splat(scale)),
                 OrganismSprite,
             ));
 
@@ -706,21 +726,31 @@ fn sync_organism_transforms(
 
         transform.translation.x = pos.0.x;
         transform.translation.y = pos.0.y;
-
-        let energy_factor = (energy.0 / config.max_organism_energy).clamp(0.5, 1.0);
-        // Flash pulse — organisms briefly grow when eating/attacking/reproducing
-        let flash_pulse = if flash.timer > 0.0 {
-            1.0 + flash.timer * 1.5 // up to 1.45x size
-        } else {
-            1.0
-        };
-        transform.scale = Vec3::splat(organism_sprite_scale(
+        transform.scale = Vec3::splat(current_sprite_scale(
             body_size.0,
             detailed,
-            energy_factor,
-            flash_pulse,
+            energy.0,
+            config.max_organism_energy,
+            flash,
         ));
     }
+}
+
+/// Simple-LOD sprite colour. Plants are a bright yellow-green, distinct from
+/// the terrain; active organisms take their species colour with a red shift
+/// for predators and a green one for photosynthesis.
+fn simple_sprite_color(genome: &Genome, species_color: Color) -> Color {
+    let photo = genome.photosynthesis_rate;
+    if genome.is_photosynthesiser() {
+        let bright = 0.5 + photo * 0.5;
+        return Color::srgb(0.5 * bright, 0.9 * bright, 0.15);
+    }
+    let base = species_color.to_srgba();
+    let predator = genome.claw_power().min(1.0);
+    let r = (base.red * (1.0 - photo * 0.6) + predator * 0.4).clamp(0.1, 1.0);
+    let g = (base.green * (1.0 - predator * 0.4) + photo * 0.4).clamp(0.1, 1.0);
+    let b = (base.blue * (1.0 - photo * 0.3 - predator * 0.3)).clamp(0.05, 1.0);
+    Color::srgb(r, g, b)
 }
 
 fn sync_food_transforms(
@@ -2052,6 +2082,54 @@ mod tests {
             let children = app.world().get::<Children>(organism).unwrap();
             assert_eq!(children.len(), parts);
             assert!(children.iter().all(|&c| app.world().get_entity(c).is_ok()));
+        }
+    }
+
+    // --- simple-lod-spawn-scale-overwritten ---
+
+    /// Turn a `spawn_bodied_organism` consumer into a plant.
+    fn make_plant(app: &mut App, entity: Entity) {
+        let mut genome = app.world().get::<Genome>(entity).unwrap().clone();
+        genome.photosynthesis_rate = 0.8;
+        genome.body_segments.push(BodySegmentGene {
+            segment_type: SegmentType::PhotoSurface,
+            size: 0.6,
+            attachment_angle: 3.0,
+            attachment_slot: 3,
+            symmetry: Symmetry::None,
+        });
+        assert!(genome.is_photosynthesiser());
+        let plan = BodyPlan::from_genome(&genome);
+        app.world_mut().entity_mut(entity).insert((genome, plan));
+    }
+
+    fn sprite_scale(app: &App, entity: Entity) -> Vec3 {
+        app.world().get::<Transform>(entity).unwrap().scale
+    }
+
+    #[test]
+    fn new_sprites_keep_their_spawn_scale() {
+        for (zoom, plant) in [(1.0, false), (1.0, true), (0.3, false), (0.3, true)] {
+            let mut app = sprite_app(zoom);
+            app.update();
+            let mut rng = StdRng::seed_from_u64(7);
+            // Energy 50 of 120 puts the energy factor at its 0.5 floor.
+            let organism = spawn_bodied_organism(&mut app, &mut rng, 1.3);
+            if plant {
+                make_plant(&mut app, organism);
+            }
+            app.update();
+            assert_eq!(
+                app.world().entity(organism).contains::<DetailedSprite>(),
+                zoom < 0.6
+            );
+            let spawned = sprite_scale(&app, organism);
+            app.update();
+            assert_eq!(
+                sprite_scale(&app, organism),
+                spawned,
+                "zoom {zoom}, plant {plant}: the sprite changed size on its second frame"
+            );
         }
     }
 
