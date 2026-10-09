@@ -128,10 +128,10 @@ Not gated. `Cargo.lock` is committed, which is correct for a binary. No `cargo a
 `main` has a classic branch protection rule:
 
 - Required status checks: `check` and `smoke`. The `queues` job and the `markers` job from `pr-markers.yml` run on every pull request but are not yet required; making them required is a repository setting for the user.
-- The branch must be up to date with `main` before merging.
+- Branches need not be up to date with `main` before merging (changed 2026-10-07); the push-to-main CI run catches the rare bad combination.
 - Linear history is required.
-- All conversations must be resolved before merging.
-- Force pushes and deletions are blocked.
+- Conversation resolution is not required (changed 2026-10-07).
+- Force pushes and deletions on `main` are allowed for the owner (changed 2026-10-07); agents never use them.
 - Changes reach `main` through a pull request; zero approving reviews are required.
 - The rule is not enforced for administrators.
 
