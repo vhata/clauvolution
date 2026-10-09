@@ -10,10 +10,6 @@ See the [`code review guide`](../docs/CODE_REVIEW_GUIDE.md) for how findings ent
 
 ## P2 Normal
 
-- [PERSIST] `load-failure-and-session-wiring` — **Make a failed load start fresh, write the chronicle log for loaded sessions, and show startup warnings in headless runs.** A save that fails to parse crashes the app after logging "starting fresh", a loaded session never writes `chronicle.log`, and headless runs swallow every load warning.
-  - Starting point: `load_saved_world` and `startup_system` in `crates/clauvolution_app/src/main.rs` (return a result and fall through to `fresh_world`); set `WorldChronicle.log_path` where the `Session` is established instead of on tick 0 in `tick_counter_system`; `eprintln!` the startup warnings or add `LogPlugin` to `run_headless`. Validate: a `save.json` of `{"tick": 5}` loads as a fresh world with a visible warning; `--load` of a good save then `--headless 300 --save-as x` leaves a non-empty `sessions/x/chronicle.log`.
-  - Source: review/2026-10-09-0906-full.md, 2026-10-09
-  - Findings: `corrupt-save-load-panics`, `loaded-session-chronicle-log-unset`, `headless-startup-warnings-invisible`
 - [SIM] `neighbour-range-rules` — **Make neighbour readers honour their stated ranges and decide whether neighbourhoods wrap across the torus.** Mate search and symbiosis accept anything in a 5×5 block of hash cells, and no neighbour query sees across the map edges that movement and terrain both wrap, so who meets whom is not what the constants and docs say.
   - Starting point: add `dist <= mate_range` in `reproduction_system` and a `SYMBIOSIS_RANGE` test in `symbiosis_tracking_system`; for the torus, wrap `SpatialHash` cell keys and `CellGrid` indices and use a torus delta in distance checks, or record the flat neighbourhood in `docs/DECISIONS.md` as accepted. Ask the user about the torus half first. Both change dynamics: re-run the 8-seed audit and compare.
   - Source: review/2026-10-09-0906-full.md, 2026-10-09

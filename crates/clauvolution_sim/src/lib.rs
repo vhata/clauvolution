@@ -601,14 +601,12 @@ fn tick_counter_system(
     mut tick: ResMut<TickCounter>,
     mut season: ResMut<Season>,
     mut chronicle: ResMut<WorldChronicle>,
-    session: Res<Session>,
     mut bloom: ResMut<BloomEffects>,
 ) {
-    // Set chronicle log path from session on first tick
-    if tick.0 == 0 {
-        chronicle.log_path = Some(session.log_path());
-        chronicle.log(0, format!("Session '{}' started", session.name));
-    }
+    // The chronicle's log file and its "Session started" entry are set up
+    // at startup, where the world is created or loaded (the app crate's
+    // `startup_system`), so a loaded world, which never sees tick 0, gets
+    // them too.
     tick.0 += 1;
     bloom.tick();
     let old_name = season.name();

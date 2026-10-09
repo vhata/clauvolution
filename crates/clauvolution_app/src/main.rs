@@ -316,33 +316,58 @@ fn startup_system(
     tick: ResMut<TickCounter>,
     season: ResMut<Season>,
     phylo: ResMut<PhyloTree>,
-    chronicle: ResMut<WorldChronicle>,
+    mut chronicle: ResMut<WorldChronicle>,
     ledger: ResMut<EnergyLedger>,
+    session: Res<Session>,
     load_path: Res<LoadPath>,
     seed_with: Res<SeedWith>,
 ) {
+    // Point the chronicle at the session's log before anything is written,
+    // so the entries made while loading or seeding the world reach the file.
+    // A loaded world starts at its saved tick and never sees tick 0, so this
+    // cannot wait for the first tick.
+    chronicle.log_path = Some(session.log_path());
+
+    let mut load_failure = None;
     if let Some(ref path) = load_path.0 {
         let save_path = std::path::Path::new(path).join("save.json");
-        if save_path.exists() {
-            if !seed_with.0.is_empty() {
-                warn!(
-                    "--seed-with only applies to a fresh world; ignoring {} creature file(s) while loading a save",
-                    seed_with.0.len()
+        match read_save(&save_path) {
+            Ok(state) => {
+                if !seed_with.0.is_empty() {
+                    warn!(
+                        "--seed-with only applies to a fresh world; ignoring {} creature file(s) while loading a save",
+                        seed_with.0.len()
+                    );
+                }
+                load_saved_world(
+                    commands, config, innovation, stats, tick, season, phylo, chronicle, ledger,
+                    &session, &save_path, state,
                 );
+                return;
             }
-            load_saved_world(
-                commands, config, innovation, stats, tick, season, phylo, chronicle, ledger,
-                &save_path,
-            );
-            return;
-        } else {
-            warn!(
-                "Save file not found: {}, starting fresh",
-                save_path.display()
-            );
+            Err(reason) => {
+                let message = format!("{reason}; starting a fresh world");
+                warn!("{message}");
+                load_failure = Some(message);
+            }
         }
     }
+    chronicle.log(0, format!("Session '{}' started", session.name));
+    if let Some(message) = load_failure {
+        chronicle.log(0, message);
+    }
     fresh_world(commands, config, innovation, ledger, chronicle, &seed_with);
+}
+
+/// Read the save a `--load` names, or say why it cannot be used. Any failure
+/// sends the caller to a fresh world; `load_world` has already logged the
+/// parse error when there is one.
+fn read_save(save_path: &std::path::Path) -> Result<save::SaveState, String> {
+    if !save_path.exists() {
+        return Err(format!("Save file not found: {}", save_path.display()));
+    }
+    save::load_world(save_path)
+        .ok_or_else(|| format!("Save file {} could not be loaded", save_path.display()))
 }
 
 fn load_saved_world(
@@ -355,13 +380,10 @@ fn load_saved_world(
     mut phylo: ResMut<PhyloTree>,
     mut chronicle: ResMut<WorldChronicle>,
     mut ledger: ResMut<EnergyLedger>,
+    session: &Session,
     save_path: &std::path::Path,
+    state: save::SaveState,
 ) {
-    let Some(state) = save::load_world(save_path) else {
-        warn!("Failed to load save file, starting fresh");
-        return;
-    };
-
     info!(
         "Loading world from {} ({} organisms, {} food)",
         save_path.display(),
@@ -405,6 +427,7 @@ fn load_saved_world(
     // Restore phylo tree and chronicle
     save::restore_phylo(&mut phylo, &state.phylo_nodes);
     save::restore_chronicle(&mut chronicle, &state.chronicle_entries);
+    chronicle.log(tick.0, format!("Session '{}' started", session.name));
     chronicle.log(tick.0, "World loaded from save".to_string());
     if let Err(message) = terrain_restored {
         eprintln!("Warning: {}", message);
@@ -639,6 +662,15 @@ fn run_headless(
             .set(ScheduleRunnerPlugin::run_loop(std::time::Duration::ZERO))
             .set(task_pool_plugin(worker_cap)),
     );
+    // MinimalPlugins has no log plugin, so without this every `warn!` and
+    // `error!` (a missing or unreadable save, organisms dropped by save
+    // validation, `--seed-with` ignored on a load) is silently dropped.
+    // Warnings and errors only, on stderr with the summary; `info!` would
+    // bury it. RUST_LOG still overrides the level.
+    app.add_plugins(bevy::log::LogPlugin {
+        level: bevy::log::Level::WARN,
+        ..default()
+    });
     // Decouple the clock from wall time so the tick/frame interleaving, and
     // with it the whole run, is a function of the seed alone.
     app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
@@ -2139,5 +2171,150 @@ mod tests {
             .map(|s| s.to_string())
             .collect();
         assert!(seed_with_paths(&none).is_empty());
+    }
+
+    /// A scratch directory for one test, removed when the test ends.
+    struct Scratch(std::path::PathBuf);
+
+    impl Scratch {
+        fn new(name: &str) -> Self {
+            let dir =
+                std::env::temp_dir().join(format!("clauvolution-{}-{}", name, std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            Self(dir)
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// Run the startup systems that create or load the world, as both the
+    /// GUI and headless apps do, on a small world with its session in
+    /// `session_dir`.
+    fn run_startup(load: Option<&std::path::Path>, session_dir: &std::path::Path) -> App {
+        run_startup_seeded(load, session_dir, SeedWith::default())
+    }
+
+    /// `run_startup` with `--seed-with` creatures.
+    fn run_startup_seeded(
+        load: Option<&std::path::Path>,
+        session_dir: &std::path::Path,
+        seed_with: SeedWith,
+    ) -> App {
+        let mut app = App::new();
+        app.insert_resource(Session {
+            name: "startup-test".to_string(),
+            dir: session_dir.to_path_buf(),
+        })
+        .add_plugins((CorePlugin, PhylogenyPlugin))
+        .insert_resource(InnovationCounter(100))
+        .insert_resource(LoadPath(load.map(|p| p.display().to_string())))
+        .insert_resource(seed_with)
+        .add_systems(Startup, startup_system);
+        {
+            let mut config = app.world_mut().resource_mut::<SimConfig>();
+            config.world_width = 32;
+            config.world_height = 32;
+            config.initial_population = 8;
+            config.terrain_seed = 1;
+        }
+        app.world_mut().run_schedule(Startup);
+        app
+    }
+
+    fn organism_count(app: &mut App) -> usize {
+        app.world_mut()
+            .query_filtered::<(), With<Organism>>()
+            .iter(app.world())
+            .count()
+    }
+
+    fn chronicle_file(session_dir: &std::path::Path) -> String {
+        std::fs::read_to_string(session_dir.join("chronicle.log")).unwrap_or_default()
+    }
+
+    #[test]
+    fn a_save_that_fails_to_parse_starts_a_fresh_world() {
+        let scratch = Scratch::new("corrupt-save");
+        let save_dir = scratch.0.join("save");
+        std::fs::create_dir_all(&save_dir).unwrap();
+        std::fs::write(save_dir.join("save.json"), r#"{"tick": 5}"#).unwrap();
+
+        let mut app = run_startup(Some(&save_dir), &scratch.0);
+
+        // Every resource the tick needs is present, so the first frame runs.
+        assert!(app.world().contains_resource::<TileMap>());
+        assert!(app.world().contains_resource::<SimRng>());
+        assert_eq!(app.world().resource::<TickCounter>().0, 0);
+        assert_eq!(organism_count(&mut app), 8);
+        let chronicle = app.world().resource::<WorldChronicle>();
+        assert!(chronicle.entries.iter().any(|e| e
+            .text
+            .contains("could not be loaded; starting a fresh world")));
+        assert!(chronicle_file(&scratch.0).contains("starting a fresh world"));
+    }
+
+    #[test]
+    fn a_missing_save_starts_a_fresh_world() {
+        let scratch = Scratch::new("missing-save");
+        let mut app = run_startup(Some(&scratch.0.join("absent")), &scratch.0);
+
+        assert!(app.world().contains_resource::<TileMap>());
+        assert_eq!(organism_count(&mut app), 8);
+        assert!(chronicle_file(&scratch.0).contains("Save file not found"));
+    }
+
+    #[test]
+    fn a_loaded_world_writes_the_session_chronicle_log() {
+        let scratch = Scratch::new("loaded-chronicle");
+        let save_dir = scratch.0.join("save");
+        std::fs::create_dir_all(&save_dir).unwrap();
+        std::fs::write(
+            save_dir.join("save.json"),
+            r#"{"tick": 300, "terrain_seed": 1, "organisms": []}"#,
+        )
+        .unwrap();
+
+        let app = run_startup(Some(&save_dir), &scratch.0);
+
+        assert_eq!(app.world().resource::<TickCounter>().0, 300);
+        let log = chronicle_file(&scratch.0);
+        assert!(log.contains("Session 'startup-test' started"), "{log}");
+        assert!(log.contains("World loaded from save"), "{log}");
+    }
+
+    #[test]
+    fn a_fresh_world_writes_the_session_chronicle_log_from_its_first_entry() {
+        let scratch = Scratch::new("fresh-chronicle");
+        run_startup(None, &scratch.0);
+
+        let log = chronicle_file(&scratch.0);
+        assert!(
+            log.starts_with("[  0s] Session 'startup-test' started"),
+            "{log}"
+        );
+    }
+
+    #[test]
+    fn a_fresh_world_writes_its_seeding_entries_to_the_session_chronicle_log() {
+        let scratch = Scratch::new("seeded-chronicle");
+        let mut rng = rand::rngs::StdRng::seed_from_u64(1);
+        let genome = clauvolution_genome::Genome::new_minimal(&mut InnovationCounter(0), &mut rng);
+        let creature =
+            save::CreatureFile::new(&genome, Some("Test Import"), "grazer", 0, 0, 1, "elsewhere");
+        let seed_with = SeedWith(vec![("creature.json".into(), creature)]);
+
+        let mut app = run_startup_seeded(None, &scratch.0, seed_with);
+
+        assert_eq!(organism_count(&mut app), 9);
+        let log = chronicle_file(&scratch.0);
+        assert!(
+            log.contains("Seeded with Test Import from elsewhere (seed 1) via creature.json"),
+            "{log}"
+        );
     }
 }
