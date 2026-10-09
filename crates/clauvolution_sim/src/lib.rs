@@ -2083,9 +2083,12 @@ fn predation_system(
         // lost as heat), and keeps what it can digest
         // of that tissue: plant at plant efficiency, animal at animal
         // efficiency. The undigested share is booked to digestion and the
-        // rest of the victim's energy to death.
+        // rest of the victim's energy to death. Movement earlier in the tick
+        // can leave prey below zero; such prey offers nothing, as a bite of
+        // it does (`graze_bite`), rather than a negative meal that costs the
+        // killer and books negative digestion.
         let (energy_gained, wasted) = digest(
-            victim_energy_before * config.kill_share(victim_is_plant),
+            victim_energy_before.max(0.0) * config.kill_share(victim_is_plant),
             kill_digestion_efficiency(killer_genome, victim_is_plant, &config),
         );
         predation_stats.feeding.record_kill(
@@ -5552,6 +5555,61 @@ mod grazing_tests {
         assert_eq!(stats.strikes, 2);
         let ledger = world.resource::<EnergyLedger>();
         assert!((ledger.tick.movement - 1.0).abs() < 1e-6);
+    }
+
+    /// Prey that movement left below zero energy offers nothing: the killer
+    /// neither pays for the kill nor books negative digestion, and the
+    /// prey's deficit leaves as death energy.
+    #[test]
+    fn killing_negative_energy_prey_costs_the_killer_nothing() {
+        let mut world = feeding_world();
+        // Plant tissue at plant efficiency 1.0: a negative gross would come
+        // straight out of the killer.
+        let plant_killer = spawn(
+            &mut world,
+            Vec2::new(10.0, 10.0),
+            50.0,
+            genome(false, false, -1.0, 1.0),
+            1.0,
+            attacking(),
+        );
+        let plant = spawn(
+            &mut world,
+            Vec2::new(11.0, 10.0),
+            -5.0,
+            genome(true, false, 0.0, 0.0),
+            1.0,
+            idle(),
+        );
+        // Animal tissue at animal efficiency 0: a negative gross would all
+        // be booked as negative digestion.
+        let animal_killer = spawn(
+            &mut world,
+            Vec2::new(100.0, 100.0),
+            50.0,
+            genome(false, false, -1.0, 1.0),
+            1.0,
+            attacking(),
+        );
+        let animal = spawn(
+            &mut world,
+            Vec2::new(101.0, 100.0),
+            -3.0,
+            genome(false, false, -1.0, 0.0),
+            1.0,
+            idle(),
+        );
+
+        world.run_system_once(predation_system).unwrap();
+
+        assert!(world.get::<Killed>(plant).is_some());
+        assert!(world.get::<Killed>(animal).is_some());
+        assert_eq!(energy(&world, plant_killer), 50.0);
+        assert_eq!(energy(&world, animal_killer), 50.0);
+        let ledger = world.resource::<EnergyLedger>();
+        assert_eq!(ledger.tick.predation, 0.0);
+        assert_eq!(ledger.tick.digestion, 0.0);
+        assert!((ledger.tick.death + 8.0).abs() < 1e-6);
     }
 
     /// The step 5 gate counters sort each hunter attack on consumer prey
