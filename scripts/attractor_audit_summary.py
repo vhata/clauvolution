@@ -73,7 +73,7 @@ def main(d):
     if len(probes) == 2:
         a, b = probes.values()
         print()
-        print("Determinism probe (two simultaneous runs of the same seed):", "identical histories" if a == b else "histories differ")
+        print("Determinism probe (two runs of the same seed):", "identical histories" if a == b else "histories differ")
 
 
 if __name__ == "__main__":
