@@ -2172,4 +2172,121 @@ mod tests {
             .collect();
         assert!(seed_with_paths(&none).is_empty());
     }
+
+    /// A scratch directory for one test, removed when the test ends.
+    struct Scratch(std::path::PathBuf);
+
+    impl Scratch {
+        fn new(name: &str) -> Self {
+            let dir =
+                std::env::temp_dir().join(format!("clauvolution-{}-{}", name, std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            Self(dir)
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// Run the startup systems that create or load the world, as both the
+    /// GUI and headless apps do, on a small world with its session in
+    /// `session_dir`.
+    fn run_startup(load: Option<&std::path::Path>, session_dir: &std::path::Path) -> App {
+        let mut app = App::new();
+        app.insert_resource(Session {
+            name: "startup-test".to_string(),
+            dir: session_dir.to_path_buf(),
+        })
+        .add_plugins((CorePlugin, PhylogenyPlugin))
+        .insert_resource(InnovationCounter(100))
+        .insert_resource(LoadPath(load.map(|p| p.display().to_string())))
+        .insert_resource(SeedWith::default())
+        .add_systems(Startup, startup_system);
+        {
+            let mut config = app.world_mut().resource_mut::<SimConfig>();
+            config.world_width = 32;
+            config.world_height = 32;
+            config.initial_population = 8;
+            config.terrain_seed = 1;
+        }
+        app.world_mut().run_schedule(Startup);
+        app
+    }
+
+    fn organism_count(app: &mut App) -> usize {
+        app.world_mut()
+            .query_filtered::<(), With<Organism>>()
+            .iter(app.world())
+            .count()
+    }
+
+    fn chronicle_file(session_dir: &std::path::Path) -> String {
+        std::fs::read_to_string(session_dir.join("chronicle.log")).unwrap_or_default()
+    }
+
+    #[test]
+    fn a_save_that_fails_to_parse_starts_a_fresh_world() {
+        let scratch = Scratch::new("corrupt-save");
+        let save_dir = scratch.0.join("save");
+        std::fs::create_dir_all(&save_dir).unwrap();
+        std::fs::write(save_dir.join("save.json"), r#"{"tick": 5}"#).unwrap();
+
+        let mut app = run_startup(Some(&save_dir), &scratch.0);
+
+        // Every resource the tick needs is present, so the first frame runs.
+        assert!(app.world().contains_resource::<TileMap>());
+        assert!(app.world().contains_resource::<SimRng>());
+        assert_eq!(app.world().resource::<TickCounter>().0, 0);
+        assert_eq!(organism_count(&mut app), 8);
+        let chronicle = app.world().resource::<WorldChronicle>();
+        assert!(chronicle.entries.iter().any(|e| e
+            .text
+            .contains("could not be loaded; starting a fresh world")));
+        assert!(chronicle_file(&scratch.0).contains("starting a fresh world"));
+    }
+
+    #[test]
+    fn a_missing_save_starts_a_fresh_world() {
+        let scratch = Scratch::new("missing-save");
+        let mut app = run_startup(Some(&scratch.0.join("absent")), &scratch.0);
+
+        assert!(app.world().contains_resource::<TileMap>());
+        assert_eq!(organism_count(&mut app), 8);
+        assert!(chronicle_file(&scratch.0).contains("Save file not found"));
+    }
+
+    #[test]
+    fn a_loaded_world_writes_the_session_chronicle_log() {
+        let scratch = Scratch::new("loaded-chronicle");
+        let save_dir = scratch.0.join("save");
+        std::fs::create_dir_all(&save_dir).unwrap();
+        std::fs::write(
+            save_dir.join("save.json"),
+            r#"{"tick": 300, "terrain_seed": 1, "organisms": []}"#,
+        )
+        .unwrap();
+
+        let app = run_startup(Some(&save_dir), &scratch.0);
+
+        assert_eq!(app.world().resource::<TickCounter>().0, 300);
+        let log = chronicle_file(&scratch.0);
+        assert!(log.contains("Session 'startup-test' started"), "{log}");
+        assert!(log.contains("World loaded from save"), "{log}");
+    }
+
+    #[test]
+    fn a_fresh_world_writes_the_session_chronicle_log_from_its_first_entry() {
+        let scratch = Scratch::new("fresh-chronicle");
+        run_startup(None, &scratch.0);
+
+        let log = chronicle_file(&scratch.0);
+        assert!(
+            log.starts_with("[  0s] Session 'startup-test' started"),
+            "{log}"
+        );
+    }
 }
