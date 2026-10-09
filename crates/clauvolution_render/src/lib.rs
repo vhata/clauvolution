@@ -12,7 +12,7 @@ use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::window::PrimaryWindow;
 use bevy_egui::{egui, EguiContexts, EguiUserTextures};
-use clauvolution_body::BodyPlan;
+use clauvolution_body::{BodyPlan, RenderedPart};
 use clauvolution_core::*;
 use clauvolution_genome::{Genome, SegmentType};
 use clauvolution_phylogeny::{classify_strategy, SpeciesStrategy};
@@ -212,13 +212,26 @@ pub struct MinimapData {
 /// never copied, and every clone points at the same GPU asset. The cost that
 /// does scale with population is the per-organism `materials.add` in
 /// `sync_organism_transforms`, not these clones.
+///
+/// `segments` holds one unit-size body part mesh per `SegmentType`, indexed
+/// by `segment_slot`. The detailed LOD draws every body part with one of
+/// these and carries the part's size in the part entity's `Transform` scale.
 #[derive(Resource, Default)]
 pub struct SharedMeshes {
     pub circle: Option<Handle<Mesh>>,
+    pub segments: Vec<Handle<Mesh>>,
     pub food_circle: Option<Handle<Mesh>>,
     pub food_material: Option<Handle<ColorMaterial>>,
     pub outline_material: Option<Handle<ColorMaterial>>,
     pub selection_material: Option<Handle<ColorMaterial>>,
+}
+
+impl SharedMeshes {
+    /// The shared unit-size mesh for a body part type. Panics if
+    /// `setup_shared_meshes` has not run.
+    fn segment(&self, seg_type: SegmentType) -> Handle<Mesh> {
+        self.segments[segment_slot(seg_type)].clone()
+    }
 }
 
 #[derive(Component)]
@@ -230,6 +243,10 @@ fn setup_shared_meshes(
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
     shared.circle = Some(meshes.add(Circle::new(1.0)));
+    shared.segments = SEGMENT_TYPES
+        .iter()
+        .map(|&seg_type| meshes.add(segment_mesh(seg_type, 1.0)))
+        .collect();
     shared.food_circle = Some(meshes.add(Circle::new(1.0)));
     shared.food_material = Some(materials.add(ColorMaterial::from(Color::srgb(0.2, 0.8, 0.2))));
     shared.outline_material =
@@ -457,31 +474,78 @@ fn segment_color(seg_type: SegmentType, genome: &Genome) -> Color {
     }
 }
 
-fn segment_mesh(seg_type: SegmentType, size: f32, meshes: &mut Assets<Mesh>) -> Handle<Mesh> {
+/// Every `SegmentType`, in `segment_slot` order.
+const SEGMENT_TYPES: [SegmentType; 8] = [
+    SegmentType::Torso,
+    SegmentType::Limb,
+    SegmentType::Fin,
+    SegmentType::Eye,
+    SegmentType::Mouth,
+    SegmentType::PhotoSurface,
+    SegmentType::Claw,
+    SegmentType::ArmorPlate,
+];
+
+/// Index of a segment type's unit mesh in `SharedMeshes::segments`. The match
+/// is exhaustive, so a new `SegmentType` fails to compile here until it is
+/// given a slot and added to `SEGMENT_TYPES`.
+fn segment_slot(seg_type: SegmentType) -> usize {
     match seg_type {
-        SegmentType::Torso => meshes.add(Ellipse::new(size, size * 0.7)),
-        SegmentType::Limb => meshes.add(Rectangle::new(size * 0.3, size)),
-        SegmentType::Fin => meshes.add(Triangle2d::new(
+        SegmentType::Torso => 0,
+        SegmentType::Limb => 1,
+        SegmentType::Fin => 2,
+        SegmentType::Eye => 3,
+        SegmentType::Mouth => 4,
+        SegmentType::PhotoSurface => 5,
+        SegmentType::Claw => 6,
+        SegmentType::ArmorPlate => 7,
+    }
+}
+
+/// Body part shape for a segment of the given size. Every vertex is linear
+/// in `size`, so the unit mesh (`size` 1.0) scaled by `size` is the same
+/// shape; the detailed LOD relies on that to share one mesh per type.
+fn segment_mesh(seg_type: SegmentType, size: f32) -> Mesh {
+    match seg_type {
+        SegmentType::Torso => Ellipse::new(size, size * 0.7).into(),
+        SegmentType::Limb => Rectangle::new(size * 0.3, size).into(),
+        SegmentType::Fin => Triangle2d::new(
             Vec2::new(0.0, size * 0.5),
             Vec2::new(-size * 0.4, -size * 0.3),
             Vec2::new(size * 0.4, -size * 0.3),
-        )),
-        SegmentType::Eye => meshes.add(Circle::new(size * 0.25)),
-        SegmentType::Mouth => meshes.add(Circle::new(size * 0.3)),
-        SegmentType::PhotoSurface => meshes.add(Ellipse::new(size * 0.6, size * 0.2)),
-        SegmentType::Claw => meshes.add(Triangle2d::new(
+        )
+        .into(),
+        SegmentType::Eye => Circle::new(size * 0.25).into(),
+        SegmentType::Mouth => Circle::new(size * 0.3).into(),
+        SegmentType::PhotoSurface => Ellipse::new(size * 0.6, size * 0.2).into(),
+        SegmentType::Claw => Triangle2d::new(
             Vec2::new(0.0, size * 0.6),
             Vec2::new(-size * 0.2, -size * 0.2),
             Vec2::new(size * 0.2, -size * 0.2),
-        )),
-        SegmentType::ArmorPlate => meshes.add(Rectangle::new(size * 0.5, size * 0.4)),
+        )
+        .into(),
+        SegmentType::ArmorPlate => Rectangle::new(size * 0.5, size * 0.4).into(),
+    }
+}
+
+/// Local `Transform` of one body part entity under its organism at the
+/// detailed LOD. The part's size goes in the scale, applied to the shared
+/// unit mesh. The first part sits at the organism's origin, unrotated and at
+/// local z 0, where the old per-size torso mesh on the organism entity drew;
+/// later parts sit at their offset and angle, at local z 0.1, in front.
+fn detailed_part_transform(part: &RenderedPart, first: bool) -> Transform {
+    if first {
+        Transform::from_scale(Vec3::splat(part.size))
+    } else {
+        Transform::from_xyz(part.offset.x, part.offset.y, 0.1)
+            .with_rotation(Quat::from_rotation_z(part.angle))
+            .with_scale(Vec3::splat(part.size))
     }
 }
 
 /// Sync organism Position to Transform, spawn body part sprites
 fn sync_organism_transforms(
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     shared_meshes: Res<SharedMeshes>,
     organisms_without_sprite: Query<
@@ -537,40 +601,30 @@ fn sync_organism_transforms(
         let z_level = if is_plant { 0.3 } else { 1.0 };
 
         if use_detailed && !body_plan.parts.is_empty() {
-            let first = &body_plan.parts[0];
-            let mesh = segment_mesh(first.segment_type, first.size, &mut meshes);
-            let base_color = segment_color(first.segment_type, genome);
-            let rgba = base_color.to_srgba();
-            let alpha = 1.0; // all opaque now
-            let color = Color::srgba(rgba.red, rgba.green, rgba.blue, alpha);
-            let material = materials.add(ColorMaterial::from(color));
-
+            // The organism entity carries no mesh at this LOD. Its scale is
+            // the sprite scale shared by every part, so each part, the first
+            // included, is a child that draws its type's shared unit mesh at
+            // its own size through its child `Transform` scale. The first
+            // part sits at the origin unrotated, behind the others.
             commands.entity(entity).insert((
-                Mesh2d(mesh),
-                MeshMaterial2d(material),
                 Transform::from_xyz(pos.0.x, pos.0.y, z_level).with_scale(Vec3::splat(
                     organism_sprite_scale(genome.body_size, true, 1.0, 1.0),
                 )),
+                Visibility::default(),
                 OrganismSprite,
                 DetailedSprite,
             ));
 
-            for part in body_plan.parts.iter().skip(1) {
-                let mesh = segment_mesh(part.segment_type, part.size, &mut meshes);
-                let base_color = segment_color(part.segment_type, genome);
-                let rgba = base_color.to_srgba();
-                let color = Color::srgba(rgba.red, rgba.green, rgba.blue, alpha);
+            for (i, part) in body_plan.parts.iter().enumerate() {
+                let color = segment_color(part.segment_type, genome);
                 let material = materials.add(ColorMaterial::from(color));
-
                 let child = commands
                     .spawn((
-                        Mesh2d(mesh),
+                        Mesh2d(shared_meshes.segment(part.segment_type)),
                         MeshMaterial2d(material),
-                        Transform::from_xyz(part.offset.x, part.offset.y, 0.1)
-                            .with_rotation(Quat::from_rotation_z(part.angle)),
+                        detailed_part_transform(part, i == 0),
                     ))
                     .id();
-
                 commands.entity(entity).add_child(child);
             }
         } else {
@@ -996,14 +1050,23 @@ fn lod_change_system(
 
     // Strip OrganismSprite, Mesh2d, MeshMaterial2d from all organisms
     // so sync_organism_transforms re-creates them at the new LOD level.
-    // Also despawn child entities (body parts, outlines).
+    // Also despawn child entities (body parts, outlines). Despawning a child
+    // does not remove it from its parent's `Children` in Bevy 0.15, so the
+    // list is removed too; otherwise every LOD switch would leave the dead
+    // ids behind and the list would grow with each switch. This is not
+    // `try_despawn_descendants`: in bevy_hierarchy 0.15 that calls
+    // `World::entity_mut` on the organism and panics if it is already gone,
+    // which happens when `mass_extinction_input_system` (also in `Update`,
+    // unordered with this system) despawns it first in the same frame.
+    // `remove` and `try_despawn` both skip a missing entity.
     for (entity, children) in &organisms {
         commands
             .entity(entity)
             .remove::<OrganismSprite>()
             .remove::<DetailedSprite>()
             .remove::<Mesh2d>()
-            .remove::<MeshMaterial2d<ColorMaterial>>();
+            .remove::<MeshMaterial2d<ColorMaterial>>()
+            .remove::<Children>();
 
         for &child in children.iter() {
             if let Some(mut cmd) = commands.get_entity(child) {
@@ -1550,7 +1613,7 @@ fn cycle_species_member_system(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use clauvolution_genome::InnovationCounter;
+    use clauvolution_genome::{BodySegmentGene, InnovationCounter, Symmetry};
     use rand::rngs::StdRng;
     use rand::SeedableRng;
 
@@ -1723,6 +1786,193 @@ mod tests {
         let detailed = organism_sprite_scale(1.5, true, 0.5, 1.2);
         assert!((simple - 1.5 * 2.0 * 0.5 * 1.2).abs() < 1e-6);
         assert!((detailed - 2.0 * 0.5 * 1.2).abs() < 1e-6);
+    }
+
+    // --- shared-segment-mesh-handles ---
+
+    fn positions(mesh: &Mesh) -> Vec<Vec3> {
+        mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+            .and_then(|a| a.as_float3())
+            .expect("2D primitive meshes carry float3 positions")
+            .iter()
+            .map(|&p| Vec3::from(p))
+            .collect()
+    }
+
+    #[test]
+    fn segment_slots_cover_every_type_once() {
+        for (i, &seg_type) in SEGMENT_TYPES.iter().enumerate() {
+            assert_eq!(segment_slot(seg_type), i, "{seg_type:?}");
+        }
+    }
+
+    #[test]
+    fn scaled_unit_segment_mesh_matches_the_per_size_mesh() {
+        // The detailed LOD draws the unit mesh with the part size as the
+        // entity scale. That only reproduces the old per-size mesh if every
+        // vertex is linear in size, with the same vertex count and order.
+        for &seg_type in &SEGMENT_TYPES {
+            let unit = positions(&segment_mesh(seg_type, 1.0));
+            for size in [0.05, 0.6, 1.0, 2.7] {
+                let sized = positions(&segment_mesh(seg_type, size));
+                assert_eq!(unit.len(), sized.len(), "{seg_type:?} at {size}");
+                for (u, s) in unit.iter().zip(&sized) {
+                    assert!(
+                        (*u * size - *s).length() < 1e-5,
+                        "{seg_type:?} at {size}: {} vs {s}",
+                        *u * size
+                    );
+                }
+            }
+        }
+    }
+
+    /// App running the detailed-LOD sprite path against plain asset stores,
+    /// with the camera zoomed in past the LOD threshold.
+    fn sprite_app(zoom: f32) -> App {
+        let mut app = App::new();
+        app.init_resource::<Assets<Mesh>>()
+            .init_resource::<Assets<ColorMaterial>>()
+            .init_resource::<SharedMeshes>()
+            .init_resource::<LodState>()
+            .init_resource::<SpeciesColors>()
+            .insert_resource(SimConfig::default())
+            .add_systems(Startup, setup_shared_meshes)
+            .add_systems(Update, lod_change_system)
+            .add_systems(PostUpdate, sync_organism_transforms);
+        app.world_mut().spawn((
+            MainCamera,
+            Transform::default(),
+            OrthographicProjection {
+                scale: zoom,
+                ..OrthographicProjection::default_2d()
+            },
+        ));
+        app
+    }
+
+    fn set_zoom(app: &mut App, zoom: f32) {
+        let world = app.world_mut();
+        let mut q = world.query_filtered::<&mut OrthographicProjection, With<MainCamera>>();
+        q.single_mut(world).scale = zoom;
+    }
+
+    fn spawn_bodied_organism(app: &mut App, rng: &mut StdRng, body_size: f32) -> Entity {
+        let mut innovation = InnovationCounter(0);
+        let mut genome = Genome::new_minimal(&mut innovation, rng);
+        genome.body_size = body_size;
+        genome.photosynthesis_rate = 0.0;
+        genome.body_segments = vec![
+            BodySegmentGene {
+                segment_type: SegmentType::Torso,
+                size: 1.0,
+                attachment_angle: 0.0,
+                attachment_slot: 0,
+                symmetry: Symmetry::None,
+            },
+            BodySegmentGene {
+                segment_type: SegmentType::Fin,
+                size: 0.8,
+                attachment_angle: 0.7,
+                attachment_slot: 1,
+                symmetry: Symmetry::Bilateral,
+            },
+            BodySegmentGene {
+                segment_type: SegmentType::Claw,
+                size: 0.5,
+                attachment_angle: 1.9,
+                attachment_slot: 2,
+                symmetry: Symmetry::None,
+            },
+        ];
+        let plan = BodyPlan::from_genome(&genome);
+        app.world_mut()
+            .spawn((
+                Organism,
+                Position(Vec2::new(10.0, 20.0)),
+                genome,
+                plan,
+                SpeciesId(1),
+                Energy(50.0),
+                BodySize(body_size),
+                ActionFlash::default(),
+            ))
+            .id()
+    }
+
+    #[test]
+    fn detailed_sprites_share_one_mesh_per_segment_type() {
+        let mut app = sprite_app(0.3);
+        app.update(); // Startup builds the shared meshes.
+        let baseline = app.world().resource::<Assets<Mesh>>().len();
+        assert_eq!(baseline, 2 + SEGMENT_TYPES.len());
+
+        let mut rng = StdRng::seed_from_u64(5);
+        let organisms: Vec<Entity> = [0.5, 1.0, 1.7]
+            .iter()
+            .flat_map(|&size| (0..10).map(move |_| size))
+            .map(|size| spawn_bodied_organism(&mut app, &mut rng, size))
+            .collect();
+        app.update();
+
+        assert_eq!(
+            app.world().resource::<Assets<Mesh>>().len(),
+            baseline,
+            "detailed sprites added per-organism meshes"
+        );
+
+        let shared = app.world().resource::<SharedMeshes>();
+        let shared_ids: Vec<AssetId<Mesh>> = shared.segments.iter().map(|h| h.id()).collect();
+        for entity in organisms {
+            let e = app.world().entity(entity);
+            assert!(e.contains::<DetailedSprite>());
+            assert!(!e.contains::<Mesh2d>(), "parts draw on children only");
+            let plan = e.get::<BodyPlan>().unwrap().clone();
+            let children: Vec<Entity> = e.get::<Children>().unwrap().iter().copied().collect();
+            assert_eq!(children.len(), plan.parts.len());
+
+            for (i, (&child, part)) in children.iter().zip(&plan.parts).enumerate() {
+                let c = app.world().entity(child);
+                let mesh = c.get::<Mesh2d>().unwrap();
+                assert_eq!(mesh.0.id(), shared_ids[segment_slot(part.segment_type)]);
+                let t = c.get::<Transform>().unwrap();
+                assert_eq!(t.scale, Vec3::splat(part.size));
+                if i == 0 {
+                    assert_eq!(t.translation, Vec3::ZERO);
+                    assert_eq!(t.rotation, Quat::IDENTITY);
+                } else {
+                    assert_eq!(t.translation, part.offset.extend(0.1));
+                    assert_eq!(t.rotation, Quat::from_rotation_z(part.angle));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn lod_switch_leaves_no_stale_children() {
+        let mut app = sprite_app(0.3);
+        app.update();
+        let mut rng = StdRng::seed_from_u64(6);
+        let organism = spawn_bodied_organism(&mut app, &mut rng, 1.0);
+        let parts = BodyPlan::from_genome(app.world().get::<Genome>(organism).unwrap())
+            .parts
+            .len();
+        // First frame records the detailed LOD and builds the parts.
+        app.update();
+
+        for _ in 0..3 {
+            set_zoom(&mut app, 1.0);
+            app.update();
+            let children = app.world().get::<Children>(organism).unwrap();
+            assert_eq!(children.len(), 1, "simple LOD has only the outline");
+            assert!(!app.world().entity(organism).contains::<DetailedSprite>());
+
+            set_zoom(&mut app, 0.3);
+            app.update();
+            let children = app.world().get::<Children>(organism).unwrap();
+            assert_eq!(children.len(), parts);
+            assert!(children.iter().all(|&c| app.world().get_entity(c).is_ok()));
+        }
     }
 
     // --- selection-ring-only-on-click ---

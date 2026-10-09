@@ -599,6 +599,11 @@ No plant extinction on any seed in either setting; the lowest plant count after 
 **Why:** visual clarity. When you're watching the sim, plants are "ground cover" and actives are "the things moving around". Separating z-orders makes the screen parseable.
 **Accepted tradeoff:** in a plant-heavy world the active organisms can get obscured if they walk into dense foliage — but that matches the biology.
 
+### Detailed-LOD body parts share one unit mesh per segment type
+**Chosen (2026-10-08):** `setup_shared_meshes` builds one mesh per `SegmentType` at size 1.0 into `SharedMeshes::segments`. At the detailed LOD every body part, the first included, is a child entity of the organism that draws its type's shared mesh, with the part's size as the child's uniform `Transform` scale (`detailed_part_transform`). The organism entity itself draws nothing at this LOD; its scale stays the sprite scale from `organism_sprite_scale`, which every part inherits. The first part sits at the organism's origin, unrotated, at local z 0, where the old per-size torso mesh on the organism entity drew; the rest keep their offset, angle and local z 0.1. Every vertex in `segment_mesh` is linear in size, so the scaled unit mesh is the same shape as the old per-size mesh, which a test checks for every type. Before this, `sync_organism_transforms` called `meshes.add` once per body part per organism, so every zoom across the LOD threshold built and then freed a mesh asset, and its GPU buffers, for every part in the world, and every newborn did the same while zoomed in.
+**Alternatives:** keep the torso mesh on the organism entity and fold the torso's size into the organism's scale, dividing every other part's offset and size by it (no extra entity, but every part's transform depends on the torso's size and the sprite scale would need the body plan each frame); a custom instanced pipeline (`gpu-instanced-rendering`, much larger).
+**Accepted tradeoff:** one more child entity per organism at the detailed LOD (the torso, which used to be drawn by the organism entity); the organism entity itself carries no mesh, so the number of drawn meshes is unchanged. Materials are still one per part, so draw calls still scale with parts on screen.
+
 ## Architecture & performance
 
 ### Unified event bus (WorldEventRequest) for keyboard + UI
