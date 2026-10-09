@@ -616,7 +616,7 @@ No plant extinction on any seed in either setting; the lowest plant count after 
 **Chosen:** pausing the sim calls `Time::<Virtual>::pause()`. Unpausing calls `unpause()`.
 **Alternatives:** set `Time::<Fixed>` timestep to something huge so no ticks fire (what we had first — broken).
 **Why:** the original approach let virtual time keep accumulating while paused, which filled the fixed timestep accumulator. On unpause, Bevy tried to "catch up" by running thousands of ticks, freezing the app. Pausing virtual time halts accumulation entirely.
-**Accepted tradeoff:** none worth noting — this is just the right way to do it in Bevy. Pause and relative speed are independent fields on `Time<Virtual>`, so pausing at 16× and unpausing resumes at 16×.
+**Accepted tradeoff:** none worth noting — this is just the right way to do it in Bevy. Pause and relative speed are independent fields on `Time<Virtual>`, so pausing at 16× and unpausing resumes at 16×. The keyboard camera pan and zoom and the minimap repaint read `Time<Real>` instead, so they keep working while paused and run at the same on-screen rate at any sim speed.
 
 ### Frustum culling in the render systems, not by Bevy's built-in
 **Chosen:** in `sync_organism_transforms` and `sync_food_transforms`, check each entity's position against the camera viewport and set `Visibility::Hidden` if off-screen. Margin-padded to prevent pop-in. The viewport is the primary window's logical size times the projection scale (`visible_world_rect`), which is what the default `ScalingMode::WindowSize` projection shows; the infection halos and the minimap's viewport box use the same rectangle. Until September 2026 all three hardcoded a 1920×1080 window, so any other window size culled visible organisms at the edges.

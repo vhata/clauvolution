@@ -36,6 +36,12 @@ const SPRITE_CULL_MARGIN_PX: f32 = 20.0;
 /// infection indicator rings, which are drawn larger than the body.
 const INDICATOR_CULL_MARGIN_PX: f32 = 40.0;
 
+/// Longest frame (seconds) the keyboard camera pan and zoom will integrate.
+/// `Time<Real>` has no maximum delta, unlike `Time<Virtual>`'s 250 ms, so
+/// without this a slow frame with a key held would jump the camera or snap
+/// the zoom to its clamp.
+const CAMERA_MAX_DT_SECS: f32 = 0.1;
+
 /// Selection ring radius as a multiple of the selected organism's body size.
 const SELECTION_RING_SCALE: f32 = 3.5;
 /// Selection ring depth: just behind active organisms (z 1.0), in front of
@@ -50,6 +56,28 @@ const SELECTION_RING_Z: f32 = 0.9;
 fn organism_sprite_scale(body_size: f32, detailed: bool, energy_factor: f32, flash: f32) -> f32 {
     let size = if detailed { 1.0 } else { body_size };
     size * 2.0 * energy_factor * flash
+}
+
+/// This frame's sprite scale for an organism: `organism_sprite_scale` with
+/// its energy and action-flash pulse applied. Both the spawn and the
+/// per-frame update use it, so a new sprite does not change size on its
+/// second frame.
+fn current_sprite_scale(
+    body_size: f32,
+    detailed: bool,
+    energy: f32,
+    max_energy: f32,
+    flash: &ActionFlash,
+) -> f32 {
+    let energy_factor = (energy / max_energy).clamp(0.5, 1.0);
+    // Flash pulse: organisms briefly grow when eating, attacking or
+    // reproducing, up to 1.45x.
+    let flash_pulse = if flash.timer > 0.0 {
+        1.0 + flash.timer * 1.5
+    } else {
+        1.0
+    };
+    organism_sprite_scale(body_size, detailed, energy_factor, flash_pulse)
 }
 
 /// Logical window size assumed when the primary window cannot be read. It is
@@ -85,6 +113,25 @@ fn minimap_rect_px(view: Rect, world: Vec2, size: usize) -> (i32, i32, i32, i32)
     let top = size as i32 - 1 - (view.max.y / world.y * s) as i32;
     let bottom = size as i32 - 1 - (view.min.y / world.y * s) as i32;
     (left, right, top, bottom)
+}
+
+/// Minimap pixel `(column, row)` of a world position on a `size`-pixel square
+/// minimap of a `world` sized map, row 0 at the top. Signed, because a
+/// position on the world's top or right edge maps one pixel outside the image:
+/// positions wrap with `rem_euclid`, which can return the modulus itself for a
+/// tiny negative input.
+fn minimap_px(pos: Vec2, world: Vec2, size: usize) -> (i32, i32) {
+    let s = size as f32;
+    let x = (pos.x / world.x * s) as i32;
+    let y = size as i32 - 1 - (pos.y / world.y * s) as i32;
+    (x, y)
+}
+
+/// `minimap_px` as image indices, or `None` when it falls outside the image.
+fn minimap_dot(pos: Vec2, world: Vec2, size: usize) -> Option<(usize, usize)> {
+    let (x, y) = minimap_px(pos, world, size);
+    let inside = |v: i32| v >= 0 && (v as usize) < size;
+    (inside(x) && inside(y)).then_some((x as usize, y as usize))
 }
 
 /// Minimap dot colour per strategy (normal mode, heatmap blend, legend).
@@ -133,6 +180,7 @@ impl Plugin for RenderPlugin {
                 (
                     spawn_terrain_sprites,
                     sync_organism_transforms,
+                    recolour_sprites_on_species_change,
                     sync_selection_ring,
                     sync_food_transforms,
                     update_death_markers,
@@ -549,7 +597,16 @@ fn sync_organism_transforms(
     mut materials: ResMut<Assets<ColorMaterial>>,
     shared_meshes: Res<SharedMeshes>,
     organisms_without_sprite: Query<
-        (Entity, &Position, &Genome, &BodyPlan, &SpeciesId),
+        (
+            Entity,
+            &Position,
+            &Genome,
+            &BodyPlan,
+            &SpeciesId,
+            &Energy,
+            &BodySize,
+            &ActionFlash,
+        ),
         (With<Organism>, Without<OrganismSprite>),
     >,
     mut organisms_with_sprite: Query<
@@ -596,20 +653,28 @@ fn sync_organism_transforms(
 
     let use_detailed = zoom_scale < 0.6;
 
-    for (entity, pos, genome, body_plan, species_id) in &organisms_without_sprite {
+    for (entity, pos, genome, body_plan, species_id, energy, body_size, flash) in
+        &organisms_without_sprite
+    {
         let is_plant = genome.is_photosynthesiser();
         let z_level = if is_plant { 0.3 } else { 1.0 };
+        let detailed = use_detailed && !body_plan.parts.is_empty();
+        let scale = current_sprite_scale(
+            body_size.0,
+            detailed,
+            energy.0,
+            config.max_organism_energy,
+            flash,
+        );
 
-        if use_detailed && !body_plan.parts.is_empty() {
+        if detailed {
             // The organism entity carries no mesh at this LOD. Its scale is
             // the sprite scale shared by every part, so each part, the first
             // included, is a child that draws its type's shared unit mesh at
             // its own size through its child `Transform` scale. The first
             // part sits at the origin unrotated, behind the others.
             commands.entity(entity).insert((
-                Transform::from_xyz(pos.0.x, pos.0.y, z_level).with_scale(Vec3::splat(
-                    organism_sprite_scale(genome.body_size, true, 1.0, 1.0),
-                )),
+                Transform::from_xyz(pos.0.x, pos.0.y, z_level).with_scale(Vec3::splat(scale)),
                 Visibility::default(),
                 OrganismSprite,
                 DetailedSprite,
@@ -628,33 +693,14 @@ fn sync_organism_transforms(
                 commands.entity(entity).add_child(child);
             }
         } else {
-            let base_color = species_colors.get_or_create(species_id.0);
-            let base_rgba = base_color.to_srgba();
-
-            let photo = genome.photosynthesis_rate;
-            let predator = genome.claw_power().min(1.0);
-            let is_plant = genome.is_photosynthesiser();
-
-            let (r, g, b, z_level, scale_mult) = if is_plant {
-                // Plants: bright yellow-green, distinct from terrain, behind active organisms
-                let bright = 0.5 + photo * 0.5;
-                (0.5 * bright, 0.9 * bright, 0.15, 0.3, 1.5)
-            } else {
-                // Active organisms: species colour with predator red shift
-                let r = (base_rgba.red * (1.0 - photo * 0.6) + predator * 0.4).clamp(0.1, 1.0);
-                let g = (base_rgba.green * (1.0 - predator * 0.4) + photo * 0.4).clamp(0.1, 1.0);
-                let b = (base_rgba.blue * (1.0 - photo * 0.3 - predator * 0.3)).clamp(0.05, 1.0);
-                (r, g, b, 1.0, 2.0)
-            };
-
+            let color = simple_sprite_color(genome, species_colors.get_or_create(species_id.0));
             let mesh = shared_meshes.circle.clone().unwrap();
-            let material = materials.add(ColorMaterial::from(Color::srgb(r, g, b)));
+            let material = materials.add(ColorMaterial::from(color));
 
             commands.entity(entity).insert((
                 Mesh2d(mesh.clone()),
                 MeshMaterial2d(material),
-                Transform::from_xyz(pos.0.x, pos.0.y, z_level)
-                    .with_scale(Vec3::splat(genome.body_size * scale_mult)),
+                Transform::from_xyz(pos.0.x, pos.0.y, z_level).with_scale(Vec3::splat(scale)),
                 OrganismSprite,
             ));
 
@@ -687,21 +733,63 @@ fn sync_organism_transforms(
 
         transform.translation.x = pos.0.x;
         transform.translation.y = pos.0.y;
-
-        let energy_factor = (energy.0 / config.max_organism_energy).clamp(0.5, 1.0);
-        // Flash pulse — organisms briefly grow when eating/attacking/reproducing
-        let flash_pulse = if flash.timer > 0.0 {
-            1.0 + flash.timer * 1.5 // up to 1.45x size
-        } else {
-            1.0
-        };
-        transform.scale = Vec3::splat(organism_sprite_scale(
+        transform.scale = Vec3::splat(current_sprite_scale(
             body_size.0,
             detailed,
-            energy_factor,
-            flash_pulse,
+            energy.0,
+            config.max_organism_energy,
+            flash,
         ));
     }
+}
+
+/// Recolour simple-LOD sprites whose organism changed species. The colour is
+/// built from the species colour when the sprite spawns, and founders spawn
+/// in species 0 before the first classification pass, so without this every
+/// founder would keep species 0's colour, and an organism moved to another
+/// species its old one, until the next LOD switch rebuilt the sprites. The
+/// detailed LOD colours parts by segment type, not species.
+fn recolour_sprites_on_species_change(
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut species_colors: ResMut<SpeciesColors>,
+    organisms: Query<
+        (&Genome, &SpeciesId, &MeshMaterial2d<ColorMaterial>),
+        (
+            With<Organism>,
+            With<OrganismSprite>,
+            Without<DetailedSprite>,
+            Changed<SpeciesId>,
+        ),
+    >,
+) {
+    for (genome, species, material) in &organisms {
+        let color = simple_sprite_color(genome, species_colors.get_or_create(species.0));
+        // The classifier writes every organism's id on each pass, so most
+        // of these keep their colour. `get_mut` marks the material for
+        // re-upload, so only take it when the colour differs.
+        if materials.get(&material.0).is_some_and(|m| m.color != color) {
+            if let Some(m) = materials.get_mut(&material.0) {
+                m.color = color;
+            }
+        }
+    }
+}
+
+/// Simple-LOD sprite colour. Plants are a bright yellow-green, distinct from
+/// the terrain; active organisms take their species colour with a red shift
+/// for predators and a green one for photosynthesis.
+fn simple_sprite_color(genome: &Genome, species_color: Color) -> Color {
+    let photo = genome.photosynthesis_rate;
+    if genome.is_photosynthesiser() {
+        let bright = 0.5 + photo * 0.5;
+        return Color::srgb(0.5 * bright, 0.9 * bright, 0.15);
+    }
+    let base = species_color.to_srgba();
+    let predator = genome.claw_power().min(1.0);
+    let r = (base.red * (1.0 - photo * 0.6) + predator * 0.4).clamp(0.1, 1.0);
+    let g = (base.green * (1.0 - predator * 0.4) + photo * 0.4).clamp(0.1, 1.0);
+    let b = (base.blue * (1.0 - photo * 0.3 - predator * 0.3)).clamp(0.05, 1.0);
+    Color::srgb(r, g, b)
 }
 
 fn sync_food_transforms(
@@ -786,8 +874,34 @@ fn update_death_markers(
 
 #[derive(Resource, Default)]
 pub struct CameraDragState {
-    dragging: bool,
-    last_pos: Vec2,
+    phase: DragPhase,
+    /// Latest cursor position, `None` until the first cursor event.
+    last_pos: Option<Vec2>,
+}
+
+/// Where a mouse-drag pan is, from press to release.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum DragPhase {
+    /// No drag-pan button is held.
+    #[default]
+    Idle,
+    /// A drag that started over the world: cursor motion pans the camera.
+    Panning,
+    /// A drag that started over an egui panel or the minimap: ignored until
+    /// the buttons are released, even if the pointer moves onto the world.
+    Ignored,
+}
+
+/// The drag phase after this frame. A drag's fate is decided on the frame
+/// its button goes down, by whether the pointer is over the UI then, like
+/// scroll zoom and click-select.
+fn next_drag_phase(phase: DragPhase, held: bool, pointer_over_ui: bool) -> DragPhase {
+    match (phase, held) {
+        (_, false) => DragPhase::Idle,
+        (DragPhase::Idle, true) if pointer_over_ui => DragPhase::Ignored,
+        (DragPhase::Idle, true) => DragPhase::Panning,
+        (held_phase, true) => held_phase,
+    }
 }
 
 fn camera_control_system(
@@ -797,7 +911,7 @@ fn camera_control_system(
     mut cursor_events: EventReader<CursorMoved>,
     mut camera: Query<(&mut Transform, &mut OrthographicProjection), With<MainCamera>>,
     mut drag_state: ResMut<CameraDragState>,
-    time: Res<Time>,
+    time: Res<Time<Real>>,
     ui_input: Res<UiInputState>,
     selected: Res<SelectedOrganism>,
     organism_positions: Query<&Position, With<Organism>>,
@@ -825,7 +939,11 @@ fn camera_control_system(
         transform.translation.y = target.y;
     }
 
-    let dt = time.delta_secs();
+    // Real time, not the default virtual clock: `sim_speed_system` pauses
+    // and rescales `Time<Virtual>`, and the camera must keep moving at the
+    // same on-screen speed while the sim is paused or sped up. Capped, so a
+    // slow frame cannot jump the camera.
+    let dt = time.delta_secs().min(CAMERA_MAX_DT_SECS);
 
     // Keyboard pan and zoom stand down while egui has keyboard focus, like
     // every other hotkey.
@@ -856,28 +974,26 @@ fn camera_control_system(
 
     projection.scale = projection.scale.clamp(0.02, 15.0);
 
-    let dragging = drag_pan_held(&mouse_buttons, &keys);
+    drag_state.phase = next_drag_phase(
+        drag_state.phase,
+        drag_pan_held(&mouse_buttons, &keys),
+        ui_input.pointer_over_ui,
+    );
 
     let mut latest_cursor_pos = None;
     for event in cursor_events.read() {
         latest_cursor_pos = Some(event.position);
     }
 
-    if dragging {
-        if let Some(cursor_pos) = latest_cursor_pos {
-            if drag_state.dragging {
-                let delta = cursor_pos - drag_state.last_pos;
-                transform.translation.x -= delta.x * projection.scale;
-                transform.translation.y += delta.y * projection.scale;
-            }
-            drag_state.last_pos = cursor_pos;
-            drag_state.dragging = true;
+    // The last cursor position is tracked in every phase, so a pan's first
+    // delta is measured from where the pointer was when the button went down.
+    if let Some(cursor_pos) = latest_cursor_pos {
+        if let (DragPhase::Panning, Some(last_pos)) = (drag_state.phase, drag_state.last_pos) {
+            let delta = cursor_pos - last_pos;
+            transform.translation.x -= delta.x * projection.scale;
+            transform.translation.y += delta.y * projection.scale;
         }
-    } else {
-        drag_state.dragging = false;
-        if let Some(cursor_pos) = latest_cursor_pos {
-            drag_state.last_pos = cursor_pos;
-        }
+        drag_state.last_pos = Some(cursor_pos);
     }
 }
 
@@ -1003,6 +1119,7 @@ fn draw_trails_system(
     selected: Res<SelectedOrganism>,
     organisms: Query<(&Position, &TrailHistory, &SpeciesId), With<Organism>>,
     mut species_colors: ResMut<SpeciesColors>,
+    config: Res<SimConfig>,
 ) {
     if !trails.0 {
         return;
@@ -1027,7 +1144,25 @@ fn draw_trails_system(
     // a single focused line, not an ambient smear.
     let color = Color::srgba(rgba.red, rgba.green, rgba.blue, 0.75);
 
-    gizmos.linestrip_2d(trail.positions.iter().copied(), color);
+    let points: Vec<Vec2> = trail.positions.iter().copied().collect();
+    let world = Vec2::new(config.world_width as f32, config.world_height as f32);
+    for run in trail_runs(&points, world) {
+        if run.len() >= 2 {
+            gizmos.linestrip_2d(run.iter().copied(), color);
+        }
+    }
+}
+
+/// Splits a trail into runs that are each drawn as one line strip. Positions
+/// wrap on the torus, so consecutive samples more than half the world apart
+/// on either axis are a wrap rather than a step, and the trail breaks there
+/// instead of drawing a line across the whole map.
+fn trail_runs(points: &[Vec2], world: Vec2) -> impl Iterator<Item = &[Vec2]> {
+    let half = world * 0.5;
+    points.chunk_by(move |a, b| {
+        let step = (*b - *a).abs();
+        step.x <= half.x && step.y <= half.y
+    })
 }
 
 /// Detect zoom crossing the LOD threshold and strip sprites so they re-render
@@ -1149,7 +1284,7 @@ fn setup_minimap(
 }
 
 fn update_minimap(
-    time: Res<Time>,
+    time: Res<Time<Real>>,
     mut minimap: ResMut<MinimapData>,
     mut images: ResMut<Assets<Image>>,
     tile_map: Option<Res<TileMap>>,
@@ -1160,6 +1295,9 @@ fn update_minimap(
     selected: Res<SelectedOrganism>,
     windows: Query<&Window, With<PrimaryWindow>>,
 ) {
+    // Real time, so the viewport box and selection marker keep tracking the
+    // camera while the sim is paused, and repaint at the same rate at any
+    // sim speed.
     minimap.timer.tick(time.delta());
     if !minimap.timer.just_finished() {
         return;
@@ -1237,8 +1375,7 @@ fn update_minimap(
     // and doesn't obscure the organism dot beneath it.
     if let Some(sel_entity) = selected.entity {
         if let Ok((pos, _genome, _species)) = organisms.get(sel_entity) {
-            let cx = (pos.0.x / world_w * size as f32) as i32;
-            let cy = size as i32 - 1 - (pos.0.y / world_h * size as f32) as i32;
+            let (cx, cy) = minimap_px(pos.0, Vec2::new(world_w, world_h), size);
             // Draw plus shape: center + 2 pixels each direction
             for &(dx, dy) in &[
                 (0, 0),
@@ -1304,10 +1441,7 @@ fn paint_minimap_normal(
 
     // Paint organisms as bright dots
     for (pos, genome, _species) in organisms {
-        let px = (pos.0.x / world_w * size as f32) as usize;
-        let py = size - 1 - (pos.0.y / world_h * size as f32) as usize;
-
-        if px < size && py < size {
+        if let Some((px, py)) = minimap_dot(pos.0, Vec2::new(world_w, world_h), size) {
             let idx = (py * size + px) * 4;
             let [r, g, b] = strategy_rgb(classify_strategy(genome));
             image.data[idx] = r;
@@ -1440,9 +1574,7 @@ fn paint_minimap_range(
         if species.0 == focus_species {
             continue;
         }
-        let px = (pos.0.x / world_w * size as f32) as usize;
-        let py = size - 1 - (pos.0.y / world_h * size as f32) as usize;
-        if px < size && py < size {
+        if let Some((px, py)) = minimap_dot(pos.0, Vec2::new(world_w, world_h), size) {
             let idx = (py * size + px) * 4;
             image.data[idx] = 80;
             image.data[idx + 1] = 80;
@@ -1456,8 +1588,7 @@ fn paint_minimap_range(
         if species.0 != focus_species {
             continue;
         }
-        let cx = (pos.0.x / world_w * size as f32) as i32;
-        let cy = size as i32 - 1 - (pos.0.y / world_h * size as f32) as i32;
+        let (cx, cy) = minimap_px(pos.0, Vec2::new(world_w, world_h), size);
         for dy in -1..=1i32 {
             for dx in -1..=1i32 {
                 let x = cx + dx;
@@ -1756,6 +1887,49 @@ mod tests {
         assert_eq!((wt, wb), (nt, nb));
     }
 
+    // --- minimap-row-underflow-at-world-edge ---
+
+    #[test]
+    fn minimap_dot_maps_corners_and_drops_the_far_edges() {
+        let world = Vec2::new(512.0, 256.0);
+        assert_eq!(minimap_dot(Vec2::ZERO, world, 160), Some((0, 159)));
+        assert_eq!(
+            minimap_dot(Vec2::new(511.9, 255.9), world, 160),
+            Some((159, 0))
+        );
+        // Exactly on the top or right edge is one pixel outside the image.
+        assert_eq!(minimap_px(Vec2::new(0.0, 256.0), world, 160), (0, -1));
+        assert_eq!(minimap_dot(Vec2::new(0.0, 256.0), world, 160), None);
+        assert_eq!(minimap_dot(Vec2::new(512.0, 0.0), world, 160), None);
+    }
+
+    // --- trail-draws-across-torus-wrap ---
+
+    #[test]
+    fn trail_breaks_where_it_wraps_on_either_axis() {
+        let world = Vec2::new(400.0, 200.0);
+        let points = [
+            Vec2::new(396.0, 100.0),
+            Vec2::new(399.0, 100.0),
+            // Wrapped across the right edge.
+            Vec2::new(2.0, 5.0),
+            Vec2::new(5.0, 2.0),
+            // Wrapped across the bottom edge.
+            Vec2::new(6.0, 198.0),
+            Vec2::new(7.0, 195.0),
+        ];
+        let runs: Vec<&[Vec2]> = trail_runs(&points, world).collect();
+        assert_eq!(runs, vec![&points[0..2], &points[2..4], &points[4..6]]);
+
+        // An ordinary trail stays one strip.
+        let steady = [
+            Vec2::new(10.0, 10.0),
+            Vec2::new(60.0, 40.0),
+            Vec2::new(90.0, 80.0),
+        ];
+        assert_eq!(trail_runs(&steady, world).count(), 1);
+    }
+
     // --- detailed-lod-double-scale ---
 
     #[test]
@@ -1839,7 +2013,10 @@ mod tests {
             .insert_resource(SimConfig::default())
             .add_systems(Startup, setup_shared_meshes)
             .add_systems(Update, lod_change_system)
-            .add_systems(PostUpdate, sync_organism_transforms);
+            .add_systems(
+                PostUpdate,
+                (sync_organism_transforms, recolour_sprites_on_species_change).chain(),
+            );
         app.world_mut().spawn((
             MainCamera,
             Transform::default(),
@@ -1975,6 +2152,96 @@ mod tests {
         }
     }
 
+    // --- simple-lod-spawn-scale-overwritten ---
+
+    /// Turn a `spawn_bodied_organism` consumer into a plant.
+    fn make_plant(app: &mut App, entity: Entity) {
+        let mut genome = app.world().get::<Genome>(entity).unwrap().clone();
+        genome.photosynthesis_rate = 0.8;
+        genome.body_segments.push(BodySegmentGene {
+            segment_type: SegmentType::PhotoSurface,
+            size: 0.6,
+            attachment_angle: 3.0,
+            attachment_slot: 3,
+            symmetry: Symmetry::None,
+        });
+        assert!(genome.is_photosynthesiser());
+        let plan = BodyPlan::from_genome(&genome);
+        app.world_mut().entity_mut(entity).insert((genome, plan));
+    }
+
+    fn sprite_scale(app: &App, entity: Entity) -> Vec3 {
+        app.world().get::<Transform>(entity).unwrap().scale
+    }
+
+    #[test]
+    fn new_sprites_keep_their_spawn_scale() {
+        for (zoom, plant) in [(1.0, false), (1.0, true), (0.3, false), (0.3, true)] {
+            let mut app = sprite_app(zoom);
+            app.update();
+            let mut rng = StdRng::seed_from_u64(7);
+            // Energy 50 of 120 puts the energy factor at its 0.5 floor.
+            let organism = spawn_bodied_organism(&mut app, &mut rng, 1.3);
+            if plant {
+                make_plant(&mut app, organism);
+            }
+            app.update();
+            assert_eq!(
+                app.world().entity(organism).contains::<DetailedSprite>(),
+                zoom < 0.6
+            );
+            let spawned = sprite_scale(&app, organism);
+            app.update();
+            assert_eq!(
+                sprite_scale(&app, organism),
+                spawned,
+                "zoom {zoom}, plant {plant}: the sprite changed size on its second frame"
+            );
+        }
+    }
+
+    // --- sprite-colour-frozen-at-spawn-species ---
+
+    fn sprite_color(app: &App, entity: Entity) -> Color {
+        let handle = &app
+            .world()
+            .get::<MeshMaterial2d<ColorMaterial>>(entity)
+            .unwrap()
+            .0;
+        app.world()
+            .resource::<Assets<ColorMaterial>>()
+            .get(handle)
+            .unwrap()
+            .color
+    }
+
+    fn expected_sprite_color(app: &mut App, entity: Entity, species: u64) -> Color {
+        let genome = app.world().get::<Genome>(entity).unwrap().clone();
+        let base = app
+            .world_mut()
+            .resource_mut::<SpeciesColors>()
+            .get_or_create(species);
+        simple_sprite_color(&genome, base)
+    }
+
+    #[test]
+    fn simple_sprite_recolours_when_its_species_changes() {
+        let mut app = sprite_app(1.0);
+        app.update();
+        let mut rng = StdRng::seed_from_u64(8);
+        let organism = spawn_bodied_organism(&mut app, &mut rng, 1.0);
+        app.update();
+        let first = expected_sprite_color(&mut app, organism, 1);
+        assert_eq!(sprite_color(&app, organism), first);
+
+        // A classification pass moves it to another species.
+        app.world_mut().get_mut::<SpeciesId>(organism).unwrap().0 = 2;
+        app.update();
+        let second = expected_sprite_color(&mut app, organism, 2);
+        assert_ne!(first, second);
+        assert_eq!(sprite_color(&app, organism), second);
+    }
+
     // --- selection-ring-only-on-click ---
 
     fn ring_app() -> App {
@@ -2061,5 +2328,187 @@ mod tests {
         select(&mut app, None);
         app.update();
         assert!(rings(&mut app).is_empty());
+    }
+
+    // --- render-input-on-virtual-time ---
+
+    /// A real clock whose last update advanced it by `secs`.
+    fn real_time_advanced(secs: f32) -> Time<Real> {
+        let mut real = Time::<Real>::default();
+        // The first update only records the start instant.
+        real.update_with_duration(std::time::Duration::ZERO);
+        real.update_with_duration(std::time::Duration::from_secs_f32(secs));
+        real
+    }
+
+    /// App running `camera_control_system` with the sim paused, which in
+    /// `Update` means the default `Time` reports no elapsed time, and a real
+    /// clock that advanced by `real_secs`.
+    fn camera_app(real_secs: f32) -> App {
+        let mut app = App::new();
+        app.insert_resource(ButtonInput::<KeyCode>::default())
+            .insert_resource(ButtonInput::<MouseButton>::default())
+            .insert_resource(UiInputState::default())
+            .init_resource::<CameraDragState>()
+            .init_resource::<SelectedOrganism>()
+            .insert_resource(Time::<()>::default())
+            .insert_resource(real_time_advanced(real_secs))
+            .add_event::<bevy::input::mouse::MouseWheel>()
+            .add_event::<CursorMoved>()
+            .add_event::<CameraFocusRequest>()
+            .add_systems(Update, camera_control_system);
+        app.world_mut().spawn((
+            MainCamera,
+            Transform::default(),
+            OrthographicProjection::default_2d(),
+        ));
+        app
+    }
+
+    fn camera_state(app: &mut App) -> (Vec3, f32) {
+        let world = app.world_mut();
+        let mut q =
+            world.query_filtered::<(&Transform, &OrthographicProjection), With<MainCamera>>();
+        let (t, p) = q.single(world);
+        (t.translation, p.scale)
+    }
+
+    #[test]
+    fn keyboard_pan_and_zoom_run_on_real_time_while_paused() {
+        let mut app = camera_app(0.05);
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::KeyD);
+        app.update();
+        let (translation, _) = camera_state(&mut app);
+        assert!(
+            (translation.x - 200.0 * 0.05).abs() < 1e-3,
+            "pan moved {} while paused",
+            translation.x
+        );
+
+        let mut app = camera_app(0.05);
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::KeyQ);
+        app.update();
+        let (_, scale) = camera_state(&mut app);
+        assert!(
+            (scale - 1.1).abs() < 1e-4,
+            "zoom reached {scale} while paused"
+        );
+    }
+
+    // --- drag-pan-ignores-pointer-over-ui ---
+
+    #[test]
+    fn drag_phase_is_decided_when_the_button_goes_down() {
+        use DragPhase::*;
+        assert_eq!(next_drag_phase(Idle, true, false), Panning);
+        assert_eq!(next_drag_phase(Idle, true, true), Ignored);
+        // A pan that crosses onto a panel keeps panning.
+        assert_eq!(next_drag_phase(Panning, true, true), Panning);
+        // A drag that began on a panel stays ignored over the world.
+        assert_eq!(next_drag_phase(Ignored, true, false), Ignored);
+        for phase in [Idle, Panning, Ignored] {
+            for over_ui in [false, true] {
+                assert_eq!(next_drag_phase(phase, false, over_ui), Idle);
+            }
+        }
+    }
+
+    fn move_cursor(app: &mut App, to: Vec2) {
+        app.world_mut().send_event(CursorMoved {
+            window: Entity::PLACEHOLDER,
+            position: to,
+            delta: None,
+        });
+    }
+
+    fn set_pointer_over_ui(app: &mut App, over: bool) {
+        app.world_mut()
+            .resource_mut::<UiInputState>()
+            .pointer_over_ui = over;
+    }
+
+    #[test]
+    fn drag_started_over_the_ui_does_not_pan() {
+        let mut app = camera_app(0.0);
+        move_cursor(&mut app, Vec2::new(100.0, 100.0));
+        app.update();
+
+        // Right-drag that starts over a panel, then leaves it.
+        set_pointer_over_ui(&mut app, true);
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Right);
+        move_cursor(&mut app, Vec2::new(140.0, 100.0));
+        app.update();
+        set_pointer_over_ui(&mut app, false);
+        move_cursor(&mut app, Vec2::new(180.0, 100.0));
+        app.update();
+        assert_eq!(camera_state(&mut app).0, Vec3::ZERO);
+
+        // Released and pressed again over the world, it pans.
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .release(MouseButton::Right);
+        app.update();
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Right);
+        move_cursor(&mut app, Vec2::new(150.0, 120.0));
+        app.update();
+        // Dragging the world left and down (screen y grows downwards) moves
+        // the camera right and up.
+        assert_eq!(camera_state(&mut app).0, Vec3::new(30.0, 20.0, 0.0));
+    }
+
+    #[test]
+    fn a_slow_frame_moves_the_keyboard_camera_at_most_one_capped_step() {
+        let mut app = camera_app(2.0);
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::KeyD);
+        app.update();
+        let (translation, _) = camera_state(&mut app);
+        assert!(
+            (translation.x - 200.0 * CAMERA_MAX_DT_SECS).abs() < 1e-3,
+            "a 2 s frame panned {}",
+            translation.x
+        );
+
+        let mut app = camera_app(2.0);
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::KeyE);
+        app.update();
+        let (_, scale) = camera_state(&mut app);
+        assert!(
+            (scale - (1.0 - 2.0 * CAMERA_MAX_DT_SECS)).abs() < 1e-4,
+            "a 2 s frame zoomed to {scale}"
+        );
+    }
+
+    #[test]
+    fn minimap_repaints_on_real_time_while_paused() {
+        let mut app = App::new();
+        app.init_resource::<Assets<Image>>()
+            .insert_resource(SimConfig::default())
+            .init_resource::<MinimapMode>()
+            .init_resource::<SelectedOrganism>()
+            .insert_resource(Time::<()>::default())
+            .insert_resource(real_time_advanced(0.6))
+            .insert_resource(MinimapData {
+                image_handle: Handle::default(),
+                size: 4,
+                timer: Timer::from_seconds(0.5, TimerMode::Repeating),
+            })
+            .add_systems(Update, update_minimap);
+        app.update();
+        assert!(
+            app.world().resource::<MinimapData>().timer.just_finished(),
+            "the repaint timer did not fire after 0.6 s of real time"
+        );
     }
 }
