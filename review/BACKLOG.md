@@ -39,11 +39,6 @@ See the [`code review guide`](../docs/CODE_REVIEW_GUIDE.md) for how findings ent
 
 ## P3 Low
 
-- [UI] `ui-panel-fixes` — **Fix chronicle links to older extinctions, the sticky export report, the portrait's torso handling, the Help controls list, and the dead grazes series.** Each is a small defect in the egui panels that shows the wrong thing or nothing.
-  - Starting point: `phylo_tab` (draw the highlighted extinct row), `inspect_tab` and `OrganismExportReport` (tie the report to an entity), `draw_creature_portrait` (match `BodyPlan::from_genome`), `help_tab`, `graphs_tab`.
-  - Source: review/2026-10-09-0906-full.md, 2026-10-09
-  - Findings: `chronicle-link-misses-older-extinct-species`, `export-report-not-tied-to-organism`, `portrait-omits-extra-torso-segments`, `help-tab-controls-drift`, `grazes-chart-plots-retired-counter`
-  - Related: `creature-portrait-v2-polish` (TODO)
 - [TOOLING] `headless-cli-edges` — **Bound `--speed` and script values, fail on a failed history dump, and reject flags the chosen mode ignores.** `--speed 1e30` panics, a bad tour value panics the GUI, a failed `--dump-history` exits 0, and `--save-as` in the GUI or `--script` headless silently do nothing.
   - Starting point: `cli.rs` ranges and `check`, `script.rs` `load_script`, `headless_tick_counter` in `main.rs`.
   - Source: review/2026-10-09-0906-full.md, 2026-10-09
