@@ -171,7 +171,7 @@ impl UiState {
 /// sections of their own below it.
 const HELP_CONTROLS: &[(&str, &str)] = &[
     ("Space", "pause / unpause"),
-    ("[  ]", "slow down / speed up (0.125x to 16x)"),
+    ("[ / ]", "slow down / speed up (0.125x to 16x)"),
     ("Left click", "inspect organism"),
     ("F", "focus camera on selected organism"),
     (", / .", "prev / next living member of same species"),
@@ -2842,9 +2842,19 @@ mod tests {
         }
     }
 
+    /// Split a key label into its single keys or key groups: "Q / E" is Q
+    /// and E, "1 … 6" is 1 and 6, "Shift+left drag" is itself.
+    fn key_atoms(label: &str) -> Vec<String> {
+        label
+            .split(" / ")
+            .flat_map(|part| part.split(" … "))
+            .map(|atom| atom.trim().to_lowercase())
+            .collect()
+    }
+
     /// Invariant 7 in one direction: every key the README's Controls table
     /// names appears in the Help tab. Each bold span in a row's key column is
-    /// one key or key group.
+    /// one key or key group, and must equal a key in the Help lists exactly.
     #[test]
     fn help_tab_lists_every_readme_control() {
         let readme = include_str!("../../../README.md");
@@ -2859,21 +2869,22 @@ mod tests {
             .iter()
             .chain(HELP_EXTINCTIONS)
             .chain(HELP_BLOOMS)
-            .map(|(key, _)| key.to_lowercase())
+            .flat_map(|(key, _)| key_atoms(key))
             .collect();
         let mut checked = 0;
         for row in table.lines().filter(|l| l.starts_with("| **")) {
             let key_column = row.split('|').nth(1).unwrap();
-            for key in key_column.split("**").skip(1).step_by(2) {
-                let key = key.to_lowercase();
-                assert!(
-                    help_keys.iter().any(|h| h.contains(&key)),
-                    "README control {key:?} is missing from the Help tab"
-                );
-                checked += 1;
+            for span in key_column.split("**").skip(1).step_by(2) {
+                for key in key_atoms(span) {
+                    assert!(
+                        help_keys.contains(&key),
+                        "README control {key:?} is missing from the Help tab"
+                    );
+                    checked += 1;
+                }
             }
         }
-        assert!(checked > 20, "parsed only {checked} README keys");
+        assert!(checked > 25, "parsed only {checked} README keys");
     }
 
     #[test]
