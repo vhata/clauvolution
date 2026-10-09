@@ -15,3 +15,9 @@ clauvolution_genome = { path = "../clauvolution_genome" }
 clauvolution_phylogeny = { path = "../clauvolution_phylogeny" }
 clauvolution_world = { path = "../clauvolution_world" }
 clauvolution_brain = { path = "../clauvolution_brain" }
+
+[dev-dependencies]
+# Tests check the Inspect portrait's layout against the world view's
+# `BodyPlan::from_genome`.
+clauvolution_body = { path = "../clauvolution_body" }
+rand = { workspace = true }

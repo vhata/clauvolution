@@ -1789,12 +1789,14 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy_egui",
+ "clauvolution_body",
  "clauvolution_brain",
  "clauvolution_core",
  "clauvolution_genome",
  "clauvolution_phylogeny",
  "clauvolution_world",
  "egui_plot",
+ "rand 0.8.5",
 ]
 
 [[package]]

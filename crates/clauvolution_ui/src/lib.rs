@@ -117,6 +117,43 @@ pub struct UiState {
     /// One-shot: the next Phylo frame scrolls to the highlighted row and
     /// opens the "Recently extinct" section if the species is in it.
     pub phylo_reveal_pending: bool,
+    /// Which organism the current `OrganismExportReport` describes, so the
+    /// Inspect panel shows it only beside that organism.
+    pub export_report_owner: ExportReportOwner,
+}
+
+/// Ties `OrganismExportReport`, which holds only the last outcome, to the
+/// organism whose export produced it. The panel records the entity when it
+/// sends an export request; the next change to the report is that request's
+/// outcome. The UI is the only sender of `WorldEventRequest::ExportOrganism`,
+/// and the sim answers every request it reads, so the pairing holds.
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExportReportOwner {
+    /// Requested but not yet answered.
+    pending: Option<Entity>,
+    /// The organism the report currently describes.
+    owner: Option<Entity>,
+}
+
+impl ExportReportOwner {
+    /// An export of `entity` was requested this frame.
+    pub fn requested(&mut self, entity: Entity) {
+        self.pending = Some(entity);
+    }
+
+    /// Call once a frame with whether the report changed since the last
+    /// call. A change is the outcome of the pending request; a change with
+    /// none pending belongs to no organism the panel knows of.
+    pub fn observe(&mut self, report_changed: bool) {
+        if report_changed {
+            self.owner = self.pending.take();
+        }
+    }
+
+    /// Whether the report should be shown beside `entity`.
+    pub fn shows_for(&self, entity: Entity) -> bool {
+        self.owner == Some(entity)
+    }
 }
 
 impl UiState {
@@ -129,6 +166,43 @@ impl UiState {
         self.phylo_reveal_pending = true;
     }
 }
+
+/// The Help tab's controls list. Mass extinction and bloom keys have
+/// sections of their own below it.
+const HELP_CONTROLS: &[(&str, &str)] = &[
+    ("Space", "pause / unpause"),
+    ("[ / ]", "slow down / speed up (0.125x to 16x)"),
+    ("Left click", "inspect organism"),
+    ("F", "focus camera on selected organism"),
+    (", / .", "prev / next living member of same species"),
+    ("R", "select a random living organism"),
+    ("WASD / arrows", "pan camera"),
+    ("Right / middle drag", "pan camera"),
+    ("Shift+left drag", "pan camera"),
+    ("Scroll", "zoom in / out"),
+    ("Q / E", "zoom out / in"),
+    ("- / +", "zoom out / in (the + is the = key)"),
+    ("M", "cycle minimap mode (normal / heatmap / species-range)"),
+    ("Shift+M", "show/hide minimap"),
+    ("T", "toggle trail for selected organism"),
+    ("F5", "save world"),
+    ("Shift+S", "take screenshot"),
+    ("1 … 6", "switch right-panel tab"),
+];
+
+/// Mass extinction keys, for the Help tab.
+const HELP_EXTINCTIONS: &[(&str, &str)] = &[
+    ("X", "asteroid impact (kills 70%)"),
+    ("I", "ice age (halves temperature)"),
+    ("V", "volcano (kills area, boosts nutrients)"),
+];
+
+/// Bloom keys, for the Help tab.
+const HELP_BLOOMS: &[(&str, &str)] = &[
+    ("B", "solar bloom (double light for 30s)"),
+    ("N", "nutrient rain (massive food burst)"),
+    ("J", "Cambrian spark (triple mutation for 30s)"),
+];
 
 fn help_tab(ui: &mut egui::Ui) {
     ui.heading("Clauvolution");
@@ -162,23 +236,9 @@ fn help_tab(ui: &mut egui::Ui) {
             egui::Grid::new("controls_grid")
                 .striped(true)
                 .show(ui, |ui| {
-                    for (key, desc) in [
-                        ("Space", "pause / unpause"),
-                        ("[  ]", "slow down / speed up"),
-                        ("Scroll", "zoom in / out"),
-                        ("Click", "inspect organism"),
-                        ("F", "focus camera on selected organism"),
-                        (", / .", "prev / next living member of same species"),
-                        ("R", "select a random living organism"),
-                        ("Right-drag", "pan camera"),
-                        ("WASD", "pan camera"),
-                        ("M", "cycle minimap mode (normal / heatmap / species-range)"),
-                        ("Shift+M", "show/hide minimap"),
-                        ("T", "toggle trail for selected organism"),
-                        ("F5", "save world"),
-                        ("Shift+S", "take screenshot"),
-                        ("1 … 6", "switch right-panel tab"),
-                    ] {
+                    // Keep in step with the README's Controls table and the
+                    // input systems in the render and sim crates.
+                    for &(key, desc) in HELP_CONTROLS {
                         ui.monospace(key);
                         ui.label(desc);
                         ui.end_row();
@@ -187,15 +247,15 @@ fn help_tab(ui: &mut egui::Ui) {
         });
 
     egui::CollapsingHeader::new("Mass extinction events").show(ui, |ui| {
-        ui.label("X — asteroid impact (kills 70%)");
-        ui.label("I — ice age (halves temperature)");
-        ui.label("V — volcano (kills area, boosts nutrients)");
+        for (key, desc) in HELP_EXTINCTIONS {
+            ui.label(format!("{key} — {desc}"));
+        }
     });
 
     egui::CollapsingHeader::new("Bloom events").show(ui, |ui| {
-        ui.label("B — solar bloom (double light for 30s)");
-        ui.label("N — nutrient rain (massive food burst)");
-        ui.label("J — Cambrian spark (triple mutation for 30s)");
+        for (key, desc) in HELP_BLOOMS {
+            ui.label(format!("{key} — {desc}"));
+        }
     });
 }
 
@@ -336,6 +396,12 @@ fn right_panel_system(
 ) {
     let ctx = contexts.ctx_mut();
 
+    // Every frame, whichever tab is open, so an export outcome that lands
+    // while another tab is showing is still attributed.
+    ui_state
+        .export_report_owner
+        .observe(export_report.is_changed());
+
     egui::SidePanel::right("right_panel")
         .resizable(true)
         .default_width(380.0 * UI_SCALE)
@@ -364,6 +430,7 @@ fn right_panel_system(
                         &phylo,
                         &mut event_writer,
                         &export_report,
+                        &mut ui_state.export_report_owner,
                     );
                 }
                 RightTab::Phylo => {
@@ -531,16 +598,29 @@ fn phylo_tab(
             if !recently_extinct.is_empty() {
                 ui.add_space(8.0);
                 ui.separator();
+                let sorted_ids: Vec<u64> = recently_extinct.iter().map(|n| n.species_id).collect();
+                let rows = recently_extinct_rows(&sorted_ids, highlight, RECENTLY_EXTINCT_ROWS);
                 // Force the section open on the frame a chronicle click lands
                 // on an extinct species; otherwise leave its state alone.
                 let open = (reveal && highlight_is_extinct).then_some(true);
-                egui::CollapsingHeader::new(format!(
-                    "Recently extinct ({})",
-                    recently_extinct.len().min(10)
+                egui::CollapsingHeader::new(recently_extinct_header(
+                    rows.len(),
+                    recently_extinct.len(),
                 ))
+                // The label changes with every extinction; key the open state
+                // on a fixed id so the section does not snap shut.
+                .id_salt("recently_extinct")
                 .open(open)
                 .show(ui, |ui| {
-                    for node in recently_extinct.iter().take(10) {
+                    let mut previous: Option<usize> = None;
+                    for &row in &rows {
+                        // An older highlighted row sits after a gap; mark it
+                        // so the list does not read as contiguous.
+                        if previous.is_some_and(|p| row > p + 1) {
+                            ui.weak("…");
+                        }
+                        previous = Some(row);
+                        let node = recently_extinct[row];
                         let age_secs =
                             current_tick.saturating_sub(node.extinct_tick.unwrap_or(0)) / 30;
                         let lived = node
@@ -573,6 +653,33 @@ fn phylo_tab(
     if let Some(sp_id) = clicked_species {
         ui_state.phylo_highlight_species = Some(sp_id);
         select_living_member(sp_id, selected, species_members);
+    }
+}
+
+/// How many of the most recent extinctions the Phylo tab lists.
+const RECENTLY_EXTINCT_ROWS: usize = 10;
+
+/// Indices into `sorted_ids` (extinct species, newest first) of the rows the
+/// "Recently extinct" list draws: the first `limit`, plus the highlighted
+/// species when it is older than those, so a chronicle link to any extinct
+/// species lands on a drawn row.
+fn recently_extinct_rows(sorted_ids: &[u64], highlight: Option<u64>, limit: usize) -> Vec<usize> {
+    let mut rows: Vec<usize> = (0..sorted_ids.len().min(limit)).collect();
+    if let Some(i) = highlight.and_then(|id| sorted_ids.iter().position(|&s| s == id)) {
+        if i >= limit {
+            rows.push(i);
+        }
+    }
+    rows
+}
+
+/// Header of the "Recently extinct" list: the rows shown and, when that is
+/// not all of them, how many extinct species there are in total.
+fn recently_extinct_header(shown: usize, total: usize) -> String {
+    if shown < total {
+        format!("Recently extinct ({shown} of {total})")
+    } else {
+        format!("Recently extinct ({total})")
     }
 }
 
@@ -674,6 +781,7 @@ fn inspect_tab(
     phylo: &PhyloTree,
     events: &mut EventWriter<WorldEventRequest>,
     export_report: &OrganismExportReport,
+    export_owner: &mut ExportReportOwner,
 ) {
     let Some(entity) = selected.entity else {
         ui.heading("Inspect");
@@ -813,7 +921,8 @@ fn inspect_tab(
 
         // Export this creature for `--seed-with` in another world. The
         // write happens in the sim's export system; its report is shown
-        // here so a failure is visible without opening the Chronicle.
+        // here, beside the organism it describes only, so a failure is
+        // visible without opening the Chronicle.
         ui.add_space(6.0);
         ui.horizontal_wrapped(|ui| {
             if ui
@@ -825,15 +934,18 @@ fn inspect_tab(
                 .clicked()
             {
                 events.send(WorldEventRequest::ExportOrganism(entity));
+                export_owner.requested(entity);
             }
-            match &export_report.last {
-                Some(Ok(path)) => {
-                    ui.weak(format!("Exported to {}", path.display()));
+            if export_owner.shows_for(entity) {
+                match &export_report.last {
+                    Some(Ok(path)) => {
+                        ui.weak(format!("Exported to {}", path.display()));
+                    }
+                    Some(Err(e)) => {
+                        ui.colored_label(egui::Color32::LIGHT_RED, format!("Export failed: {e}"));
+                    }
+                    None => {}
                 }
-                Some(Err(e)) => {
-                    ui.colored_label(egui::Color32::LIGHT_RED, format!("Export failed: {e}"));
-                }
-                None => {}
             }
         });
 
@@ -991,10 +1103,11 @@ fn brain_node_color(activation: f32) -> egui::Color32 {
     }
 }
 
-/// Big stylised rendering of the selected creature: torso at centre,
-/// each body segment drawn at its attachment angle (mirrored if
-/// bilateral), tinted by species/strategy colour and dimmed by health.
-/// Purely cosmetic — doesn't reflect physics, just anatomy.
+/// Big stylised rendering of the selected creature, drawing the same parts as
+/// the world view's body plan (`portrait_parts`): segment 0 at the centre,
+/// every later segment at its attachment angle (mirrored if bilateral), tinted by
+/// species/strategy colour and dimmed by health. Purely cosmetic: it doesn't
+/// reflect physics, just anatomy.
 fn draw_creature_portrait(
     ui: &mut egui::Ui,
     genome: &Genome,
@@ -1016,44 +1129,59 @@ fn draw_creature_portrait(
     // most of the canvas without clipping its outermost segments.
     let scale = 50.0 * genome.body_size.clamp(0.4, 1.8);
 
-    // Torso ellipse — base of the creature. All other segments orbit it.
-    let torso_w = scale * 1.0;
-    let torso_h = scale * 0.75;
-    let torso_color = blend_with_health(tint_by_strategy(strategy_color), health);
-    let torso_outline = darken(torso_color, 0.4);
-
-    // Draw back-layer segments first so front ones overlay correctly.
-    for seg in &genome.body_segments {
-        if matches!(
-            seg.segment_type,
-            SegmentType::ArmorPlate | SegmentType::PhotoSurface | SegmentType::Fin
-        ) {
-            draw_segments_at_angle(&painter, center, scale, seg, strategy_color, health);
-        }
-    }
-
-    // Torso on top of back pieces, under front pieces.
-    painter.add(egui::Shape::ellipse_filled(
-        center,
-        EVec2::new(torso_w, torso_h),
-        torso_color,
-    ));
-    painter.add(egui::Shape::ellipse_stroke(
-        center,
-        EVec2::new(torso_w, torso_h),
-        Stroke::new(1.5_f32, torso_outline),
-    ));
-
-    // Front-layer segments — eyes, mouth, claws, limbs.
-    for seg in &genome.body_segments {
-        if !matches!(
-            seg.segment_type,
-            SegmentType::ArmorPlate
-                | SegmentType::PhotoSurface
-                | SegmentType::Fin
-                | SegmentType::Torso
-        ) {
-            draw_segments_at_angle(&painter, center, scale, seg, strategy_color, health);
+    let parts = portrait_parts(&genome.body_segments);
+    // Back pieces, then the core, then front pieces, so front ones overlay.
+    for layer in [
+        PortraitLayer::Back,
+        PortraitLayer::Core,
+        PortraitLayer::Front,
+    ] {
+        for part in parts.iter().filter(|p| p.layer == layer) {
+            if part.layer == PortraitLayer::Core {
+                if part.seg.segment_type == SegmentType::Torso {
+                    // Torso ellipse, the base of the creature. All other
+                    // segments orbit it.
+                    let size = EVec2::new(scale * 1.0, scale * 0.75);
+                    let torso_color = blend_with_health(tint_by_strategy(strategy_color), health);
+                    painter.add(egui::Shape::ellipse_filled(center, size, torso_color));
+                    painter.add(egui::Shape::ellipse_stroke(
+                        center,
+                        size,
+                        Stroke::new(1.5_f32, darken(torso_color, 0.4)),
+                    ));
+                } else {
+                    // A core that is not a torso is drawn as its own part,
+                    // at roughly torso size, as the world view does.
+                    draw_segment_shape(
+                        &painter,
+                        center,
+                        part.angle(),
+                        part.seg.segment_type,
+                        scale * 0.8,
+                        strategy_color,
+                        health,
+                    );
+                }
+                continue;
+            }
+            // Attachment angle in radians. The segment sits at the torso's
+            // edge in that direction; slot gives a small radial offset so
+            // attachments don't all pile onto one point. A mirrored part's
+            // angle is already reflected, so its position is too.
+            let angle = part.angle();
+            let slot_jitter = (part.seg.attachment_slot as f32) * 0.15;
+            let r = scale * (0.75 + slot_jitter.min(0.5));
+            let pos = Pos2::new(center.x + angle.cos() * r, center.y + angle.sin() * r);
+            let s = part.seg.size.clamp(0.2, 2.0) * 10.0; // rough px size
+            draw_segment_shape(
+                &painter,
+                pos,
+                angle,
+                part.seg.segment_type,
+                s,
+                strategy_color,
+                health,
+            );
         }
     }
 
@@ -1071,48 +1199,93 @@ fn draw_creature_portrait(
     );
 }
 
-fn draw_segments_at_angle(
-    painter: &egui::Painter,
-    center: egui::Pos2,
-    scale: f32,
-    seg: &clauvolution_genome::BodySegmentGene,
-    strategy_color: egui::Color32,
-    health: f32,
-) {
-    // Attachment_angle is in radians-ish from the code's convention.
-    // We place the segment at `torso_radius + offset` from centre, in
-    // the direction of attachment_angle. Slot gives a small radial
-    // offset so attachments don't all pile onto one point.
-    let angle = seg.attachment_angle;
-    let slot_jitter = (seg.attachment_slot as f32) * 0.15;
-    let r = scale * (0.75 + slot_jitter.min(0.5));
-    let dx = angle.cos() * r;
-    let dy = angle.sin() * r;
-    let pos = egui::Pos2::new(center.x + dx, center.y + dy);
+/// Paint layer of a portrait shape, in paint order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PortraitLayer {
+    Back,
+    Core,
+    Front,
+}
 
-    draw_segment_shape(painter, pos, angle, seg, strategy_color, health);
+/// One shape in the Inspect portrait.
+#[derive(Clone, Copy, Debug)]
+struct PortraitPart<'a> {
+    seg: &'a clauvolution_genome::BodySegmentGene,
+    /// The mirrored copy of a bilateral segment.
+    mirrored: bool,
+    layer: PortraitLayer,
+}
 
-    if seg.symmetry == Symmetry::Bilateral {
-        let mirrored = egui::Pos2::new(center.x - dx, center.y + dy);
-        // Flip the shape angle horizontally too so eyes/claws face outward
-        let mirror_angle = std::f32::consts::PI - angle;
-        draw_segment_shape(painter, mirrored, mirror_angle, seg, strategy_color, health);
+impl PortraitPart<'_> {
+    /// Facing angle, matching `RenderedPart::angle`: 0 for the core, the
+    /// attachment angle for a part, reflected across the vertical axis for
+    /// a mirrored copy.
+    fn angle(&self) -> f32 {
+        match (self.layer, self.mirrored) {
+            (PortraitLayer::Core, _) => 0.0,
+            (_, false) => self.seg.attachment_angle,
+            (_, true) => std::f32::consts::PI - self.seg.attachment_angle,
+        }
     }
 }
 
+/// The portrait's shapes, one per part of `BodyPlan::from_genome` (body
+/// crate) and in the same order, so the portrait shows what the world view
+/// shows: segment 0 is the core at the centre whatever its type, every later
+/// segment is a part (a later Torso included), and a bilateral later segment
+/// adds a mirrored copy. The core is never mirrored.
+fn portrait_parts(segments: &[clauvolution_genome::BodySegmentGene]) -> Vec<PortraitPart<'_>> {
+    let mut parts = Vec::with_capacity(segments.len() * 2);
+    for (i, seg) in segments.iter().enumerate() {
+        if i == 0 {
+            parts.push(PortraitPart {
+                seg,
+                mirrored: false,
+                layer: PortraitLayer::Core,
+            });
+            continue;
+        }
+        // Flat pieces sit behind the core; eyes, mouths, claws and limbs in
+        // front of it.
+        let layer = match seg.segment_type {
+            SegmentType::ArmorPlate
+            | SegmentType::PhotoSurface
+            | SegmentType::Fin
+            | SegmentType::Torso => PortraitLayer::Back,
+            SegmentType::Limb | SegmentType::Eye | SegmentType::Mouth | SegmentType::Claw => {
+                PortraitLayer::Front
+            }
+        };
+        parts.push(PortraitPart {
+            seg,
+            mirrored: false,
+            layer,
+        });
+        if seg.symmetry == Symmetry::Bilateral {
+            parts.push(PortraitPart {
+                seg,
+                mirrored: true,
+                layer,
+            });
+        }
+    }
+    parts
+}
+
+/// Draw one segment shape of rough pixel size `s` at `pos`, facing `angle`.
 fn draw_segment_shape(
     painter: &egui::Painter,
     pos: egui::Pos2,
     angle: f32,
-    seg: &clauvolution_genome::BodySegmentGene,
+    segment_type: SegmentType,
+    s: f32,
     strategy_color: egui::Color32,
     health: f32,
 ) {
     use egui::{Color32, Pos2, Stroke, Vec2 as EVec2};
-    let s = (seg.size.clamp(0.2, 2.0)) * 10.0; // rough px size
     let base = blend_with_health(tint_by_strategy(strategy_color), health);
 
-    match seg.segment_type {
+    match segment_type {
         SegmentType::Torso => {
             // Extra torso lump — stacked body plan
             painter.add(egui::Shape::ellipse_filled(
@@ -1681,33 +1854,35 @@ fn graphs_tab(ui: &mut egui::Ui, history: &PopulationHistory) {
 
             ui.add_space(4.0);
 
-            // Grazes by output: today every bite goes through attack; the
-            // plan moves grazing to eat, and this chart shows the handover.
-            ui.label("Grazes per second by output");
+            // Bites of living plants. Every bite goes through `eat` since
+            // step 2 of plans/2026-09-21-pyramid-top.md (`grazes_attack` is
+            // always 0, so it is not plotted); the second line is the share
+            // taken by eaters that are themselves plants.
+            ui.label("Plant bites per second");
             let g_eat: PlotPoints = snaps
                 .iter()
                 .enumerate()
                 .map(|(i, s)| [i as f64, s.feeding.grazes_eat as f64])
                 .collect();
-            let g_attack: PlotPoints = snaps
+            let g_by_plant: PlotPoints = snaps
                 .iter()
                 .enumerate()
-                .map(|(i, s)| [i as f64, s.feeding.grazes_attack as f64])
+                .map(|(i, s)| [i as f64, s.feeding.grazes_eat_by_plant as f64])
                 .collect();
 
-            Plot::new("grazes_by_output")
+            Plot::new("grazes_by_eater")
                 .height(110.0)
                 .legend(Legend::default().position(egui_plot::Corner::LeftTop))
                 .show(ui, |plot_ui| {
                     plot_ui.line(
                         Line::new(g_eat)
-                            .color(egui::Color32::from_rgb(120, 200, 120))
-                            .name("Through eat"),
+                            .color(strategy_color(SpeciesStrategy::Grazer))
+                            .name("All eaters"),
                     );
                     plot_ui.line(
-                        Line::new(g_attack)
-                            .color(egui::Color32::from_rgb(230, 100, 100))
-                            .name("Through attack"),
+                        Line::new(g_by_plant)
+                            .color(strategy_color(SpeciesStrategy::Photosynthesizer))
+                            .name("Eaters that are plants"),
                     );
                 });
 
@@ -2529,5 +2704,199 @@ fn strategy_icon(strategy: SpeciesStrategy) -> &'static str {
         SpeciesStrategy::Grazer => "🌾",
         SpeciesStrategy::Hunter => "🦷",
         SpeciesStrategy::Omnivore => "🍂",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recently_extinct_rows_draws_an_older_highlighted_species() {
+        let ids: Vec<u64> = (100..130).collect();
+        // No highlight, or a highlight among the newest: the first ten only.
+        assert_eq!(
+            recently_extinct_rows(&ids, None, 10),
+            (0..10).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            recently_extinct_rows(&ids, Some(103), 10),
+            (0..10).collect::<Vec<_>>()
+        );
+        // A highlight older than the newest ten is appended after them.
+        let mut expected: Vec<usize> = (0..10).collect();
+        expected.push(25);
+        assert_eq!(recently_extinct_rows(&ids, Some(125), 10), expected);
+        // The boundary: index 10 is the first one outside the limit.
+        let mut expected: Vec<usize> = (0..10).collect();
+        expected.push(10);
+        assert_eq!(recently_extinct_rows(&ids, Some(110), 10), expected);
+        // A highlight that is not extinct adds nothing.
+        assert_eq!(recently_extinct_rows(&ids, Some(7), 10).len(), 10);
+        // Fewer extinctions than the limit: all of them.
+        assert_eq!(
+            recently_extinct_rows(&ids[..3], Some(101), 10),
+            vec![0, 1, 2]
+        );
+    }
+
+    #[test]
+    fn export_report_shows_only_beside_the_exported_organism() {
+        let a = Entity::from_raw(1);
+        let b = Entity::from_raw(2);
+        let mut owner = ExportReportOwner::default();
+        // Before any export, and on the report's first-frame change with
+        // nothing requested, the report belongs to nobody.
+        owner.observe(true);
+        assert!(!owner.shows_for(a) && !owner.shows_for(b));
+
+        // Export A: nothing is shown until the sim answers.
+        owner.requested(a);
+        owner.observe(false);
+        assert!(!owner.shows_for(a));
+        owner.observe(true);
+        assert!(owner.shows_for(a));
+        assert!(!owner.shows_for(b), "selecting B must not show A's report");
+
+        // A quiet frame keeps the owner.
+        owner.observe(false);
+        assert!(owner.shows_for(a));
+
+        // Export B: A keeps its report until B's answer replaces it.
+        owner.requested(b);
+        owner.observe(false);
+        assert!(owner.shows_for(a) && !owner.shows_for(b));
+        owner.observe(true);
+        assert!(owner.shows_for(b) && !owner.shows_for(a));
+
+        // A change nobody asked for is attributed to nobody.
+        owner.observe(true);
+        assert!(!owner.shows_for(a) && !owner.shows_for(b));
+    }
+
+    fn segment(
+        segment_type: SegmentType,
+        attachment_angle: f32,
+        symmetry: Symmetry,
+    ) -> clauvolution_genome::BodySegmentGene {
+        clauvolution_genome::BodySegmentGene {
+            segment_type,
+            size: 0.8,
+            attachment_angle,
+            attachment_slot: 1,
+            symmetry,
+        }
+    }
+
+    /// The portrait's parts line up one to one with the world view's
+    /// `BodyPlan` parts: same count, same types in the same order, same
+    /// facing angles.
+    fn assert_portrait_matches_body_plan(genome: &Genome) {
+        let plan = clauvolution_body::BodyPlan::from_genome(genome);
+        let parts = portrait_parts(&genome.body_segments);
+        assert_eq!(parts.len(), plan.parts.len(), "{:?}", genome.body_segments);
+        for (i, (part, rendered)) in parts.iter().zip(&plan.parts).enumerate() {
+            assert_eq!(part.seg.segment_type, rendered.segment_type, "part {i}");
+            assert!(
+                (part.angle() - rendered.angle).abs() < 1e-6,
+                "part {i}: portrait angle {} against plan angle {}",
+                part.angle(),
+                rendered.angle
+            );
+            assert_eq!(part.layer == PortraitLayer::Core, i == 0, "part {i}");
+        }
+    }
+
+    #[test]
+    fn portrait_matches_body_plan_with_extra_torsos_and_a_non_torso_core() {
+        use rand::{rngs::StdRng, SeedableRng};
+        let mut rng = StdRng::seed_from_u64(7);
+        let mut innovation = clauvolution_genome::InnovationCounter(0);
+        let mut genome = Genome::new_minimal(&mut innovation, &mut rng);
+
+        // Segment 0 is a fin, not a torso, and two later segments are
+        // torsos, one of them bilateral.
+        genome.body_segments = vec![
+            segment(SegmentType::Fin, 0.0, Symmetry::Bilateral),
+            segment(SegmentType::Torso, 0.4, Symmetry::None),
+            segment(SegmentType::Torso, 2.0, Symmetry::Bilateral),
+            segment(SegmentType::Eye, -1.0, Symmetry::Bilateral),
+        ];
+        assert_portrait_matches_body_plan(&genome);
+        let parts = portrait_parts(&genome.body_segments);
+        assert_eq!(parts[0].seg.segment_type, SegmentType::Fin);
+        assert_eq!(parts[0].layer, PortraitLayer::Core);
+        let torsos = parts
+            .iter()
+            .filter(|p| p.seg.segment_type == SegmentType::Torso)
+            .count();
+        assert_eq!(torsos, 3, "one plain and one bilateral extra torso");
+
+        // Random segment lists, as founders and mutation produce them.
+        for _ in 0..200 {
+            let n = rand::Rng::gen_range(&mut rng, 1..8);
+            genome.body_segments = (0..n)
+                .map(|_| clauvolution_genome::BodySegmentGene::random(&mut rng))
+                .collect();
+            assert_portrait_matches_body_plan(&genome);
+        }
+    }
+
+    /// Split a key label into its single keys or key groups: "Q / E" is Q
+    /// and E, "1 … 6" is 1 and 6, "Shift+left drag" is itself.
+    fn key_atoms(label: &str) -> Vec<String> {
+        label
+            .split(" / ")
+            .flat_map(|part| part.split(" … "))
+            .map(|atom| atom.trim().to_lowercase())
+            .collect()
+    }
+
+    /// Invariant 7 in one direction: every key the README's Controls table
+    /// names appears in the Help tab. Each bold span in a row's key column is
+    /// one key or key group, and must equal a key in the Help lists exactly.
+    #[test]
+    fn help_tab_lists_every_readme_control() {
+        let readme = include_str!("../../../README.md");
+        let table = readme
+            .split("## Controls")
+            .nth(1)
+            .expect("README has a Controls section")
+            .split("\n## ")
+            .next()
+            .unwrap();
+        let help_keys: Vec<String> = HELP_CONTROLS
+            .iter()
+            .chain(HELP_EXTINCTIONS)
+            .chain(HELP_BLOOMS)
+            .flat_map(|(key, _)| key_atoms(key))
+            .collect();
+        let mut checked = 0;
+        for row in table.lines().filter(|l| l.starts_with("| **")) {
+            let key_column = row.split('|').nth(1).unwrap();
+            for span in key_column.split("**").skip(1).step_by(2) {
+                for key in key_atoms(span) {
+                    assert!(
+                        help_keys.contains(&key),
+                        "README control {key:?} is missing from the Help tab"
+                    );
+                    checked += 1;
+                }
+            }
+        }
+        assert!(checked > 25, "parsed only {checked} README keys");
+    }
+
+    #[test]
+    fn recently_extinct_header_counts_shown_and_total() {
+        assert_eq!(recently_extinct_header(3, 3), "Recently extinct (3)");
+        assert_eq!(
+            recently_extinct_header(10, 57),
+            "Recently extinct (10 of 57)"
+        );
+        assert_eq!(
+            recently_extinct_header(11, 57),
+            "Recently extinct (11 of 57)"
+        );
     }
 }
