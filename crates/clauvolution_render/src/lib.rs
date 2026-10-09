@@ -36,6 +36,12 @@ const SPRITE_CULL_MARGIN_PX: f32 = 20.0;
 /// infection indicator rings, which are drawn larger than the body.
 const INDICATOR_CULL_MARGIN_PX: f32 = 40.0;
 
+/// Longest frame (seconds) the keyboard camera pan and zoom will integrate.
+/// `Time<Real>` has no maximum delta, unlike `Time<Virtual>`'s 250 ms, so
+/// without this a slow frame with a key held would jump the camera or snap
+/// the zoom to its clamp.
+const CAMERA_MAX_DT_SECS: f32 = 0.1;
+
 /// Selection ring radius as a multiple of the selected organism's body size.
 const SELECTION_RING_SCALE: f32 = 3.5;
 /// Selection ring depth: just behind active organisms (z 1.0), in front of
@@ -935,8 +941,9 @@ fn camera_control_system(
 
     // Real time, not the default virtual clock: `sim_speed_system` pauses
     // and rescales `Time<Virtual>`, and the camera must keep moving at the
-    // same on-screen speed while the sim is paused or sped up.
-    let dt = time.delta_secs();
+    // same on-screen speed while the sim is paused or sped up. Capped, so a
+    // slow frame cannot jump the camera.
+    let dt = time.delta_secs().min(CAMERA_MAX_DT_SECS);
 
     // Keyboard pan and zoom stand down while egui has keyboard focus, like
     // every other hotkey.
@@ -2368,26 +2375,26 @@ mod tests {
 
     #[test]
     fn keyboard_pan_and_zoom_run_on_real_time_while_paused() {
-        let mut app = camera_app(0.25);
+        let mut app = camera_app(0.05);
         app.world_mut()
             .resource_mut::<ButtonInput<KeyCode>>()
             .press(KeyCode::KeyD);
         app.update();
         let (translation, _) = camera_state(&mut app);
         assert!(
-            (translation.x - 200.0 * 0.25).abs() < 1e-3,
+            (translation.x - 200.0 * 0.05).abs() < 1e-3,
             "pan moved {} while paused",
             translation.x
         );
 
-        let mut app = camera_app(0.25);
+        let mut app = camera_app(0.05);
         app.world_mut()
             .resource_mut::<ButtonInput<KeyCode>>()
             .press(KeyCode::KeyQ);
         app.update();
         let (_, scale) = camera_state(&mut app);
         assert!(
-            (scale - 1.5).abs() < 1e-4,
+            (scale - 1.1).abs() < 1e-4,
             "zoom reached {scale} while paused"
         );
     }
@@ -2455,6 +2462,32 @@ mod tests {
         // Dragging the world left and down (screen y grows downwards) moves
         // the camera right and up.
         assert_eq!(camera_state(&mut app).0, Vec3::new(30.0, 20.0, 0.0));
+    }
+
+    #[test]
+    fn a_slow_frame_moves_the_keyboard_camera_at_most_one_capped_step() {
+        let mut app = camera_app(2.0);
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::KeyD);
+        app.update();
+        let (translation, _) = camera_state(&mut app);
+        assert!(
+            (translation.x - 200.0 * CAMERA_MAX_DT_SECS).abs() < 1e-3,
+            "a 2 s frame panned {}",
+            translation.x
+        );
+
+        let mut app = camera_app(2.0);
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::KeyE);
+        app.update();
+        let (_, scale) = camera_state(&mut app);
+        assert!(
+            (scale - (1.0 - 2.0 * CAMERA_MAX_DT_SECS)).abs() < 1e-4,
+            "a 2 s frame zoomed to {scale}"
+        );
     }
 
     #[test]
