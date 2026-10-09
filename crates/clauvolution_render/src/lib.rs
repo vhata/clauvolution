@@ -1025,6 +1025,7 @@ fn draw_trails_system(
     selected: Res<SelectedOrganism>,
     organisms: Query<(&Position, &TrailHistory, &SpeciesId), With<Organism>>,
     mut species_colors: ResMut<SpeciesColors>,
+    config: Res<SimConfig>,
 ) {
     if !trails.0 {
         return;
@@ -1049,7 +1050,25 @@ fn draw_trails_system(
     // a single focused line, not an ambient smear.
     let color = Color::srgba(rgba.red, rgba.green, rgba.blue, 0.75);
 
-    gizmos.linestrip_2d(trail.positions.iter().copied(), color);
+    let points: Vec<Vec2> = trail.positions.iter().copied().collect();
+    let world = Vec2::new(config.world_width as f32, config.world_height as f32);
+    for run in trail_runs(&points, world) {
+        if run.len() >= 2 {
+            gizmos.linestrip_2d(run.iter().copied(), color);
+        }
+    }
+}
+
+/// Splits a trail into runs that are each drawn as one line strip. Positions
+/// wrap on the torus, so consecutive samples more than half the world apart
+/// on either axis are a wrap rather than a step, and the trail breaks there
+/// instead of drawing a line across the whole map.
+fn trail_runs(points: &[Vec2], world: Vec2) -> impl Iterator<Item = &[Vec2]> {
+    let half = world * 0.5;
+    points.chunk_by(move |a, b| {
+        let step = (*b - *a).abs();
+        step.x <= half.x && step.y <= half.y
+    })
 }
 
 /// Detect zoom crossing the LOD threshold and strip sprites so they re-render
@@ -1788,6 +1807,33 @@ mod tests {
         assert_eq!(minimap_px(Vec2::new(0.0, 256.0), world, 160), (0, -1));
         assert_eq!(minimap_dot(Vec2::new(0.0, 256.0), world, 160), None);
         assert_eq!(minimap_dot(Vec2::new(512.0, 0.0), world, 160), None);
+    }
+
+    // --- trail-draws-across-torus-wrap ---
+
+    #[test]
+    fn trail_breaks_where_it_wraps_on_either_axis() {
+        let world = Vec2::new(400.0, 200.0);
+        let points = [
+            Vec2::new(396.0, 100.0),
+            Vec2::new(399.0, 100.0),
+            // Wrapped across the right edge.
+            Vec2::new(2.0, 5.0),
+            Vec2::new(5.0, 2.0),
+            // Wrapped across the bottom edge.
+            Vec2::new(6.0, 198.0),
+            Vec2::new(7.0, 195.0),
+        ];
+        let runs: Vec<&[Vec2]> = trail_runs(&points, world).collect();
+        assert_eq!(runs, vec![&points[0..2], &points[2..4], &points[4..6]]);
+
+        // An ordinary trail stays one strip.
+        let steady = [
+            Vec2::new(10.0, 10.0),
+            Vec2::new(60.0, 40.0),
+            Vec2::new(90.0, 80.0),
+        ];
+        assert_eq!(trail_runs(&steady, world).count(), 1);
     }
 
     // --- detailed-lod-double-scale ---
