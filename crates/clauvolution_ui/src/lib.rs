@@ -1077,10 +1077,11 @@ fn brain_node_color(activation: f32) -> egui::Color32 {
     }
 }
 
-/// Big stylised rendering of the selected creature: torso at centre,
-/// each body segment drawn at its attachment angle (mirrored if
-/// bilateral), tinted by species/strategy colour and dimmed by health.
-/// Purely cosmetic — doesn't reflect physics, just anatomy.
+/// Big stylised rendering of the selected creature, laid out like the world
+/// view's body plan (`portrait_parts`): segment 0 at the centre, every later
+/// segment at its attachment angle (mirrored if bilateral), tinted by
+/// species/strategy colour and dimmed by health. Purely cosmetic: it doesn't
+/// reflect physics, just anatomy.
 fn draw_creature_portrait(
     ui: &mut egui::Ui,
     genome: &Genome,
@@ -1102,44 +1103,59 @@ fn draw_creature_portrait(
     // most of the canvas without clipping its outermost segments.
     let scale = 50.0 * genome.body_size.clamp(0.4, 1.8);
 
-    // Torso ellipse — base of the creature. All other segments orbit it.
-    let torso_w = scale * 1.0;
-    let torso_h = scale * 0.75;
-    let torso_color = blend_with_health(tint_by_strategy(strategy_color), health);
-    let torso_outline = darken(torso_color, 0.4);
-
-    // Draw back-layer segments first so front ones overlay correctly.
-    for seg in &genome.body_segments {
-        if matches!(
-            seg.segment_type,
-            SegmentType::ArmorPlate | SegmentType::PhotoSurface | SegmentType::Fin
-        ) {
-            draw_segments_at_angle(&painter, center, scale, seg, strategy_color, health);
-        }
-    }
-
-    // Torso on top of back pieces, under front pieces.
-    painter.add(egui::Shape::ellipse_filled(
-        center,
-        EVec2::new(torso_w, torso_h),
-        torso_color,
-    ));
-    painter.add(egui::Shape::ellipse_stroke(
-        center,
-        EVec2::new(torso_w, torso_h),
-        Stroke::new(1.5_f32, torso_outline),
-    ));
-
-    // Front-layer segments — eyes, mouth, claws, limbs.
-    for seg in &genome.body_segments {
-        if !matches!(
-            seg.segment_type,
-            SegmentType::ArmorPlate
-                | SegmentType::PhotoSurface
-                | SegmentType::Fin
-                | SegmentType::Torso
-        ) {
-            draw_segments_at_angle(&painter, center, scale, seg, strategy_color, health);
+    let parts = portrait_parts(&genome.body_segments);
+    // Back pieces, then the core, then front pieces, so front ones overlay.
+    for layer in [
+        PortraitLayer::Back,
+        PortraitLayer::Core,
+        PortraitLayer::Front,
+    ] {
+        for part in parts.iter().filter(|p| p.layer == layer) {
+            if part.layer == PortraitLayer::Core {
+                if part.seg.segment_type == SegmentType::Torso {
+                    // Torso ellipse, the base of the creature. All other
+                    // segments orbit it.
+                    let size = EVec2::new(scale * 1.0, scale * 0.75);
+                    let torso_color = blend_with_health(tint_by_strategy(strategy_color), health);
+                    painter.add(egui::Shape::ellipse_filled(center, size, torso_color));
+                    painter.add(egui::Shape::ellipse_stroke(
+                        center,
+                        size,
+                        Stroke::new(1.5_f32, darken(torso_color, 0.4)),
+                    ));
+                } else {
+                    // A core that is not a torso is drawn as its own part,
+                    // at roughly torso size, as the world view does.
+                    draw_segment_shape(
+                        &painter,
+                        center,
+                        part.angle(),
+                        part.seg.segment_type,
+                        scale * 0.8,
+                        strategy_color,
+                        health,
+                    );
+                }
+                continue;
+            }
+            // Attachment angle in radians. The segment sits at the torso's
+            // edge in that direction; slot gives a small radial offset so
+            // attachments don't all pile onto one point. A mirrored part's
+            // angle is already reflected, so its position is too.
+            let angle = part.angle();
+            let slot_jitter = (part.seg.attachment_slot as f32) * 0.15;
+            let r = scale * (0.75 + slot_jitter.min(0.5));
+            let pos = Pos2::new(center.x + angle.cos() * r, center.y + angle.sin() * r);
+            let s = part.seg.size.clamp(0.2, 2.0) * 10.0; // rough px size
+            draw_segment_shape(
+                &painter,
+                pos,
+                angle,
+                part.seg.segment_type,
+                s,
+                strategy_color,
+                health,
+            );
         }
     }
 
@@ -1157,48 +1173,93 @@ fn draw_creature_portrait(
     );
 }
 
-fn draw_segments_at_angle(
-    painter: &egui::Painter,
-    center: egui::Pos2,
-    scale: f32,
-    seg: &clauvolution_genome::BodySegmentGene,
-    strategy_color: egui::Color32,
-    health: f32,
-) {
-    // Attachment_angle is in radians-ish from the code's convention.
-    // We place the segment at `torso_radius + offset` from centre, in
-    // the direction of attachment_angle. Slot gives a small radial
-    // offset so attachments don't all pile onto one point.
-    let angle = seg.attachment_angle;
-    let slot_jitter = (seg.attachment_slot as f32) * 0.15;
-    let r = scale * (0.75 + slot_jitter.min(0.5));
-    let dx = angle.cos() * r;
-    let dy = angle.sin() * r;
-    let pos = egui::Pos2::new(center.x + dx, center.y + dy);
+/// Paint layer of a portrait shape, in paint order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PortraitLayer {
+    Back,
+    Core,
+    Front,
+}
 
-    draw_segment_shape(painter, pos, angle, seg, strategy_color, health);
+/// One shape in the Inspect portrait.
+#[derive(Clone, Copy, Debug)]
+struct PortraitPart<'a> {
+    seg: &'a clauvolution_genome::BodySegmentGene,
+    /// The mirrored copy of a bilateral segment.
+    mirrored: bool,
+    layer: PortraitLayer,
+}
 
-    if seg.symmetry == Symmetry::Bilateral {
-        let mirrored = egui::Pos2::new(center.x - dx, center.y + dy);
-        // Flip the shape angle horizontally too so eyes/claws face outward
-        let mirror_angle = std::f32::consts::PI - angle;
-        draw_segment_shape(painter, mirrored, mirror_angle, seg, strategy_color, health);
+impl PortraitPart<'_> {
+    /// Facing angle, matching `RenderedPart::angle`: 0 for the core, the
+    /// attachment angle for a part, reflected across the vertical axis for
+    /// a mirrored copy.
+    fn angle(&self) -> f32 {
+        match (self.layer, self.mirrored) {
+            (PortraitLayer::Core, _) => 0.0,
+            (_, false) => self.seg.attachment_angle,
+            (_, true) => std::f32::consts::PI - self.seg.attachment_angle,
+        }
     }
 }
 
+/// The portrait's shapes, one per part of `BodyPlan::from_genome` (body
+/// crate) and in the same order, so the portrait shows what the world view
+/// shows: segment 0 is the core at the centre whatever its type, every later
+/// segment is a part (a later Torso included), and a bilateral later segment
+/// adds a mirrored copy. The core is never mirrored.
+fn portrait_parts(segments: &[clauvolution_genome::BodySegmentGene]) -> Vec<PortraitPart<'_>> {
+    let mut parts = Vec::with_capacity(segments.len() * 2);
+    for (i, seg) in segments.iter().enumerate() {
+        if i == 0 {
+            parts.push(PortraitPart {
+                seg,
+                mirrored: false,
+                layer: PortraitLayer::Core,
+            });
+            continue;
+        }
+        // Flat pieces sit behind the core; eyes, mouths, claws and limbs in
+        // front of it.
+        let layer = match seg.segment_type {
+            SegmentType::ArmorPlate
+            | SegmentType::PhotoSurface
+            | SegmentType::Fin
+            | SegmentType::Torso => PortraitLayer::Back,
+            SegmentType::Limb | SegmentType::Eye | SegmentType::Mouth | SegmentType::Claw => {
+                PortraitLayer::Front
+            }
+        };
+        parts.push(PortraitPart {
+            seg,
+            mirrored: false,
+            layer,
+        });
+        if seg.symmetry == Symmetry::Bilateral {
+            parts.push(PortraitPart {
+                seg,
+                mirrored: true,
+                layer,
+            });
+        }
+    }
+    parts
+}
+
+/// Draw one segment shape of rough pixel size `s` at `pos`, facing `angle`.
 fn draw_segment_shape(
     painter: &egui::Painter,
     pos: egui::Pos2,
     angle: f32,
-    seg: &clauvolution_genome::BodySegmentGene,
+    segment_type: SegmentType,
+    s: f32,
     strategy_color: egui::Color32,
     health: f32,
 ) {
     use egui::{Color32, Pos2, Stroke, Vec2 as EVec2};
-    let s = (seg.size.clamp(0.2, 2.0)) * 10.0; // rough px size
     let base = blend_with_health(tint_by_strategy(strategy_color), health);
 
-    match seg.segment_type {
+    match segment_type {
         SegmentType::Torso => {
             // Extra torso lump — stacked body plan
             painter.add(egui::Shape::ellipse_filled(
@@ -2683,6 +2744,74 @@ mod tests {
         // A change nobody asked for is attributed to nobody.
         owner.observe(true);
         assert!(!owner.shows_for(a) && !owner.shows_for(b));
+    }
+
+    fn segment(
+        segment_type: SegmentType,
+        attachment_angle: f32,
+        symmetry: Symmetry,
+    ) -> clauvolution_genome::BodySegmentGene {
+        clauvolution_genome::BodySegmentGene {
+            segment_type,
+            size: 0.8,
+            attachment_angle,
+            attachment_slot: 1,
+            symmetry,
+        }
+    }
+
+    /// The portrait's parts line up one to one with the world view's
+    /// `BodyPlan` parts: same count, same types in the same order, same
+    /// facing angles.
+    fn assert_portrait_matches_body_plan(genome: &Genome) {
+        let plan = clauvolution_body::BodyPlan::from_genome(genome);
+        let parts = portrait_parts(&genome.body_segments);
+        assert_eq!(parts.len(), plan.parts.len(), "{:?}", genome.body_segments);
+        for (i, (part, rendered)) in parts.iter().zip(&plan.parts).enumerate() {
+            assert_eq!(part.seg.segment_type, rendered.segment_type, "part {i}");
+            assert!(
+                (part.angle() - rendered.angle).abs() < 1e-6,
+                "part {i}: portrait angle {} against plan angle {}",
+                part.angle(),
+                rendered.angle
+            );
+            assert_eq!(part.layer == PortraitLayer::Core, i == 0, "part {i}");
+        }
+    }
+
+    #[test]
+    fn portrait_matches_body_plan_with_extra_torsos_and_a_non_torso_core() {
+        use rand::{rngs::StdRng, SeedableRng};
+        let mut rng = StdRng::seed_from_u64(7);
+        let mut innovation = clauvolution_genome::InnovationCounter(0);
+        let mut genome = Genome::new_minimal(&mut innovation, &mut rng);
+
+        // Segment 0 is a fin, not a torso, and two later segments are
+        // torsos, one of them bilateral.
+        genome.body_segments = vec![
+            segment(SegmentType::Fin, 0.0, Symmetry::Bilateral),
+            segment(SegmentType::Torso, 0.4, Symmetry::None),
+            segment(SegmentType::Torso, 2.0, Symmetry::Bilateral),
+            segment(SegmentType::Eye, -1.0, Symmetry::Bilateral),
+        ];
+        assert_portrait_matches_body_plan(&genome);
+        let parts = portrait_parts(&genome.body_segments);
+        assert_eq!(parts[0].seg.segment_type, SegmentType::Fin);
+        assert_eq!(parts[0].layer, PortraitLayer::Core);
+        let torsos = parts
+            .iter()
+            .filter(|p| p.seg.segment_type == SegmentType::Torso)
+            .count();
+        assert_eq!(torsos, 3, "one plain and one bilateral extra torso");
+
+        // Random segment lists, as founders and mutation produce them.
+        for _ in 0..200 {
+            let n = rand::Rng::gen_range(&mut rng, 1..8);
+            genome.body_segments = (0..n)
+                .map(|_| clauvolution_genome::BodySegmentGene::random(&mut rng))
+                .collect();
+            assert_portrait_matches_body_plan(&genome);
+        }
     }
 
     #[test]
