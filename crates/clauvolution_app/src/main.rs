@@ -662,6 +662,15 @@ fn run_headless(
             .set(ScheduleRunnerPlugin::run_loop(std::time::Duration::ZERO))
             .set(task_pool_plugin(worker_cap)),
     );
+    // MinimalPlugins has no log plugin, so without this every `warn!` and
+    // `error!` (a missing or unreadable save, organisms dropped by save
+    // validation, `--seed-with` ignored on a load) is silently dropped.
+    // Warnings and errors only, on stderr with the summary; `info!` would
+    // bury it. RUST_LOG still overrides the level.
+    app.add_plugins(bevy::log::LogPlugin {
+        level: bevy::log::Level::WARN,
+        ..default()
+    });
     // Decouple the clock from wall time so the tick/frame interleaving, and
     // with it the whole run, is a function of the seed alone.
     app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
