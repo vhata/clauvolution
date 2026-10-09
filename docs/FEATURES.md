@@ -73,7 +73,7 @@ One-liner list of what Clauvolution does, grouped by area. For the design ration
 - **Minimap legend** — colour key below the minimap for plants / grazers / hunters / omnivores
 - **Minimap selection marker** — bright yellow plus at the selected organism's position
 - **Minimap modes (M / Shift+M)** — M cycles organism dots, strategy-coloured density, and the selected organism's species range; Shift+M hides or shows the minimap
-- **Pan / zoom / drag** — WASD / arrows to pan, mouse wheel or E/= and Q/- to zoom, right-, middle- or Shift+left-drag to pan
+- **Pan / zoom / drag** — WASD / arrows to pan, mouse wheel or E/= and Q/- to zoom, right-, middle- or Shift+left-drag to pan; keyboard pan and zoom work while paused, and a drag that starts over the side panel or minimap is ignored
 - **Pause / speed control** — Space to pause, `[` / `]` to change speed (0.125× to 16×)
 - **Focus on selected (F)** — snap camera to the selected organism's position
 - **Cycle species members (, / .)** — step through living members of the selected organism's species
