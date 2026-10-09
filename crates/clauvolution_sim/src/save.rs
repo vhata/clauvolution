@@ -848,7 +848,7 @@ fn validate_save_state(state: &mut SaveState) {
 
         // Traits outside their bounds go to the nearest bound, which is what
         // the next mutation of that trait would do.
-        let clamped = clamp_traits(&mut org.genome);
+        let clamped = clamp_traits(&mut org.genome).len();
         if clamped > 0 {
             clamped_traits += clamped;
             clamped_organisms += 1;
@@ -860,6 +860,8 @@ fn validate_save_state(state: &mut SaveState) {
         // them in.
         let mut reset = false;
         if org.health.is_finite() {
+            // A health at or below zero dies on the next tick either way;
+            // the lower clamp only keeps the saved value in range.
             org.health = org.health.clamp(0.0, full_health());
         } else {
             org.health = full_health();
@@ -1142,36 +1144,28 @@ fn genome_problem(genome: &SaveGenome) -> Option<String> {
     None
 }
 
-/// The first scalar trait outside its `*_BOUNDS`, described, or `None`.
-/// Mutation clamps every trait to its bounds and founders start inside them,
-/// so only a hand-written or hand-edited file can carry one.
-fn trait_out_of_bounds(genome: &SaveGenome) -> Option<String> {
-    SCALAR_TRAIT_NAMES
-        .iter()
-        .zip(genome.scalar_traits())
-        .zip(SCALAR_TRAIT_BOUNDS)
-        .find(|((_, value), bounds)| bounds.clamp(*value) != *value)
-        .map(|((name, value), bounds)| {
-            format!(
-                "{} {} is outside its bounds {}..={}",
-                name, value, bounds.min, bounds.max
-            )
-        })
-}
-
 /// Clamp every scalar trait into its `*_BOUNDS`, as mutation would, and
-/// return how many values moved. The traits must already be finite.
-fn clamp_traits(genome: &mut SaveGenome) -> usize {
-    let mut clamped = 0;
-    for (value, bounds) in genome
+/// describe each value that moved, such as `speed_factor 0.19999999 to 0.2`.
+/// The traits must already be finite.
+///
+/// A hand-edited file is not the only source of an out-of-bounds trait:
+/// `Genome::crossover` blends two parents' traits without clamping, so two
+/// parents at a bound can give a child a rounding error past it, and the
+/// child keeps it until that trait next mutates (TODO
+/// `crossover-blend-leaves-bounds`). Saves and exports of evolved
+/// organisms can therefore carry one.
+fn clamp_traits(genome: &mut SaveGenome) -> Vec<String> {
+    let mut clamped = Vec::new();
+    for ((value, bounds), name) in genome
         .scalar_traits_mut()
         .into_iter()
         .zip(SCALAR_TRAIT_BOUNDS)
+        .zip(SCALAR_TRAIT_NAMES)
     {
         let inside = bounds.clamp(*value);
         if inside != *value {
+            clamped.push(format!("{} {} to {}", name, value, inside));
             *value = inside;
-            clamped += 1;
         }
     }
     clamped
@@ -1208,6 +1202,10 @@ pub struct CreatureFile {
     #[serde(default)]
     pub origin_session: Option<String>,
     pub genome: SaveGenome,
+    /// Each trait `load_creature` clamped into its bounds, described as
+    /// `clamp_traits` does. Never written to or read from the file.
+    #[serde(skip)]
+    pub clamped_traits: Vec<String>,
 }
 
 fn creature_format_version() -> u32 {
@@ -1236,7 +1234,21 @@ impl CreatureFile {
             origin_seed: Some(origin_seed),
             origin_session: Some(origin_session.to_string()),
             genome: genome_to_save(genome),
+            clamped_traits: Vec::new(),
         }
+    }
+
+    /// A warning for the user when `load_creature` clamped any trait into
+    /// its bounds, or `None` when the genome loaded as written.
+    pub fn clamp_warning(&self) -> Option<String> {
+        if self.clamped_traits.is_empty() {
+            return None;
+        }
+        Some(format!(
+            "{} trait value(s) outside their bounds were clamped: {}",
+            self.clamped_traits.len(),
+            self.clamped_traits.join(", ")
+        ))
     }
 
     /// The genome as the sim uses it.
@@ -1328,28 +1340,26 @@ impl std::error::Error for CreatureLoadError {
 /// Read a creature file and check its genome can be spawned. Unlike
 /// `load_world`, an unusable genome is an error rather than a silent skip:
 /// the user named this file on the command line and should hear about it.
-/// For the same reason a trait outside its bounds is refused rather than
-/// clamped as a save's would be: the file is read before the app's log
-/// exists, so a clamp could not be reported, and an exported genome is
-/// always inside the bounds.
+/// A trait outside its bounds is clamped, as a save's is, and listed in
+/// `clamped_traits` for the caller to report: the file is read before the
+/// app's log exists, so a warning here would not reach the user.
 pub fn load_creature(path: &Path) -> Result<CreatureFile, CreatureLoadError> {
     let json = std::fs::read_to_string(path).map_err(|source| CreatureLoadError::Read {
         path: path.to_path_buf(),
         source,
     })?;
-    let creature: CreatureFile =
+    let mut creature: CreatureFile =
         serde_json::from_str(&json).map_err(|source| CreatureLoadError::Parse {
             path: path.to_path_buf(),
             source,
         })?;
-    if let Some(reason) =
-        genome_problem(&creature.genome).or_else(|| trait_out_of_bounds(&creature.genome))
-    {
+    if let Some(reason) = genome_problem(&creature.genome) {
         return Err(CreatureLoadError::Invalid {
             path: path.to_path_buf(),
             reason,
         });
     }
+    creature.clamped_traits = clamp_traits(&mut creature.genome);
     Ok(creature)
 }
 
@@ -2236,6 +2246,7 @@ mod tests {
                 origin_seed: None,
                 origin_session: None,
                 genome: broken,
+                clamped_traits: Vec::new(),
             })
             .unwrap(),
         )
@@ -2394,21 +2405,47 @@ mod tests {
                 let mut g = SaveGenome::default();
                 let before = g.scalar_traits();
                 *g.scalar_traits_mut()[index] = value;
-                assert_eq!(clamp_traits(&mut g), 1, "{}", SCALAR_TRAIT_NAMES[index]);
+                assert_eq!(
+                    clamp_traits(&mut g).len(),
+                    1,
+                    "{}",
+                    SCALAR_TRAIT_NAMES[index]
+                );
                 let mut want = before;
                 want[index] = expected;
                 assert_eq!(g.scalar_traits(), want, "{}", SCALAR_TRAIT_NAMES[index]);
             }
         }
         let mut g = SaveGenome::default();
-        assert_eq!(clamp_traits(&mut g), 0);
+        assert!(clamp_traits(&mut g).is_empty());
+    }
+
+    /// The clamp names the trait it moved, by the field name the file uses.
+    /// Setting each field through JSON, rather than through
+    /// `scalar_traits_mut`, catches a name list out of step with the fields.
+    #[test]
+    fn clamp_names_the_field_that_moved() {
+        for (index, name) in SCALAR_TRAIT_NAMES.iter().enumerate() {
+            let mut value = serde_json::to_value(SaveGenome::default()).unwrap();
+            let above = SCALAR_TRAIT_BOUNDS[index].max + 1.0;
+            value[*name] = serde_json::json!(above);
+            let mut g: SaveGenome = serde_json::from_value(value).unwrap();
+            assert_eq!(
+                clamp_traits(&mut g),
+                vec![format!(
+                    "{} {} to {}",
+                    name, above, SCALAR_TRAIT_BOUNDS[index].max
+                )]
+            );
+        }
     }
 
     #[test]
-    fn creature_file_with_a_trait_outside_its_bounds_is_refused() {
+    fn creature_file_with_a_trait_outside_its_bounds_is_clamped_and_reported() {
         let scratch = ScratchDir::new("creature-oob");
         let mut genome = genome_to_save(&sample_genome());
         genome.sense_range = 500.0;
+        genome.armor = -1.0;
         let path = scratch.0.join("oob.json");
         std::fs::write(
             &path,
@@ -2418,9 +2455,68 @@ mod tests {
             ),
         )
         .unwrap();
-        let err = load_creature(&path).expect_err("an out-of-bounds trait is refused");
-        assert!(matches!(err, CreatureLoadError::Invalid { .. }), "{err}");
-        assert!(err.to_string().contains("sense_range 500"), "{err}");
+        let loaded = load_creature(&path).expect("an out-of-bounds trait is clamped");
+        assert_eq!(loaded.genome.sense_range, SENSE_RANGE_BOUNDS.max);
+        assert_eq!(loaded.genome.armor, ARMOR_BOUNDS.min);
+        assert_eq!(
+            loaded.clamped_traits,
+            vec!["sense_range 500 to 150", "armor -1 to 0"]
+        );
+        let warning = loaded.clamp_warning().expect("the clamp is reported");
+        assert!(warning.contains("2 trait value(s)"), "{warning}");
+        assert!(warning.contains("sense_range 500 to 150"), "{warning}");
+    }
+
+    /// `Genome::crossover` blends without clamping, so a child of two
+    /// parents at a bound can sit a rounding error past it (TODO
+    /// `crossover-blend-leaves-bounds`). Such an organism must export and
+    /// import, clamped, rather than be refused.
+    #[test]
+    fn crossover_rounding_below_a_bound_exports_and_imports_clamped() {
+        let scratch = ScratchDir::new("creature-crossover-rounding");
+        // The largest f32 below the bound, which is what the blend gives.
+        let below = f32::from_bits(SPEED_FACTOR_BOUNDS.min.to_bits() - 1);
+        assert_eq!(below.to_string(), "0.19999999");
+        let mut genome = sample_genome();
+        genome.speed_factor = below;
+        let creature = CreatureFile::new(&genome, None, "grazer", 3, 10, 9, "origin");
+        let path = scratch.0.join("rounded.json");
+        export_creature(&path, &creature).expect("export");
+        let loaded = load_creature(&path).expect("a rounding error past a bound imports");
+        assert_eq!(loaded.genome.speed_factor, SPEED_FACTOR_BOUNDS.min);
+        assert_eq!(
+            loaded.clamped_traits,
+            vec!["speed_factor 0.19999999 to 0.2"]
+        );
+        assert!(loaded.clamp_warning().is_some());
+
+        // An in-bounds genome loads as written and reports nothing.
+        let clean = scratch.0.join("clean.json");
+        let creature = CreatureFile::new(&sample_genome(), None, "grazer", 3, 10, 9, "origin");
+        export_creature(&clean, &creature).unwrap();
+        let loaded = load_creature(&clean).unwrap();
+        assert!(loaded.clamped_traits.is_empty());
+        assert_eq!(loaded.clamp_warning(), None);
+    }
+
+    #[test]
+    fn non_adjacent_duplicate_neuron_ids_are_a_problem() {
+        let mut g = genome_to_save(&sample_genome());
+        let first_output = g
+            .neurons
+            .iter()
+            .find(|n| n.neuron_type == 2)
+            .unwrap()
+            .clone();
+        let id = first_output.id;
+        g.neurons.push(first_output);
+        assert_ne!(
+            g.neurons[g.neurons.len() - 2].id,
+            id,
+            "the copy is not adjacent"
+        );
+        let problem = genome_problem(&g).expect("a non-adjacent duplicate is refused");
+        assert_eq!(problem, format!("two neurons share id {id}"));
     }
 
     /// The trait accessors must agree with `Genome::scalar_traits`, or the
@@ -2459,6 +2555,13 @@ mod tests {
         });
         assert_eq!(state.organisms[0].health, 1.0);
         assert_eq!(state.organisms[0].signal, -1.0);
+
+        let state = load_with_corrupted_organism("low-state", |org| {
+            org["health"] = serde_json::json!(-3.0);
+            org["signal"] = serde_json::json!(3.0);
+        });
+        assert_eq!(state.organisms[0].health, 0.0);
+        assert_eq!(state.organisms[0].signal, 1.0);
     }
 
     #[test]
