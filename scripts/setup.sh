@@ -21,5 +21,5 @@ lefthook install
 echo
 echo "Hooks now active (from lefthook.yml):"
 echo "  pre-commit: scripts/fmt-check.sh and scripts/lint.sh, in parallel"
-echo "  pre-push:   scripts/test.sh"
+echo "  pre-push:   scripts/pre-push-test.sh, which runs scripts/test.sh unless the push changes only docs"
 echo "Hooks are installed in the shared .git/hooks, so they cover every worktree."
