@@ -1103,9 +1103,9 @@ fn brain_node_color(activation: f32) -> egui::Color32 {
     }
 }
 
-/// Big stylised rendering of the selected creature, laid out like the world
-/// view's body plan (`portrait_parts`): segment 0 at the centre, every later
-/// segment at its attachment angle (mirrored if bilateral), tinted by
+/// Big stylised rendering of the selected creature, drawing the same parts as
+/// the world view's body plan (`portrait_parts`): segment 0 at the centre,
+/// every later segment at its attachment angle (mirrored if bilateral), tinted by
 /// species/strategy colour and dimmed by health. Purely cosmetic: it doesn't
 /// reflect physics, just anatomy.
 fn draw_creature_portrait(
