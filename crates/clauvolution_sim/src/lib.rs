@@ -2510,6 +2510,13 @@ fn symbiosis_transfer_system(
     }
 }
 
+/// Age in ticks past which `metabolism_system` drains health each tick (about
+/// 100 seconds at 30 Hz). Health reaching zero this way is the only old-age
+/// death; `death_system` files a death as old age only when the organism is
+/// past this age and its health is gone, so an old organism that starves or
+/// dies of disease is filed under that cause.
+const OLD_AGE_ONSET_TICKS: u64 = 3000;
+
 fn metabolism_system(
     config: Res<SimConfig>,
     mut organisms: Query<
@@ -2577,8 +2584,8 @@ fn metabolism_system(
                 health.0 = (health.0 + regen_rate).min(1.0);
             }
 
-            // Old age death: after ~3000 ticks (~100 seconds), health degrades
-            if age.0 > 3000 {
+            // Old age death: past OLD_AGE_ONSET_TICKS, health degrades
+            if age.0 > OLD_AGE_ONSET_TICKS {
                 health.0 -= 0.002;
                 if health.0 <= 0.0 {
                     flows.death += energy.0 as f64;
@@ -2637,12 +2644,15 @@ fn death_system(
             ledger.tick.add(flows);
             ledger.tick.death += energy.0 as f64;
 
-            // A kill records its own cause on the `Killed` marker. Anything
-            // else died of depletion, attributed by priority: old age (health
-            // decayed to zero after 3000 ticks) > disease > starvation.
+            // A kill, by a predator or by disease mortality, records its own
+            // cause on the `Killed` marker. Anything else died of depletion,
+            // attributed by priority: old age (health decayed to zero past
+            // OLD_AGE_ONSET_TICKS; age alone is not enough, because the aging
+            // metabolism makes starvation the common death there) > disease
+            // > starvation.
             let cause = match killed {
                 Some(k) => k.0,
-                None if age.0 > 3000 => DeathCause::OldAge,
+                None if age.0 > OLD_AGE_ONSET_TICKS && health.0 <= 0.0 => DeathCause::OldAge,
                 None if infection.is_some() => DeathCause::Disease,
                 None => DeathCause::Starvation,
             };
@@ -5683,6 +5693,28 @@ mod death_cause_tests {
 
         assert_eq!(deaths(&world, DeathCause::Predation), 1);
         assert_eq!(deaths(&world, DeathCause::Disease), 0);
+    }
+
+    /// Old age is health decayed to zero past onset. An old organism that
+    /// runs out of energy with health left starved, or died of its
+    /// infection, and is filed that way.
+    #[test]
+    fn old_age_needs_health_gone_not_just_age() {
+        let mut world = death_world();
+        let old = OLD_AGE_ONSET_TICKS + 500;
+        spawn(&mut world, 0.0, 0.0, old, genome(0.0));
+        spawn(&mut world, -1.0, 0.6, old, genome(0.0));
+        let sick = spawn(&mut world, -1.0, 0.6, old, genome(0.0));
+        world.entity_mut(sick).insert(Infection {
+            severity: 0.5,
+            ticks_remaining: 100,
+        });
+
+        world.run_system_once(death_system).unwrap();
+
+        assert_eq!(deaths(&world, DeathCause::OldAge), 1);
+        assert_eq!(deaths(&world, DeathCause::Starvation), 1);
+        assert_eq!(deaths(&world, DeathCause::Disease), 1);
     }
 }
 
