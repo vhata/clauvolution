@@ -802,19 +802,41 @@ fn validate_save_state(state: &mut SaveState) {
     }
 
     let before = state.organisms.len();
+    let mut first_problem = None;
     state
         .organisms
-        .retain(|org| genome_problem(&org.genome).is_none());
+        .retain(|org| match genome_problem(&org.genome) {
+            None => true,
+            Some(problem) => {
+                first_problem.get_or_insert(problem);
+                false
+            }
+        });
+    let removed = before - state.organisms.len();
+    if let Some(problem) = first_problem {
+        warn!(
+            "Save file had {} organism(s) with invalid genomes (first: {}) — skipped",
+            removed, problem
+        );
+    }
+
+    // Energy is the ledger's starting balance and has no neutral value, so an
+    // organism without a finite one is dropped rather than repaired.
+    let before = state.organisms.len();
+    state.organisms.retain(|org| org.energy.is_finite());
     let removed = before - state.organisms.len();
     if removed > 0 {
         warn!(
-            "Save file had {} organism(s) with invalid genomes — skipped",
+            "Save file had {} organism(s) with non-finite energy — skipped",
             removed
         );
     }
 
-    // Clamp position components into finite numbers — NaN/inf would crash the spatial hash
+    let mut clamped_traits = 0;
+    let mut clamped_organisms = 0;
+    let mut reset_state = 0;
     for org in &mut state.organisms {
+        // Clamp position components into finite numbers — NaN/inf would crash the spatial hash
         if !org.x.is_finite() {
             warn!("Save organism x was non-finite ({}); snapping to 0", org.x);
             org.x = 0.0;
@@ -823,6 +845,66 @@ fn validate_save_state(state: &mut SaveState) {
             warn!("Save organism y was non-finite ({}); snapping to 0", org.y);
             org.y = 0.0;
         }
+
+        // Traits outside their bounds go to the nearest bound, which is what
+        // the next mutation of that trait would do.
+        let clamped = clamp_traits(&mut org.genome);
+        if clamped > 0 {
+            clamped_traits += clamped;
+            clamped_organisms += 1;
+        }
+
+        // Health, signal and memory are state an organism can start over
+        // with: a non-finite value takes the founder value a missing field
+        // would, and health and signal are held to the ranges the sim keeps
+        // them in.
+        let mut reset = false;
+        if org.health.is_finite() {
+            org.health = org.health.clamp(0.0, full_health());
+        } else {
+            org.health = full_health();
+            reset = true;
+        }
+        if org.signal.is_finite() {
+            org.signal = org.signal.clamp(-1.0, 1.0);
+        } else {
+            org.signal = 0.0;
+            reset = true;
+        }
+        if org.memory.iter().any(|m| !m.is_finite()) {
+            org.memory = [0.0; 3];
+            reset = true;
+        }
+        if reset {
+            reset_state += 1;
+        }
+    }
+    if clamped_traits > 0 {
+        warn!(
+            "Save file had {} trait value(s) outside their bounds on {} organism(s); clamped into bounds",
+            clamped_traits, clamped_organisms
+        );
+    }
+    if reset_state > 0 {
+        warn!(
+            "Save file had {} organism(s) with non-finite health, signal or memory; reset to founder values",
+            reset_state
+        );
+    }
+
+    // A food item has no neutral position, and its energy is paid into the
+    // ledger when it is eaten, so a non-finite position or a non-finite or
+    // negative energy drops the item. Regeneration refills the world.
+    let before = state.food.len();
+    state.food.retain(|f| {
+        f.x.is_finite() && f.y.is_finite() && f.energy.is_none_or(|e| e.is_finite() && e >= 0.0)
+    });
+    let removed = before - state.food.len();
+    if removed > 0 {
+        warn!(
+            "Save file had {} food item(s) with a non-finite position or an unusable energy — skipped",
+            removed
+        );
     }
 }
 
@@ -951,28 +1033,148 @@ fn input_count(genome: &SaveGenome) -> usize {
     genome.neurons.iter().filter(|n| n.neuron_type == 0).count()
 }
 
+/// Field names of the scalar traits, in `SCALAR_TRAIT_BOUNDS` order.
+const SCALAR_TRAIT_NAMES: [&str; SCALAR_TRAIT_COUNT] = [
+    "body_size",
+    "speed_factor",
+    "sense_range",
+    "aquatic_adaptation",
+    "photosynthesis_rate",
+    "armor",
+    "attack_power",
+    "disease_resistance",
+    "symbiosis_rate",
+    "diet",
+];
+
+impl SaveGenome {
+    /// The scalar traits in `SCALAR_TRAIT_BOUNDS` order, the order of
+    /// `Genome::scalar_traits`.
+    fn scalar_traits_mut(&mut self) -> [&mut f32; SCALAR_TRAIT_COUNT] {
+        [
+            &mut self.body_size,
+            &mut self.speed_factor,
+            &mut self.sense_range,
+            &mut self.aquatic_adaptation,
+            &mut self.photosynthesis_rate,
+            &mut self.armor,
+            &mut self.attack_power,
+            &mut self.disease_resistance,
+            &mut self.symbiosis_rate,
+            &mut self.diet,
+        ]
+    }
+
+    /// The scalar traits in `SCALAR_TRAIT_BOUNDS` order.
+    fn scalar_traits(&self) -> [f32; SCALAR_TRAIT_COUNT] {
+        [
+            self.body_size,
+            self.speed_factor,
+            self.sense_range,
+            self.aquatic_adaptation,
+            self.photosynthesis_rate,
+            self.armor,
+            self.attack_power,
+            self.disease_resistance,
+            self.symbiosis_rate,
+            self.diet,
+        ]
+    }
+}
+
 /// Why a serialised genome cannot be spawned, or `None` when it can.
 /// Shared by save loading (which drops the organism) and creature import
 /// (which refuses the file).
-fn genome_problem(genome: &SaveGenome) -> Option<&'static str> {
+///
+/// Every number must be finite: `f32::clamp` keeps a NaN, so a non-finite
+/// trait cannot be repaired, and a NaN trait, weight or bias passes to every
+/// descendant. JSON has no NaN or infinity literal, but a number too large
+/// for an `f32`, such as `1e39`, parses as infinity.
+fn genome_problem(genome: &SaveGenome) -> Option<String> {
     // Genome must have at least a torso body segment
     if genome.body_segments.is_empty() {
-        return Some("genome has no body segments");
+        return Some("genome has no body segments".to_string());
     }
     // Genome must have some neurons (otherwise the brain can't be built)
     if genome.neurons.is_empty() {
-        return Some("genome has no neurons");
+        return Some("genome has no neurons".to_string());
+    }
+    // Neuron ids must be unique. The brain reads its outputs by sorted id, so
+    // a repeated output id shifts every later output by one slot, and a
+    // repeated id with no incoming connections is queued twice by the
+    // topological sort, which underflows its in-degree count.
+    let mut neuron_ids = std::collections::HashSet::with_capacity(genome.neurons.len());
+    if let Some(n) = genome.neurons.iter().find(|n| !neuron_ids.insert(n.id)) {
+        return Some(format!("two neurons share id {}", n.id));
     }
     // Every connection must reference real neuron IDs
-    let neuron_ids: std::collections::HashSet<u64> = genome.neurons.iter().map(|n| n.id).collect();
     if genome
         .connections
         .iter()
         .any(|c| !neuron_ids.contains(&c.from) || !neuron_ids.contains(&c.to))
     {
-        return Some("a connection references a neuron the genome does not have");
+        return Some("a connection references a neuron the genome does not have".to_string());
+    }
+    for (name, value) in SCALAR_TRAIT_NAMES.iter().zip(genome.scalar_traits()) {
+        if !value.is_finite() {
+            return Some(format!("{} is not a finite number ({})", name, value));
+        }
+    }
+    if let Some(n) = genome.neurons.iter().find(|n| !n.bias.is_finite()) {
+        return Some(format!(
+            "neuron {} has a non-finite bias ({})",
+            n.id, n.bias
+        ));
+    }
+    if let Some(c) = genome.connections.iter().find(|c| !c.weight.is_finite()) {
+        return Some(format!(
+            "connection {} has a non-finite weight ({})",
+            c.innovation, c.weight
+        ));
+    }
+    if genome
+        .body_segments
+        .iter()
+        .any(|s| !s.size.is_finite() || !s.attachment_angle.is_finite())
+    {
+        return Some("a body segment has a non-finite size or angle".to_string());
     }
     None
+}
+
+/// The first scalar trait outside its `*_BOUNDS`, described, or `None`.
+/// Mutation clamps every trait to its bounds and founders start inside them,
+/// so only a hand-written or hand-edited file can carry one.
+fn trait_out_of_bounds(genome: &SaveGenome) -> Option<String> {
+    SCALAR_TRAIT_NAMES
+        .iter()
+        .zip(genome.scalar_traits())
+        .zip(SCALAR_TRAIT_BOUNDS)
+        .find(|((_, value), bounds)| bounds.clamp(*value) != *value)
+        .map(|((name, value), bounds)| {
+            format!(
+                "{} {} is outside its bounds {}..={}",
+                name, value, bounds.min, bounds.max
+            )
+        })
+}
+
+/// Clamp every scalar trait into its `*_BOUNDS`, as mutation would, and
+/// return how many values moved. The traits must already be finite.
+fn clamp_traits(genome: &mut SaveGenome) -> usize {
+    let mut clamped = 0;
+    for (value, bounds) in genome
+        .scalar_traits_mut()
+        .into_iter()
+        .zip(SCALAR_TRAIT_BOUNDS)
+    {
+        let inside = bounds.clamp(*value);
+        if inside != *value {
+            *value = inside;
+            clamped += 1;
+        }
+    }
+    clamped
 }
 
 /// Current creature file format version. Bumped when a field changes
@@ -1093,7 +1295,7 @@ pub enum CreatureLoadError {
     },
     Invalid {
         path: PathBuf,
-        reason: &'static str,
+        reason: String,
     },
 }
 
@@ -1126,6 +1328,10 @@ impl std::error::Error for CreatureLoadError {
 /// Read a creature file and check its genome can be spawned. Unlike
 /// `load_world`, an unusable genome is an error rather than a silent skip:
 /// the user named this file on the command line and should hear about it.
+/// For the same reason a trait outside its bounds is refused rather than
+/// clamped as a save's would be: the file is read before the app's log
+/// exists, so a clamp could not be reported, and an exported genome is
+/// always inside the bounds.
 pub fn load_creature(path: &Path) -> Result<CreatureFile, CreatureLoadError> {
     let json = std::fs::read_to_string(path).map_err(|source| CreatureLoadError::Read {
         path: path.to_path_buf(),
@@ -1136,7 +1342,9 @@ pub fn load_creature(path: &Path) -> Result<CreatureFile, CreatureLoadError> {
             path: path.to_path_buf(),
             source,
         })?;
-    if let Some(reason) = genome_problem(&creature.genome) {
+    if let Some(reason) =
+        genome_problem(&creature.genome).or_else(|| trait_out_of_bounds(&creature.genome))
+    {
         return Err(CreatureLoadError::Invalid {
             path: path.to_path_buf(),
             reason,
@@ -2035,5 +2243,302 @@ mod tests {
         let err = load_creature(&bad).expect_err("a dangling connection is rejected");
         assert!(matches!(err, CreatureLoadError::Invalid { .. }), "{err}");
         assert!(err.to_string().contains("broken.json"));
+    }
+
+    /// `complete_save_json` with a second, untouched copy of its organism,
+    /// after `corrupt` has edited the first. Loading it shows whether the
+    /// edited organism alone is dropped.
+    fn load_with_corrupted_organism(
+        tag: &str,
+        corrupt: impl FnOnce(&mut serde_json::Value),
+    ) -> SaveState {
+        let mut value = complete_save_json();
+        let healthy = value["organisms"][0].clone();
+        corrupt(&mut value["organisms"][0]);
+        value["organisms"].as_array_mut().unwrap().push(healthy);
+        load_json(tag, &value).expect("a save with one bad organism still loads")
+    }
+
+    /// A JSON number too large for an `f32`. JSON has no infinity literal,
+    /// and this is how one reaches a save: serde parses it as `f32::INFINITY`.
+    const OVERFLOWS_F32: f64 = 1e39;
+
+    #[test]
+    fn overflowing_json_number_parses_as_infinity() {
+        let v: f32 = serde_json::from_value(serde_json::json!(OVERFLOWS_F32)).unwrap();
+        assert_eq!(v, f32::INFINITY);
+    }
+
+    fn duplicate_first_neuron_of_type(genome: &mut SaveGenome, neuron_type: u8) {
+        let at = genome
+            .neurons
+            .iter()
+            .position(|n| n.neuron_type == neuron_type)
+            .expect("the genome has a neuron of that type");
+        let copy = genome.neurons[at].clone();
+        genome.neurons.insert(at, copy);
+    }
+
+    #[test]
+    fn genome_with_duplicate_neuron_ids_is_a_problem() {
+        let good = genome_to_save(&sample_genome());
+        assert_eq!(genome_problem(&good), None);
+        // A repeated output id shifts the outputs; a repeated input id
+        // underflows the topological sort. Both must be refused.
+        for neuron_type in [0, 2] {
+            let mut g = good.clone();
+            duplicate_first_neuron_of_type(&mut g, neuron_type);
+            let problem = genome_problem(&g).expect("a duplicate id is refused");
+            assert!(problem.contains("share id"), "{problem}");
+        }
+    }
+
+    #[test]
+    fn save_organism_with_duplicate_neuron_ids_is_dropped() {
+        let state = load_with_corrupted_organism("dup-neuron", |org| {
+            let neurons = org["genome"]["neurons"].as_array_mut().unwrap();
+            let output = neurons[1].clone();
+            neurons.push(output);
+        });
+        assert_eq!(state.organisms.len(), 1, "only the bad organism goes");
+        assert_eq!(genome_problem(&state.organisms[0].genome), None);
+    }
+
+    #[test]
+    fn creature_file_with_duplicate_neuron_ids_is_refused() {
+        let scratch = ScratchDir::new("creature-dup-neuron");
+        let mut genome = genome_to_save(&sample_genome());
+        duplicate_first_neuron_of_type(&mut genome, 2);
+        let path = scratch.0.join("dup.json");
+        std::fs::write(
+            &path,
+            format!(
+                "{{\"genome\": {}}}",
+                serde_json::to_string(&genome).unwrap()
+            ),
+        )
+        .unwrap();
+        let err = load_creature(&path).expect_err("a duplicate id is refused");
+        assert!(matches!(err, CreatureLoadError::Invalid { .. }), "{err}");
+        assert!(err.to_string().contains("share id"), "{err}");
+    }
+
+    #[test]
+    fn genome_with_a_non_finite_number_is_a_problem() {
+        let good = genome_to_save(&sample_genome());
+        assert!(!good.connections.is_empty() && good.neurons.len() > 1);
+        let mut cases: Vec<(&str, SaveGenome)> = Vec::new();
+        for (index, name) in SCALAR_TRAIT_NAMES.iter().enumerate() {
+            let mut g = good.clone();
+            *g.scalar_traits_mut()[index] = f32::NAN;
+            cases.push((name, g));
+        }
+        let mut g = good.clone();
+        g.neurons.last_mut().unwrap().bias = f32::INFINITY;
+        cases.push(("bias", g));
+        let mut g = good.clone();
+        g.connections[0].weight = f32::NEG_INFINITY;
+        cases.push(("weight", g));
+        let mut g = good.clone();
+        g.body_segments[0].size = f32::NAN;
+        cases.push(("segment size", g));
+        let mut g = good.clone();
+        g.body_segments[0].attachment_angle = f32::INFINITY;
+        cases.push(("segment angle", g));
+        for (what, g) in cases {
+            assert!(genome_problem(&g).is_some(), "non-finite {what} accepted");
+        }
+    }
+
+    #[test]
+    fn save_organism_with_a_non_finite_trait_is_dropped() {
+        let state = load_with_corrupted_organism("inf-trait", |org| {
+            org["genome"]["body_size"] = serde_json::json!(OVERFLOWS_F32);
+        });
+        assert_eq!(state.organisms.len(), 1);
+        assert!(state.organisms[0].genome.body_size.is_finite());
+    }
+
+    #[test]
+    fn save_organism_with_non_finite_energy_is_dropped() {
+        let state = load_with_corrupted_organism("inf-energy", |org| {
+            org["energy"] = serde_json::json!(-OVERFLOWS_F32);
+        });
+        assert_eq!(state.organisms.len(), 1);
+        assert_eq!(state.organisms[0].energy, 50.0);
+    }
+
+    #[test]
+    fn save_organism_traits_outside_their_bounds_are_clamped_and_kept() {
+        let state = load_with_corrupted_organism("oob-trait", |org| {
+            org["genome"]["body_size"] = serde_json::json!(9.0);
+            org["genome"]["diet"] = serde_json::json!(-4.0);
+        });
+        assert_eq!(state.organisms.len(), 2, "a clamp keeps the organism");
+        let g = &state.organisms[0].genome;
+        assert_eq!(g.body_size, BODY_SIZE_BOUNDS.max);
+        assert_eq!(g.diet, DIET_BOUNDS.min);
+        // The untouched copy, and every in-bounds trait, is unchanged.
+        let d = SaveGenome::default();
+        assert_eq!(state.organisms[1].genome.body_size, d.body_size);
+        assert_eq!(g.sense_range, d.sense_range);
+    }
+
+    #[test]
+    fn clamp_traits_moves_each_trait_to_its_nearest_bound() {
+        for (index, bounds) in SCALAR_TRAIT_BOUNDS.iter().enumerate() {
+            for (value, expected) in [
+                (bounds.min - 1.0, bounds.min),
+                (bounds.max + 1.0, bounds.max),
+            ] {
+                let mut g = SaveGenome::default();
+                let before = g.scalar_traits();
+                *g.scalar_traits_mut()[index] = value;
+                assert_eq!(clamp_traits(&mut g), 1, "{}", SCALAR_TRAIT_NAMES[index]);
+                let mut want = before;
+                want[index] = expected;
+                assert_eq!(g.scalar_traits(), want, "{}", SCALAR_TRAIT_NAMES[index]);
+            }
+        }
+        let mut g = SaveGenome::default();
+        assert_eq!(clamp_traits(&mut g), 0);
+    }
+
+    #[test]
+    fn creature_file_with_a_trait_outside_its_bounds_is_refused() {
+        let scratch = ScratchDir::new("creature-oob");
+        let mut genome = genome_to_save(&sample_genome());
+        genome.sense_range = 500.0;
+        let path = scratch.0.join("oob.json");
+        std::fs::write(
+            &path,
+            format!(
+                "{{\"genome\": {}}}",
+                serde_json::to_string(&genome).unwrap()
+            ),
+        )
+        .unwrap();
+        let err = load_creature(&path).expect_err("an out-of-bounds trait is refused");
+        assert!(matches!(err, CreatureLoadError::Invalid { .. }), "{err}");
+        assert!(err.to_string().contains("sense_range 500"), "{err}");
+    }
+
+    /// The trait accessors must agree with `Genome::scalar_traits`, or the
+    /// wrong bound would be applied to each trait.
+    #[test]
+    fn save_genome_scalar_traits_follow_the_genome_order() {
+        let mut g = SaveGenome::default();
+        for (i, value) in g.scalar_traits_mut().into_iter().enumerate() {
+            *value = i as f32 + 0.5;
+        }
+        let want: Vec<f32> = (0..SCALAR_TRAIT_COUNT).map(|i| i as f32 + 0.5).collect();
+        assert_eq!(g.scalar_traits().to_vec(), want);
+        assert_eq!(save_to_genome_as_written(&g).scalar_traits().to_vec(), want);
+    }
+
+    #[test]
+    fn non_finite_organism_state_is_reset_and_out_of_range_state_clamped() {
+        let state = load_with_corrupted_organism("bad-state", |org| {
+            org["health"] = serde_json::json!(OVERFLOWS_F32);
+            org["signal"] = serde_json::json!(-OVERFLOWS_F32);
+            org["memory"] = serde_json::json!([0.5, OVERFLOWS_F32, 0.0]);
+        });
+        assert_eq!(state.organisms.len(), 2, "state is repaired, not dropped");
+        let org = &state.organisms[0];
+        assert_eq!(org.health, full_health());
+        assert_eq!(org.signal, 0.0);
+        assert_eq!(org.memory, [0.0; 3]);
+        // The untouched copy keeps its saved state exactly.
+        assert_eq!(state.organisms[1].health, 0.4);
+        assert_eq!(state.organisms[1].signal, 0.6);
+        assert_eq!(state.organisms[1].memory, [0.1, 0.2, 0.3]);
+
+        let state = load_with_corrupted_organism("range-state", |org| {
+            org["health"] = serde_json::json!(7.0);
+            org["signal"] = serde_json::json!(-3.0);
+        });
+        assert_eq!(state.organisms[0].health, 1.0);
+        assert_eq!(state.organisms[0].signal, -1.0);
+    }
+
+    #[test]
+    fn unusable_food_is_dropped_and_the_rest_kept() {
+        let mut value = complete_save_json();
+        let food = value["food"].as_array_mut().unwrap();
+        food.push(serde_json::json!({"x": OVERFLOWS_F32, "y": 1.0, "energy": 5.0}));
+        food.push(serde_json::json!({"x": 1.0, "y": -OVERFLOWS_F32}));
+        food.push(serde_json::json!({"x": 1.0, "y": 1.0, "energy": OVERFLOWS_F32}));
+        food.push(serde_json::json!({"x": 1.0, "y": 1.0, "energy": -2.0}));
+        // Zero energy and a missing energy are both usable.
+        food.push(serde_json::json!({"x": 5.0, "y": 6.0, "energy": 0.0}));
+        food.push(serde_json::json!({"x": 7.0, "y": 8.0}));
+        let state = load_json("bad-food", &value).expect("the save loads");
+        let kept: Vec<(f32, f32, Option<f32>)> =
+            state.food.iter().map(|f| (f.x, f.y, f.energy)).collect();
+        assert_eq!(
+            kept,
+            vec![
+                (3.0, 4.0, Some(10.0)),
+                (5.0, 6.0, Some(0.0)),
+                (7.0, 8.0, None)
+            ]
+        );
+    }
+
+    /// A save of evolved organisms written by `save_world` loads with every
+    /// organism and every number exactly as saved: the validation only ever
+    /// touches values the sim itself cannot produce.
+    #[test]
+    fn evolved_organisms_round_trip_unchanged() {
+        use rand::SeedableRng;
+        let scratch = ScratchDir::new("evolved-round-trip");
+        let path = scratch.0.join("save.json");
+        let mut rng = rand::rngs::StdRng::seed_from_u64(11);
+        let mut innovation = InnovationCounter(0);
+        let mut organisms = Vec::new();
+        let mut parent = Genome::new_minimal_with_diet(&mut innovation, &mut rng, 1.0);
+        for i in 0..40 {
+            let mut child = Genome::new_minimal_with_diet(&mut innovation, &mut rng, 1.0)
+                .crossover(&parent, &mut rng);
+            for _ in 0..30 {
+                child.mutate(&mut innovation, &mut rng, 1.0, 2.0);
+            }
+            organisms.push((
+                Vec2::new(i as f32, 2.0 * i as f32),
+                10.0 + i as f32,
+                0.25 + i as f32 / 80.0,
+                i as u64,
+                i as u32,
+                1,
+                -0.5,
+                [0.1, -7.0, 3.0],
+                child.clone(),
+            ));
+            parent = child;
+        }
+        save_world(
+            &path,
+            &TickCounter(1),
+            &Season::default(),
+            &SimStats::default(),
+            &innovation,
+            &SimConfig::default(),
+            &organisms,
+            &[(Vec2::new(1.0, 1.0), 3.0)],
+            &PhyloTree::default(),
+            &WorldChronicle::default(),
+            None,
+        )
+        .unwrap();
+        let state = load_world(&path).expect("the save loads");
+        assert_eq!(state.organisms.len(), organisms.len());
+        assert_eq!(state.food.len(), 1);
+        for (loaded, saved) in state.organisms.iter().zip(&organisms) {
+            assert_eq!(loaded.energy, saved.1);
+            assert_eq!(loaded.health, saved.2);
+            assert_eq!(loaded.signal, saved.6);
+            assert_eq!(loaded.memory, saved.7);
+            assert_eq!(loaded.genome.scalar_traits(), saved.8.scalar_traits());
+        }
     }
 }
