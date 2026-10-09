@@ -531,16 +531,26 @@ fn phylo_tab(
             if !recently_extinct.is_empty() {
                 ui.add_space(8.0);
                 ui.separator();
+                let sorted_ids: Vec<u64> = recently_extinct.iter().map(|n| n.species_id).collect();
+                let rows = recently_extinct_rows(&sorted_ids, highlight, RECENTLY_EXTINCT_ROWS);
                 // Force the section open on the frame a chronicle click lands
                 // on an extinct species; otherwise leave its state alone.
                 let open = (reveal && highlight_is_extinct).then_some(true);
-                egui::CollapsingHeader::new(format!(
-                    "Recently extinct ({})",
-                    recently_extinct.len().min(10)
+                egui::CollapsingHeader::new(recently_extinct_header(
+                    rows.len(),
+                    recently_extinct.len(),
                 ))
                 .open(open)
                 .show(ui, |ui| {
-                    for node in recently_extinct.iter().take(10) {
+                    let mut previous: Option<usize> = None;
+                    for &row in &rows {
+                        // An older highlighted row sits after a gap; mark it
+                        // so the list does not read as contiguous.
+                        if previous.is_some_and(|p| row > p + 1) {
+                            ui.weak("…");
+                        }
+                        previous = Some(row);
+                        let node = recently_extinct[row];
                         let age_secs =
                             current_tick.saturating_sub(node.extinct_tick.unwrap_or(0)) / 30;
                         let lived = node
@@ -573,6 +583,33 @@ fn phylo_tab(
     if let Some(sp_id) = clicked_species {
         ui_state.phylo_highlight_species = Some(sp_id);
         select_living_member(sp_id, selected, species_members);
+    }
+}
+
+/// How many of the most recent extinctions the Phylo tab lists.
+const RECENTLY_EXTINCT_ROWS: usize = 10;
+
+/// Indices into `sorted_ids` (extinct species, newest first) of the rows the
+/// "Recently extinct" list draws: the first `limit`, plus the highlighted
+/// species when it is older than those, so a chronicle link to any extinct
+/// species lands on a drawn row.
+fn recently_extinct_rows(sorted_ids: &[u64], highlight: Option<u64>, limit: usize) -> Vec<usize> {
+    let mut rows: Vec<usize> = (0..sorted_ids.len().min(limit)).collect();
+    if let Some(i) = highlight.and_then(|id| sorted_ids.iter().position(|&s| s == id)) {
+        if i >= limit {
+            rows.push(i);
+        }
+    }
+    rows
+}
+
+/// Header of the "Recently extinct" list: the rows shown and, when that is
+/// not all of them, how many extinct species there are in total.
+fn recently_extinct_header(shown: usize, total: usize) -> String {
+    if shown < total {
+        format!("Recently extinct ({shown} of {total})")
+    } else {
+        format!("Recently extinct ({total})")
     }
 }
 
@@ -2529,5 +2566,52 @@ fn strategy_icon(strategy: SpeciesStrategy) -> &'static str {
         SpeciesStrategy::Grazer => "🌾",
         SpeciesStrategy::Hunter => "🦷",
         SpeciesStrategy::Omnivore => "🍂",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recently_extinct_rows_draws_an_older_highlighted_species() {
+        let ids: Vec<u64> = (100..130).collect();
+        // No highlight, or a highlight among the newest: the first ten only.
+        assert_eq!(
+            recently_extinct_rows(&ids, None, 10),
+            (0..10).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            recently_extinct_rows(&ids, Some(103), 10),
+            (0..10).collect::<Vec<_>>()
+        );
+        // A highlight older than the newest ten is appended after them.
+        let mut expected: Vec<usize> = (0..10).collect();
+        expected.push(25);
+        assert_eq!(recently_extinct_rows(&ids, Some(125), 10), expected);
+        // The boundary: index 10 is the first one outside the limit.
+        let mut expected: Vec<usize> = (0..10).collect();
+        expected.push(10);
+        assert_eq!(recently_extinct_rows(&ids, Some(110), 10), expected);
+        // A highlight that is not extinct adds nothing.
+        assert_eq!(recently_extinct_rows(&ids, Some(7), 10).len(), 10);
+        // Fewer extinctions than the limit: all of them.
+        assert_eq!(
+            recently_extinct_rows(&ids[..3], Some(101), 10),
+            vec![0, 1, 2]
+        );
+    }
+
+    #[test]
+    fn recently_extinct_header_counts_shown_and_total() {
+        assert_eq!(recently_extinct_header(3, 3), "Recently extinct (3)");
+        assert_eq!(
+            recently_extinct_header(10, 57),
+            "Recently extinct (10 of 57)"
+        );
+        assert_eq!(
+            recently_extinct_header(11, 57),
+            "Recently extinct (11 of 57)"
+        );
     }
 }
