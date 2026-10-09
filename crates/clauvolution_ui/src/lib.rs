@@ -117,6 +117,43 @@ pub struct UiState {
     /// One-shot: the next Phylo frame scrolls to the highlighted row and
     /// opens the "Recently extinct" section if the species is in it.
     pub phylo_reveal_pending: bool,
+    /// Which organism the current `OrganismExportReport` describes, so the
+    /// Inspect panel shows it only beside that organism.
+    pub export_report_owner: ExportReportOwner,
+}
+
+/// Ties `OrganismExportReport`, which holds only the last outcome, to the
+/// organism whose export produced it. The panel records the entity when it
+/// sends an export request; the next change to the report is that request's
+/// outcome. The UI is the only sender of `WorldEventRequest::ExportOrganism`,
+/// and the sim answers every request it reads, so the pairing holds.
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExportReportOwner {
+    /// Requested but not yet answered.
+    pending: Option<Entity>,
+    /// The organism the report currently describes.
+    owner: Option<Entity>,
+}
+
+impl ExportReportOwner {
+    /// An export of `entity` was requested this frame.
+    pub fn requested(&mut self, entity: Entity) {
+        self.pending = Some(entity);
+    }
+
+    /// Call once a frame with whether the report changed since the last
+    /// call. A change is the outcome of the pending request; a change with
+    /// none pending belongs to no organism the panel knows of.
+    pub fn observe(&mut self, report_changed: bool) {
+        if report_changed {
+            self.owner = self.pending.take();
+        }
+    }
+
+    /// Whether the report should be shown beside `entity`.
+    pub fn shows_for(&self, entity: Entity) -> bool {
+        self.owner == Some(entity)
+    }
 }
 
 impl UiState {
@@ -336,6 +373,12 @@ fn right_panel_system(
 ) {
     let ctx = contexts.ctx_mut();
 
+    // Every frame, whichever tab is open, so an export outcome that lands
+    // while another tab is showing is still attributed.
+    ui_state
+        .export_report_owner
+        .observe(export_report.is_changed());
+
     egui::SidePanel::right("right_panel")
         .resizable(true)
         .default_width(380.0 * UI_SCALE)
@@ -364,6 +407,7 @@ fn right_panel_system(
                         &phylo,
                         &mut event_writer,
                         &export_report,
+                        &mut ui_state.export_report_owner,
                     );
                 }
                 RightTab::Phylo => {
@@ -711,6 +755,7 @@ fn inspect_tab(
     phylo: &PhyloTree,
     events: &mut EventWriter<WorldEventRequest>,
     export_report: &OrganismExportReport,
+    export_owner: &mut ExportReportOwner,
 ) {
     let Some(entity) = selected.entity else {
         ui.heading("Inspect");
@@ -850,7 +895,8 @@ fn inspect_tab(
 
         // Export this creature for `--seed-with` in another world. The
         // write happens in the sim's export system; its report is shown
-        // here so a failure is visible without opening the Chronicle.
+        // here, beside the organism it describes only, so a failure is
+        // visible without opening the Chronicle.
         ui.add_space(6.0);
         ui.horizontal_wrapped(|ui| {
             if ui
@@ -862,15 +908,18 @@ fn inspect_tab(
                 .clicked()
             {
                 events.send(WorldEventRequest::ExportOrganism(entity));
+                export_owner.requested(entity);
             }
-            match &export_report.last {
-                Some(Ok(path)) => {
-                    ui.weak(format!("Exported to {}", path.display()));
+            if export_owner.shows_for(entity) {
+                match &export_report.last {
+                    Some(Ok(path)) => {
+                        ui.weak(format!("Exported to {}", path.display()));
+                    }
+                    Some(Err(e)) => {
+                        ui.colored_label(egui::Color32::LIGHT_RED, format!("Export failed: {e}"));
+                    }
+                    None => {}
                 }
-                Some(Err(e)) => {
-                    ui.colored_label(egui::Color32::LIGHT_RED, format!("Export failed: {e}"));
-                }
-                None => {}
             }
         });
 
@@ -2600,6 +2649,40 @@ mod tests {
             recently_extinct_rows(&ids[..3], Some(101), 10),
             vec![0, 1, 2]
         );
+    }
+
+    #[test]
+    fn export_report_shows_only_beside_the_exported_organism() {
+        let a = Entity::from_raw(1);
+        let b = Entity::from_raw(2);
+        let mut owner = ExportReportOwner::default();
+        // Before any export, and on the report's first-frame change with
+        // nothing requested, the report belongs to nobody.
+        owner.observe(true);
+        assert!(!owner.shows_for(a) && !owner.shows_for(b));
+
+        // Export A: nothing is shown until the sim answers.
+        owner.requested(a);
+        owner.observe(false);
+        assert!(!owner.shows_for(a));
+        owner.observe(true);
+        assert!(owner.shows_for(a));
+        assert!(!owner.shows_for(b), "selecting B must not show A's report");
+
+        // A quiet frame keeps the owner.
+        owner.observe(false);
+        assert!(owner.shows_for(a));
+
+        // Export B: A keeps its report until B's answer replaces it.
+        owner.requested(b);
+        owner.observe(false);
+        assert!(owner.shows_for(a) && !owner.shows_for(b));
+        owner.observe(true);
+        assert!(owner.shows_for(b) && !owner.shows_for(a));
+
+        // A change nobody asked for is attributed to nobody.
+        owner.observe(true);
+        assert!(!owner.shows_for(a) && !owner.shows_for(b));
     }
 
     #[test]
