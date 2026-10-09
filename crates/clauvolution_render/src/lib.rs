@@ -868,8 +868,34 @@ fn update_death_markers(
 
 #[derive(Resource, Default)]
 pub struct CameraDragState {
-    dragging: bool,
-    last_pos: Vec2,
+    phase: DragPhase,
+    /// Latest cursor position, `None` until the first cursor event.
+    last_pos: Option<Vec2>,
+}
+
+/// Where a mouse-drag pan is, from press to release.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum DragPhase {
+    /// No drag-pan button is held.
+    #[default]
+    Idle,
+    /// A drag that started over the world: cursor motion pans the camera.
+    Panning,
+    /// A drag that started over an egui panel or the minimap: ignored until
+    /// the buttons are released, even if the pointer moves onto the world.
+    Ignored,
+}
+
+/// The drag phase after this frame. A drag's fate is decided on the frame
+/// its button goes down, by whether the pointer is over the UI then, like
+/// scroll zoom and click-select.
+fn next_drag_phase(phase: DragPhase, held: bool, pointer_over_ui: bool) -> DragPhase {
+    match (phase, held) {
+        (_, false) => DragPhase::Idle,
+        (DragPhase::Idle, true) if pointer_over_ui => DragPhase::Ignored,
+        (DragPhase::Idle, true) => DragPhase::Panning,
+        (held_phase, true) => held_phase,
+    }
 }
 
 fn camera_control_system(
@@ -941,28 +967,26 @@ fn camera_control_system(
 
     projection.scale = projection.scale.clamp(0.02, 15.0);
 
-    let dragging = drag_pan_held(&mouse_buttons, &keys);
+    drag_state.phase = next_drag_phase(
+        drag_state.phase,
+        drag_pan_held(&mouse_buttons, &keys),
+        ui_input.pointer_over_ui,
+    );
 
     let mut latest_cursor_pos = None;
     for event in cursor_events.read() {
         latest_cursor_pos = Some(event.position);
     }
 
-    if dragging {
-        if let Some(cursor_pos) = latest_cursor_pos {
-            if drag_state.dragging {
-                let delta = cursor_pos - drag_state.last_pos;
-                transform.translation.x -= delta.x * projection.scale;
-                transform.translation.y += delta.y * projection.scale;
-            }
-            drag_state.last_pos = cursor_pos;
-            drag_state.dragging = true;
+    // The last cursor position is tracked in every phase, so a pan's first
+    // delta is measured from where the pointer was when the button went down.
+    if let Some(cursor_pos) = latest_cursor_pos {
+        if let (DragPhase::Panning, Some(last_pos)) = (drag_state.phase, drag_state.last_pos) {
+            let delta = cursor_pos - last_pos;
+            transform.translation.x -= delta.x * projection.scale;
+            transform.translation.y += delta.y * projection.scale;
         }
-    } else {
-        drag_state.dragging = false;
-        if let Some(cursor_pos) = latest_cursor_pos {
-            drag_state.last_pos = cursor_pos;
-        }
+        drag_state.last_pos = Some(cursor_pos);
     }
 }
 
@@ -2366,6 +2390,71 @@ mod tests {
             (scale - 1.5).abs() < 1e-4,
             "zoom reached {scale} while paused"
         );
+    }
+
+    // --- drag-pan-ignores-pointer-over-ui ---
+
+    #[test]
+    fn drag_phase_is_decided_when_the_button_goes_down() {
+        use DragPhase::*;
+        assert_eq!(next_drag_phase(Idle, true, false), Panning);
+        assert_eq!(next_drag_phase(Idle, true, true), Ignored);
+        // A pan that crosses onto a panel keeps panning.
+        assert_eq!(next_drag_phase(Panning, true, true), Panning);
+        // A drag that began on a panel stays ignored over the world.
+        assert_eq!(next_drag_phase(Ignored, true, false), Ignored);
+        for phase in [Idle, Panning, Ignored] {
+            for over_ui in [false, true] {
+                assert_eq!(next_drag_phase(phase, false, over_ui), Idle);
+            }
+        }
+    }
+
+    fn move_cursor(app: &mut App, to: Vec2) {
+        app.world_mut().send_event(CursorMoved {
+            window: Entity::PLACEHOLDER,
+            position: to,
+            delta: None,
+        });
+    }
+
+    fn set_pointer_over_ui(app: &mut App, over: bool) {
+        app.world_mut()
+            .resource_mut::<UiInputState>()
+            .pointer_over_ui = over;
+    }
+
+    #[test]
+    fn drag_started_over_the_ui_does_not_pan() {
+        let mut app = camera_app(0.0);
+        move_cursor(&mut app, Vec2::new(100.0, 100.0));
+        app.update();
+
+        // Right-drag that starts over a panel, then leaves it.
+        set_pointer_over_ui(&mut app, true);
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Right);
+        move_cursor(&mut app, Vec2::new(140.0, 100.0));
+        app.update();
+        set_pointer_over_ui(&mut app, false);
+        move_cursor(&mut app, Vec2::new(180.0, 100.0));
+        app.update();
+        assert_eq!(camera_state(&mut app).0, Vec3::ZERO);
+
+        // Released and pressed again over the world, it pans.
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .release(MouseButton::Right);
+        app.update();
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Right);
+        move_cursor(&mut app, Vec2::new(150.0, 120.0));
+        app.update();
+        // Dragging the world left and down (screen y grows downwards) moves
+        // the camera right and up.
+        assert_eq!(camera_state(&mut app).0, Vec3::new(30.0, 20.0, 0.0));
     }
 
     #[test]
