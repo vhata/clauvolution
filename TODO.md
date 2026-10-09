@@ -142,10 +142,10 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
   - Starting point: Needs `sim-config-resource` first. A panel in the right-hand tabs that writes to the resource is enough.
   - Source: docs/ROADMAP.md (Known tech debt), 2026-09-16
   - Related: `sim-config-resource`
-- [SIM] `split-sensing-and-brain-system` — **Split the sensing pass from the brain evaluation pass.** `sensing_and_brain_system` runs about 114 lines covering spatial querying, input assembly, social sensing, and brain evaluation in one loop.
+- [SIM] `split-sensing-and-brain-system` — **Split the sensing pass from the brain evaluation pass.** `sensing_and_brain_system` runs about 220 lines covering spatial querying, input assembly, social sensing, and brain evaluation in one loop.
   - Starting point: Splitting along those concerns also opens up further Rayon parallelism.
   - Source: docs/ROADMAP.md (Known tech debt), 2026-09-16
-- [SIM] `split-reproduction-system` — **Split reproduction into its three concerns.** `reproduction_system` runs about 114 lines mixing mate finding, genome crossover and mutation, and child spawning.
+- [SIM] `split-reproduction-system` — **Split reproduction into its three concerns.** `reproduction_system` runs about 245 lines mixing mate finding, genome crossover and mutation, and child spawning.
   - Starting point: The three concerns are a natural split boundary.
   - Source: docs/ROADMAP.md (Known tech debt), 2026-09-16
 - [RENDER] `creature-portrait-v2-polish` — **Polish the creature portrait.** V1 reads the anatomy correctly but looks rough, and the portrait is one of the main places the sim is looked at closely.

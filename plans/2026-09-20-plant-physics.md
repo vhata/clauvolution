@@ -77,4 +77,4 @@ Done when the diet plan's own done-whens for steps 3 and 4 are met or their fail
 - `plans/2026-09-19-diet-axis.md`: the plan this one interrupts, its step 3 outcome, and its step 4.
 - `docs/DECISIONS.md`: "Diet axis tuning pass" (the sweeps and the reading), "Plant density competition" (superseded by step 3 here), "Grazing".
 - `docs/design/simulation-rules.md`: the carrying-capacity decision ("emergent from energy") that this plan finally gives a mechanism.
-- Code: `action_system` (speed and armour drag) and `photosynthesis_system` (`PLANT_DENSITY_PENALTY`, `PHOTO_OUTPUT_MULTIPLIER`) in `crates/clauvolution_sim/src/lib.rs`; `metabolism_system` for segment upkeep; `Velocity` and `PopSnapshot` in `crates/clauvolution_core/src/lib.rs`.
+- Code: `action_system` (speed and armour drag) and `photosynthesis_system` (`PLANT_DENSITY_PENALTY`, replaced by `SimConfig.leaf_capacity_per_tile` in #23; `PHOTO_OUTPUT_MULTIPLIER`) in `crates/clauvolution_sim/src/lib.rs`; `metabolism_system` for segment upkeep; `Velocity` and `PopSnapshot` in `crates/clauvolution_core/src/lib.rs`.

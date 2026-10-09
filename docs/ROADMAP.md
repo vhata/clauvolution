@@ -42,7 +42,7 @@ Pick two organisms (or two species representatives), see a side-by-side diff of 
 - Brain topology shown with shared neurons/connections greyed, unique ones coloured
 
 ### Extinction post-mortem
-When a species dies out, capture a snapshot of its last 30 seconds — population trend, causes of death, competitors, environment. Clickable chronicle entry opens the post-mortem modal.
+When a species dies out, capture a snapshot of its last 30 seconds — population trend, causes of death, competitors, environment. Clickable chronicle entry opens the post-mortem modal. (Clickable chronicle entries shipped in #38, linking to the Phylo tab or the camera; the post-mortem itself is not built.)
 
 **Shape:**
 - When species classification detects extinction, grab last N population snapshots, deaths by cause, last tile occupation heatmap
@@ -55,7 +55,7 @@ When a species dies out, capture a snapshot of its last 30 seconds — populatio
 
 More kinds of evolution to watch unfold. Each adds a qualitatively new pressure.
 
-**Top pick:** phase 2 of [`docs/design/simulation-rules.md`](design/simulation-rules.md), biomes as pressure and barrier (`plans/2026-09-25-phase2-biomes.md`); its open question, water as habitat or barrier, was built as a knob and costed in step 5 ("Water vegetation as a knob" in `docs/DECISIONS.md`). Phase 1 (the diet axis, `plans/2026-09-19-diet-axis.md`) and the plant physics that made it work (`plans/2026-09-20-plant-physics.md`) shipped on 2026-09-20: plants and grazers persist and cycle on every audit seed; hunters do not yet exist (`hunter-emergence`). The graze-versus-attack split shipped on 2026-09-23 and the rest of `plans/2026-09-21-pyramid-top.md` finished on 2026-09-24: hunters are still absent at 15000 ticks on every seed, and the plan's remaining candidate, an omnivore bridge, is the open thread for a new plan (`hunter-emergence`). Long-term climate shift is a phase 3 follow-on there, sequenced after the biome tolerance traits it would push against.
+**Top pick:** phase 2 of [`docs/design/simulation-rules.md`](design/simulation-rules.md), biomes as pressure and barrier (`plans/2026-09-25-phase2-biomes.md`); its open question, water as habitat or barrier, was built as a knob and costed in step 5 ("Water vegetation as a knob" in `docs/DECISIONS.md`). Phase 1 (the diet axis, `plans/2026-09-19-diet-axis.md`) and the plant physics that made it work (`plans/2026-09-20-plant-physics.md`) shipped on 2026-09-20: plants and grazers persist and cycle on every audit seed; hunters do not yet exist (`hunter-emergence`). The graze-versus-attack split shipped on 2026-09-23 and the rest of `plans/2026-09-21-pyramid-top.md` finished on 2026-09-24: hunters are still absent at 15000 ticks on every seed, and the plan's remaining candidate, an omnivore bridge, became `plans/2026-09-24-hunter-bridge.md`, parked on 2026-09-25 after steps 1 and 2 (#78, #81) in favour of phase 2 (`hunter-emergence`). Long-term climate shift is a phase 3 follow-on there, sequenced after the biome tolerance traits it would push against.
 
 ### Symbiosis
 ✅ **Shipped (v1).** Genome gets a `symbiosis_rate` trait in [-1.0, +1.0]. Proximity tracker looks for a mutual-nearest neighbour held for 30+ consecutive ticks within 6 world units; once locked, each party transfers `rate * 0.05` energy to its partner per tick (negative rate drains). Graphs tab shows mutual-pair count + avg evolved rate. Inspect tab labels each organism parasite/neutral/donor.
@@ -84,7 +84,7 @@ Currently body parts are variations on torso+attachments. Rare macro-mutations c
 - Pair with Cambrian-spark event to trigger bursts
 
 ### Disease evolution (follow-ups)
-V2 shipped. Potential next upgrades if the basics work well:
+V3 shipped. Potential next upgrades if the basics work well:
 - Multiple strains with their own severity/duration/virulence stats, mutating over time (pathogen coevolution)
 - Infection inheritance (vertical transmission) so mother→offspring infection is possible
 - Species-specific resistance so diseases target lineages
@@ -132,7 +132,7 @@ Measured (1500 ticks, seed 1, M4 Max, 6 compute workers):
 - `--speed 10` → 17.62s (2.8×)
 - `--speed 50` → 17.95s (2.8×)
 
-Past `--speed 5` the CPU is the floor. To push further we'd need less per-tick compute (more Rayon, GPU compute for brains, or fewer organisms).
+Past `--speed 5` the CPU is the floor. To push further we'd need less per-tick compute (more Rayon, GPU compute for brains, or fewer organisms). These figures predate #31, which gave headless runs a manual frame clock: `--speed N` is now N ticks per frame, and every speed runs as fast as the CPU allows.
 
 What headless gives us:
 - Runs without a display (ssh, CI, servers)
@@ -187,11 +187,11 @@ Headless mode (Theme 4) is the fast version of this loop: `cargo run --release -
 
 **Current tuning state:**
 - ~~**Disease (v2 pass in progress).**~~ Validated across four seeds at 15k ticks after v3 tweak (quadratic resistance protection). Disease kills 5-10% of organisms consistently, infected populations roughly halve vs linear-protection baseline, evolved resistance nudges up 1-3 percentage points. Accepted as a background pressure; not a primary selection driver (predation dominates at 55-75%). See DECISIONS.md for the tuning journey.
-- **Corpse energy fountain closed (2026-09-17).** Killed photosynthesisers used to keep photosynthesising and get killed again, so plants never really lost organisms to predation and predators were fed from corpses; every tuning number below was taken in that regime. With kills final, `PHOTO_OUTPUT_MULTIPLIER` went back to 1.0 (see DECISIONS.md). Outcomes at 5000 ticks are now bistable: seed 42 holds all three strategies, seed 3 oscillates between plants and foragers, seeds 1 and 2 drift to plant monoculture with predators fading. The 8-seed audit needs re-running on this main before any of the lines below are trusted.
+- **Corpse energy fountain closed (2026-09-17).** Killed photosynthesisers used to keep photosynthesising and get killed again, so plants never really lost organisms to predation and predators were fed from corpses; every tuning number below was taken in that regime. With kills final, `PHOTO_OUTPUT_MULTIPLIER` went back to 1.0 (see DECISIONS.md). Outcomes at 5000 ticks are now bistable: seed 42 holds all three strategies, seed 3 oscillates between plants and foragers, seeds 1 and 2 drift to plant monoculture with predators fading. The 8-seed audit needs re-running on this main before any of the lines below are trusted. (It has been re-run since, from 2026-09-18; see the dated blocks under "Attractor states" below.)
 - ~~**Plant dominance attractor.**~~ Broken by `PHOTO_OUTPUT_MULTIPLIER = 0.5` (see DECISIONS.md), measured with the corpse fountain in place. Density competition alone didn't bite because the world is too large for plants to actually cluster. Validated across four seeds: plant share 38–79%, foragers 7–61%, predators 0.5–14%. Lesson: two independent pressures on the same strategy isn't "double the pressure" if one of them doesn't engage in the actual operating regime.
 - **Starvation vs predation split.** After the attribution fix (below), both causes contribute meaningfully — starvation 1.1k–2.7k, predation 2k–9.4k across seeds 1–4 in 1500 ticks. Predation often dominates now, which is the opposite of the earlier "starvation is everything" reading. Disease still small (<5% of deaths) and old-age essentially zero.
 - ~~**Predators don't actually predate.**~~ Mis-diagnosis. Instrumentation showed 5k–43k kill events per 1500-tick run — predation was always happening. The bug was in death-cause attribution: `metabolism_system` regens health by 0.005/tick, which ran between `predation_system` setting `health = 0` and `death_system` reading it, so every predated victim was re-classified as Starvation. Fixed by gating regen on `health > 0.0` — a corpse doesn't heal. See DECISIONS.md.
-- **Predation energy pyramid (10% trophic efficiency).** Thermodynamically motivated but worth sanity-checking — are predators ever viable, or does 10% make them unsustainable?
+- **Predation energy pyramid (10% trophic efficiency).** Thermodynamically motivated but worth sanity-checking — are predators ever viable, or does 10% make them unsustainable? The kill share was swept in #53 (`docs/audits/2026-09-23-pyramid-hunter-payoff/`) and split by victim tissue in #54, both shares left at 0.1.
 - **Quadratic body/armor/claw costs.** Prevents "stack everything" meta — but if nobody evolves big bodies or heavy armor, the cost may be too punishing.
 
 **When adding a new dynamic:** expect the first version to be wrong. Budget a follow-up tuning pass. Instrument first (Graphs tab should surface the dynamic's effect), then tune.
@@ -200,7 +200,7 @@ Headless mode (Theme 4) is the fast version of this loop: `cargo run --release -
 
 8-seed headless audit at 15k ticks (April 2026) surfaced which of these actually fire and how often. Below are the observed facts, not the guesses.
 
-**Caveat added 2026-09-17:** the April audit ran with a stale spatial hash, a moisture map with no working biomes, and the corpse energy fountain (see DECISIONS.md), so its numbers describe a different sim. The plan in `plans/2026-09-17-simulation-rules-rethink.md` re-runs it. Until then the bullets below are history, not current state.
+**Caveat added 2026-09-17:** the April audit ran with a stale spatial hash, a moisture map with no working biomes, and the corpse energy fountain (see DECISIONS.md), so its numbers describe a different sim. The plan in `plans/2026-09-17-simulation-rules-rethink.md` re-runs it. Until then the bullets below are history, not current state. (Re-run from 2026-09-18 on; see the dated blocks after these bullets.)
 
 - **Green world / plant dominance** ⚠️ **still fires regularly.** 7/8 audit seeds ended >85% plants, 1/8 hit 99.8% (seed 314 — full monoculture). `PHOTO_OUTPUT_MULTIPLIER = 0.5` stopped the *extreme* case from v1 but hasn't solved the attractor. **Next levers:** lower initial plant seeding (30% → 15%), drop `PHOTO_OUTPUT_MULTIPLIER` further (0.5 → 0.35), or investigate whether forager/predator initial conditions are themselves disadvantaged.
 - **Predator extinction** ⚠️ **fires 6/8 seeds.** Predators peak at 5-37 then crash to ≤7. Never establish stable populations. 10% trophic efficiency may be too strict, OR predators' problem is upstream — prey (foragers) also crashing so predators starve second-order. Probably tied to plant dominance; fixing that may ease this.
@@ -231,7 +231,7 @@ Headless mode (Theme 4) is the fast version of this loop: `cargo run --release -
 
 **Direction:** the response to this audit is [`docs/design/simulation-rules.md`](design/simulation-rules.md). Each of its phases ends with the audit re-run and a new dated block here.
 
-**Re-run 2026-09-20**, phase 1 audit on commit 59759bc (canopy light sharing, surface drag, grazing and digestion, founder diet spread 1.0, bite 0.3, ceiling 6000), same eight seeds, two runs each, 15k ticks. Full summaries, whole-run CSVs and the reading are in [`docs/audits/2026-09-20-phase1-audit/`](audits/2026-09-20-phase1-audit/README.md). Not comparable line by line with 2026-09-18: plants now have a consumer and light is shared.
+**Re-run 2026-09-20**, phase 1 audit on commit 59759bc (squash-merged as b60ab30 in #23; canopy light sharing, surface drag, grazing and digestion, founder diet spread 1.0, bite 0.3, ceiling 6000), same eight seeds, two runs each, 15k ticks. Full summaries, whole-run CSVs and the reading are in [`docs/audits/2026-09-20-phase1-audit/`](audits/2026-09-20-phase1-audit/README.md). Not comparable line by line with 2026-09-18: plants now have a consumer and light is shared.
 
 | seed | run 1 plants / grazers / hunters | run 2 | plant share | species | body size | eater diet |
 |---|---|---|---|---|---|---|
@@ -255,7 +255,7 @@ Headless mode (Theme 4) is the fast version of this loop: `cargo run --release -
 
 **Direction:** phase 1 leaves a two-level pyramid. The hunter level and the graze-versus-attack output question are filed as design questions; phase 2 of the design doc proceeds on this world.
 
-**Re-run 2026-09-23**, pyramid re-read on commit 93280c4 (step 3 of `plans/2026-09-21-pyramid-top.md`: grazing through `eat`, attack as a kill attempt only, strike cost 1.0), same eight seeds, one run each now that headless runs are deterministic, 15k ticks. Summaries, CSVs, the reading and a kill-share probe are in [`docs/audits/2026-09-23-pyramid-reread/`](audits/2026-09-23-pyramid-reread/README.md).
+**Re-run 2026-09-23**, pyramid re-read on commit 93280c4 (squash-merged as 672a861 in #50; step 3 of `plans/2026-09-21-pyramid-top.md`: grazing through `eat`, attack as a kill attempt only, strike cost 1.0), same eight seeds, one run each now that headless runs are deterministic, 15k ticks. Summaries, CSVs, the reading and a kill-share probe are in [`docs/audits/2026-09-23-pyramid-reread/`](audits/2026-09-23-pyramid-reread/README.md).
 
 | seed | hunters at 5000 / 15000 | last hunter tick | founding hunters, mean age at death | final plants / grazers | plant share | species | samples at ceiling (of 500) |
 |---|---|---|---|---|---|---|---|
@@ -302,7 +302,7 @@ Headless mode (Theme 4) is the fast version of this loop: `cargo run --release -
 
 ## Code health
 
-- Big files worth splitting if they grow further: `clauvolution_sim/src/lib.rs` (~1500 lines), `clauvolution_ui/src/lib.rs` (~1450), `clauvolution_render/src/lib.rs` (~1350). Counts are refreshed by each code review in `review/`.
+- Big files worth splitting if they grow further: `clauvolution_sim/src/lib.rs` (~5650 lines), `clauvolution_ui/src/lib.rs` (~2550), `clauvolution_app/src/main.rs` (~2150), `clauvolution_render/src/lib.rs` (~2050). Counts are refreshed by each code review in `review/`.
 - When a function in one of those crosses 100 lines, it's probably ready to move to its own module
 - Two settled calls worth not re-litigating: cosmetic overlay systems (minimap viewport rect, trails, infection halos) silently skip on a missing camera, and clippy's `type_complexity` and `too_many_arguments` lints are silenced crate-wide in the three Bevy-heavy crates because aliasing the `Query` signatures individually didn't improve readability
 

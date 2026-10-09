@@ -1,6 +1,6 @@
 # Plan: phase 2, biomes as pressure and barrier, on the two-level pyramid
 
-**Status:** planned 2026-09-25. In progress: steps 1-4 landed (#86, #87, #89, #92); step 5 started 2026-10-06.
+**Status:** planned 2026-09-25. In progress: steps 1-5 landed (#86, #87, #89, #92, #95); step 6 not started.
 **Scope:** phase 2 of `docs/design/simulation-rules.md` ("Phase 2: biomes as pressure and barrier"), started on the plants-and-grazers pyramid as the design's "Pyramid-top outcome" allows. Takes `move-cost-table-by-tile`, `oceans-as-habitat` and `biome-threshold-retune` from `TODO.md`. Parks `hunter-emergence`; see "Decisions to take". Re-measures `consumer-ceiling-regulation` and `species-count-above-tuned-band` in its audits but does not work them.
 
 ## Why
@@ -98,7 +98,7 @@ Deep water costs what its body says it costs; the map has several landmasses wit
 - `docs/design/simulation-rules.md`: decisions table, "Phase 0 outcome", "Pyramid-top outcome", "Phase 2".
 - `TODO.md`: `move-cost-table-by-tile`, `oceans-as-habitat`, `biome-threshold-retune`, `hunter-emergence`, `consumer-ceiling-regulation`, `species-count-above-tuned-band`.
 - `docs/DECISIONS.md`: "Terrain noise ranges", "Per-biome seeding", "Deep water 10x movement cost", "Emergent carrying capacity".
-- `crates/clauvolution_world/src/lib.rs`: `TerrainType::land_move_cost`, `water_move_cost`, `Tile::from_elevation_moisture`, `TileMap::generate`, `generate_noise_map`, `tile_dynamics_system`, `food_regeneration_system`.
+- `crates/clauvolution_world/src/lib.rs`: `TerrainType::land_move_cost`, `water_move_cost`, `land_terrain` and `Tile::new` (split from `Tile::from_elevation_moisture` in #92), `TileMap::generate`, `generate_noise_map`, `tile_dynamics_system`, `food_regeneration_system`.
 - `crates/clauvolution_sim/src/lib.rs`: `action_system` (terrain cost), `photosynthesis_system`, `reproduction_system` (`CHILD_SPAWN_OFFSET`), `spawn_initial_population` (`FOUNDING_BIOMES`).
 - `plans/2026-09-21-pyramid-top.md`: the ocean-vegetation and shelf decisions. `plans/2026-09-24-hunter-bridge.md`: what is parked.
 - `docs/audits/2026-09-24-pyramid-step6/`: the baseline.
