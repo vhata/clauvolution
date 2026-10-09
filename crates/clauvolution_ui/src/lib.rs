@@ -607,6 +607,9 @@ fn phylo_tab(
                     rows.len(),
                     recently_extinct.len(),
                 ))
+                // The label changes with every extinction; key the open state
+                // on a fixed id so the section does not snap shut.
+                .id_salt("recently_extinct")
                 .open(open)
                 .show(ui, |ui| {
                     let mut previous: Option<usize> = None;
