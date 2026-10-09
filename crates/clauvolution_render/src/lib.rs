@@ -797,7 +797,7 @@ fn camera_control_system(
     mut cursor_events: EventReader<CursorMoved>,
     mut camera: Query<(&mut Transform, &mut OrthographicProjection), With<MainCamera>>,
     mut drag_state: ResMut<CameraDragState>,
-    time: Res<Time>,
+    time: Res<Time<Real>>,
     ui_input: Res<UiInputState>,
     selected: Res<SelectedOrganism>,
     organism_positions: Query<&Position, With<Organism>>,
@@ -825,6 +825,9 @@ fn camera_control_system(
         transform.translation.y = target.y;
     }
 
+    // Real time, not the default virtual clock: `sim_speed_system` pauses
+    // and rescales `Time<Virtual>`, and the camera must keep moving at the
+    // same on-screen speed while the sim is paused or sped up.
     let dt = time.delta_secs();
 
     // Keyboard pan and zoom stand down while egui has keyboard focus, like
@@ -1149,7 +1152,7 @@ fn setup_minimap(
 }
 
 fn update_minimap(
-    time: Res<Time>,
+    time: Res<Time<Real>>,
     mut minimap: ResMut<MinimapData>,
     mut images: ResMut<Assets<Image>>,
     tile_map: Option<Res<TileMap>>,
@@ -1160,6 +1163,9 @@ fn update_minimap(
     selected: Res<SelectedOrganism>,
     windows: Query<&Window, With<PrimaryWindow>>,
 ) {
+    // Real time, so the viewport box and selection marker keep tracking the
+    // camera while the sim is paused, and repaint at the same rate at any
+    // sim speed.
     minimap.timer.tick(time.delta());
     if !minimap.timer.just_finished() {
         return;
@@ -2061,5 +2067,96 @@ mod tests {
         select(&mut app, None);
         app.update();
         assert!(rings(&mut app).is_empty());
+    }
+
+    // --- render-input-on-virtual-time ---
+
+    /// A real clock whose last update advanced it by `secs`.
+    fn real_time_advanced(secs: f32) -> Time<Real> {
+        let mut real = Time::<Real>::default();
+        // The first update only records the start instant.
+        real.update_with_duration(std::time::Duration::ZERO);
+        real.update_with_duration(std::time::Duration::from_secs_f32(secs));
+        real
+    }
+
+    /// App running `camera_control_system` with the sim paused, which in
+    /// `Update` means the default `Time` reports no elapsed time, and a real
+    /// clock that advanced by `real_secs`.
+    fn camera_app(real_secs: f32) -> App {
+        let mut app = App::new();
+        app.insert_resource(ButtonInput::<KeyCode>::default())
+            .insert_resource(ButtonInput::<MouseButton>::default())
+            .insert_resource(UiInputState::default())
+            .init_resource::<CameraDragState>()
+            .init_resource::<SelectedOrganism>()
+            .insert_resource(Time::<()>::default())
+            .insert_resource(real_time_advanced(real_secs))
+            .add_event::<bevy::input::mouse::MouseWheel>()
+            .add_event::<CursorMoved>()
+            .add_event::<CameraFocusRequest>()
+            .add_systems(Update, camera_control_system);
+        app.world_mut().spawn((
+            MainCamera,
+            Transform::default(),
+            OrthographicProjection::default_2d(),
+        ));
+        app
+    }
+
+    fn camera_state(app: &mut App) -> (Vec3, f32) {
+        let world = app.world_mut();
+        let mut q =
+            world.query_filtered::<(&Transform, &OrthographicProjection), With<MainCamera>>();
+        let (t, p) = q.single(world);
+        (t.translation, p.scale)
+    }
+
+    #[test]
+    fn keyboard_pan_and_zoom_run_on_real_time_while_paused() {
+        let mut app = camera_app(0.25);
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::KeyD);
+        app.update();
+        let (translation, _) = camera_state(&mut app);
+        assert!(
+            (translation.x - 200.0 * 0.25).abs() < 1e-3,
+            "pan moved {} while paused",
+            translation.x
+        );
+
+        let mut app = camera_app(0.25);
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::KeyQ);
+        app.update();
+        let (_, scale) = camera_state(&mut app);
+        assert!(
+            (scale - 1.5).abs() < 1e-4,
+            "zoom reached {scale} while paused"
+        );
+    }
+
+    #[test]
+    fn minimap_repaints_on_real_time_while_paused() {
+        let mut app = App::new();
+        app.init_resource::<Assets<Image>>()
+            .insert_resource(SimConfig::default())
+            .init_resource::<MinimapMode>()
+            .init_resource::<SelectedOrganism>()
+            .insert_resource(Time::<()>::default())
+            .insert_resource(real_time_advanced(0.6))
+            .insert_resource(MinimapData {
+                image_handle: Handle::default(),
+                size: 4,
+                timer: Timer::from_seconds(0.5, TimerMode::Repeating),
+            })
+            .add_systems(Update, update_minimap);
+        app.update();
+        assert!(
+            app.world().resource::<MinimapData>().timer.just_finished(),
+            "the repaint timer did not fire after 0.6 s of real time"
+        );
     }
 }
