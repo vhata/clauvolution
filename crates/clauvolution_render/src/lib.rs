@@ -87,6 +87,25 @@ fn minimap_rect_px(view: Rect, world: Vec2, size: usize) -> (i32, i32, i32, i32)
     (left, right, top, bottom)
 }
 
+/// Minimap pixel `(column, row)` of a world position on a `size`-pixel square
+/// minimap of a `world` sized map, row 0 at the top. Signed, because a
+/// position on the world's top or right edge maps one pixel outside the image:
+/// positions wrap with `rem_euclid`, which can return the modulus itself for a
+/// tiny negative input.
+fn minimap_px(pos: Vec2, world: Vec2, size: usize) -> (i32, i32) {
+    let s = size as f32;
+    let x = (pos.x / world.x * s) as i32;
+    let y = size as i32 - 1 - (pos.y / world.y * s) as i32;
+    (x, y)
+}
+
+/// `minimap_px` as image indices, or `None` when it falls outside the image.
+fn minimap_dot(pos: Vec2, world: Vec2, size: usize) -> Option<(usize, usize)> {
+    let (x, y) = minimap_px(pos, world, size);
+    let inside = |v: i32| v >= 0 && (v as usize) < size;
+    (inside(x) && inside(y)).then_some((x as usize, y as usize))
+}
+
 /// Minimap dot colour per strategy (normal mode, heatmap blend, legend).
 fn strategy_rgb(strategy: SpeciesStrategy) -> [u8; 3] {
     match strategy {
@@ -1243,8 +1262,7 @@ fn update_minimap(
     // and doesn't obscure the organism dot beneath it.
     if let Some(sel_entity) = selected.entity {
         if let Ok((pos, _genome, _species)) = organisms.get(sel_entity) {
-            let cx = (pos.0.x / world_w * size as f32) as i32;
-            let cy = size as i32 - 1 - (pos.0.y / world_h * size as f32) as i32;
+            let (cx, cy) = minimap_px(pos.0, Vec2::new(world_w, world_h), size);
             // Draw plus shape: center + 2 pixels each direction
             for &(dx, dy) in &[
                 (0, 0),
@@ -1310,10 +1328,7 @@ fn paint_minimap_normal(
 
     // Paint organisms as bright dots
     for (pos, genome, _species) in organisms {
-        let px = (pos.0.x / world_w * size as f32) as usize;
-        let py = size - 1 - (pos.0.y / world_h * size as f32) as usize;
-
-        if px < size && py < size {
+        if let Some((px, py)) = minimap_dot(pos.0, Vec2::new(world_w, world_h), size) {
             let idx = (py * size + px) * 4;
             let [r, g, b] = strategy_rgb(classify_strategy(genome));
             image.data[idx] = r;
@@ -1446,9 +1461,7 @@ fn paint_minimap_range(
         if species.0 == focus_species {
             continue;
         }
-        let px = (pos.0.x / world_w * size as f32) as usize;
-        let py = size - 1 - (pos.0.y / world_h * size as f32) as usize;
-        if px < size && py < size {
+        if let Some((px, py)) = minimap_dot(pos.0, Vec2::new(world_w, world_h), size) {
             let idx = (py * size + px) * 4;
             image.data[idx] = 80;
             image.data[idx + 1] = 80;
@@ -1462,8 +1475,7 @@ fn paint_minimap_range(
         if species.0 != focus_species {
             continue;
         }
-        let cx = (pos.0.x / world_w * size as f32) as i32;
-        let cy = size as i32 - 1 - (pos.0.y / world_h * size as f32) as i32;
+        let (cx, cy) = minimap_px(pos.0, Vec2::new(world_w, world_h), size);
         for dy in -1..=1i32 {
             for dx in -1..=1i32 {
                 let x = cx + dx;
@@ -1760,6 +1772,22 @@ mod tests {
         assert_eq!((nl, nr), (40, 60));
         // Same height, so the same rows.
         assert_eq!((wt, wb), (nt, nb));
+    }
+
+    // --- minimap-row-underflow-at-world-edge ---
+
+    #[test]
+    fn minimap_dot_maps_corners_and_drops_the_far_edges() {
+        let world = Vec2::new(512.0, 256.0);
+        assert_eq!(minimap_dot(Vec2::ZERO, world, 160), Some((0, 159)));
+        assert_eq!(
+            minimap_dot(Vec2::new(511.9, 255.9), world, 160),
+            Some((159, 0))
+        );
+        // Exactly on the top or right edge is one pixel outside the image.
+        assert_eq!(minimap_px(Vec2::new(0.0, 256.0), world, 160), (0, -1));
+        assert_eq!(minimap_dot(Vec2::new(0.0, 256.0), world, 160), None);
+        assert_eq!(minimap_dot(Vec2::new(512.0, 0.0), world, 160), None);
     }
 
     // --- detailed-lod-double-scale ---
