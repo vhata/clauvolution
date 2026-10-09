@@ -174,6 +174,7 @@ impl Plugin for RenderPlugin {
                 (
                     spawn_terrain_sprites,
                     sync_organism_transforms,
+                    recolour_sprites_on_species_change,
                     sync_selection_ring,
                     sync_food_transforms,
                     update_death_markers,
@@ -733,6 +734,38 @@ fn sync_organism_transforms(
             config.max_organism_energy,
             flash,
         ));
+    }
+}
+
+/// Recolour simple-LOD sprites whose organism changed species. The colour is
+/// built from the species colour when the sprite spawns, and founders spawn
+/// in species 0 before the first classification pass, so without this every
+/// founder would keep species 0's colour, and an organism moved to another
+/// species its old one, until the next LOD switch rebuilt the sprites. The
+/// detailed LOD colours parts by segment type, not species.
+fn recolour_sprites_on_species_change(
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut species_colors: ResMut<SpeciesColors>,
+    organisms: Query<
+        (&Genome, &SpeciesId, &MeshMaterial2d<ColorMaterial>),
+        (
+            With<Organism>,
+            With<OrganismSprite>,
+            Without<DetailedSprite>,
+            Changed<SpeciesId>,
+        ),
+    >,
+) {
+    for (genome, species, material) in &organisms {
+        let color = simple_sprite_color(genome, species_colors.get_or_create(species.0));
+        // The classifier writes every organism's id on each pass, so most
+        // of these keep their colour. `get_mut` marks the material for
+        // re-upload, so only take it when the colour differs.
+        if materials.get(&material.0).is_some_and(|m| m.color != color) {
+            if let Some(m) = materials.get_mut(&material.0) {
+                m.color = color;
+            }
+        }
     }
 }
 
@@ -1949,7 +1982,10 @@ mod tests {
             .insert_resource(SimConfig::default())
             .add_systems(Startup, setup_shared_meshes)
             .add_systems(Update, lod_change_system)
-            .add_systems(PostUpdate, sync_organism_transforms);
+            .add_systems(
+                PostUpdate,
+                (sync_organism_transforms, recolour_sprites_on_species_change).chain(),
+            );
         app.world_mut().spawn((
             MainCamera,
             Transform::default(),
@@ -2131,6 +2167,48 @@ mod tests {
                 "zoom {zoom}, plant {plant}: the sprite changed size on its second frame"
             );
         }
+    }
+
+    // --- sprite-colour-frozen-at-spawn-species ---
+
+    fn sprite_color(app: &App, entity: Entity) -> Color {
+        let handle = &app
+            .world()
+            .get::<MeshMaterial2d<ColorMaterial>>(entity)
+            .unwrap()
+            .0;
+        app.world()
+            .resource::<Assets<ColorMaterial>>()
+            .get(handle)
+            .unwrap()
+            .color
+    }
+
+    fn expected_sprite_color(app: &mut App, entity: Entity, species: u64) -> Color {
+        let genome = app.world().get::<Genome>(entity).unwrap().clone();
+        let base = app
+            .world_mut()
+            .resource_mut::<SpeciesColors>()
+            .get_or_create(species);
+        simple_sprite_color(&genome, base)
+    }
+
+    #[test]
+    fn simple_sprite_recolours_when_its_species_changes() {
+        let mut app = sprite_app(1.0);
+        app.update();
+        let mut rng = StdRng::seed_from_u64(8);
+        let organism = spawn_bodied_organism(&mut app, &mut rng, 1.0);
+        app.update();
+        let first = expected_sprite_color(&mut app, organism, 1);
+        assert_eq!(sprite_color(&app, organism), first);
+
+        // A classification pass moves it to another species.
+        app.world_mut().get_mut::<SpeciesId>(organism).unwrap().0 = 2;
+        app.update();
+        let second = expected_sprite_color(&mut app, organism, 2);
+        assert_ne!(first, second);
+        assert_eq!(sprite_color(&app, organism), second);
     }
 
     // --- selection-ring-only-on-click ---
