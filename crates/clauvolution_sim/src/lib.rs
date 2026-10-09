@@ -1896,7 +1896,6 @@ fn predation_system(
             (e, pos.0, attack_str, attack_range, body_size.0, band)
         })
         .collect();
-    predation_stats.attacks_attempted += attackers.len() as u64;
 
     // (killer, victim, victim_energy, victim_is_plant) — energy transfer
     // computed at kill time. A victim is claimed at most once per tick: the
@@ -1982,6 +1981,14 @@ fn predation_system(
     for ((attacker_entity, _, attack_str, _, _, band), (reach, hits)) in
         attackers.iter().zip(reaches)
     {
+        // Strikes resolve in attacker order. An attacker an earlier one has
+        // already claimed is dead before its turn: it does not strike, pay or
+        // kill, and is not counted as an intent. One claimed by a later
+        // attacker struck while alive, so its strike lands and is paid for.
+        if claimed_victims.contains(attacker_entity) {
+            continue;
+        }
+        predation_stats.attacks_attempted += 1;
         candidates.clear();
         // Instrument only: which gates the unclaimed consumers in reach
         // passed (step 5 of plans/2026-09-21-pyramid-top.md).
@@ -2076,9 +2083,12 @@ fn predation_system(
         // lost as heat), and keeps what it can digest
         // of that tissue: plant at plant efficiency, animal at animal
         // efficiency. The undigested share is booked to digestion and the
-        // rest of the victim's energy to death.
+        // rest of the victim's energy to death. Movement earlier in the tick
+        // can leave prey below zero; such prey offers nothing, as a bite of
+        // it does (`graze_bite`), rather than a negative meal that costs the
+        // killer and books negative digestion.
         let (energy_gained, wasted) = digest(
-            victim_energy_before * config.kill_share(victim_is_plant),
+            victim_energy_before.max(0.0) * config.kill_share(victim_is_plant),
             kill_digestion_efficiency(killer_genome, victim_is_plant, &config),
         );
         predation_stats.feeding.record_kill(
@@ -2136,11 +2146,15 @@ fn predation_system(
 
     // A strike costs the attacker whether it landed, bounced or lost its
     // target to another attacker; the cost does not read what the target
-    // was. An attacker killed this tick has already left the ledger, so it
-    // is not charged. Booked as movement: a strike is muscular work.
+    // was. Every attacker here struck while alive (one claimed before its
+    // turn never got here), so every one pays, including one killed by a
+    // later attacker: its energy was zeroed by the kill, and the cost takes
+    // it below zero, which death_system books as death energy the way it
+    // books metabolism's overdraw. Booked as movement: a strike is muscular
+    // work.
     predation_stats.strikes += strike_costs.len() as u64;
     for (attacker, cost) in strike_costs {
-        if cost <= 0.0 || claimed_victims.contains(&attacker) {
+        if cost <= 0.0 {
             continue;
         }
         if let Ok((_, _, mut attacker_energy, _, _, attacker_genome, _, _)) =
@@ -2339,10 +2353,14 @@ fn disease_transmission_system(
 }
 
 /// Apply per-tick disease effects: energy drain, direct mortality chance,
-/// tick down timer, remove when expired.
+/// tick down timer, remove when expired. An organism already killed this
+/// tick is skipped: its death and its cause are already decided.
 fn disease_effects_system(
     mut commands: Commands,
-    mut infected: Query<(Entity, &mut Energy, &mut Infection, &Genome), With<Organism>>,
+    mut infected: Query<
+        (Entity, &mut Energy, &mut Infection, &Genome),
+        (With<Organism>, Without<Killed>),
+    >,
     config: Res<SimConfig>,
     mut sim_rng: ResMut<SimRng>,
     mut ledger: ResMut<EnergyLedger>,
@@ -2369,12 +2387,16 @@ fn disease_effects_system(
         ledger.tick.disease += drain as f64;
 
         // Direct mortality chance per tick — ignores energy reserves so
-        // photosynthesisers can't just sun-bathe through an infection.
-        // Zero only energy (not health) so death_system attributes to Disease.
+        // photosynthesisers can't just sun-bathe through an infection. The
+        // marker makes the death final, as a kill's is: symbiosis transfer
+        // skips it, so a partner cannot credit it back above zero before
+        // death_system, and death_system files it under Disease whatever the
+        // organism's age.
         let mortality = DISEASE_MORTALITY_RATE * infection.severity * mortality_factor;
         if rng.gen::<f32>() < mortality {
             ledger.tick.death += energy.0 as f64;
             energy.0 = 0.0;
+            commands.entity(entity).insert(Killed(DeathCause::Disease));
         }
 
         infection.ticks_remaining = infection.ticks_remaining.saturating_sub(1);
@@ -2502,6 +2524,13 @@ fn symbiosis_transfer_system(
     }
 }
 
+/// Age in ticks past which `metabolism_system` drains health each tick (about
+/// 100 seconds at 30 Hz). Health reaching zero this way is the only old-age
+/// death; `death_system` files a death as old age only when the organism is
+/// past this age and its health is gone, so an old organism that starves or
+/// dies of disease is filed under that cause.
+const OLD_AGE_ONSET_TICKS: u64 = 3000;
+
 fn metabolism_system(
     config: Res<SimConfig>,
     mut organisms: Query<
@@ -2569,8 +2598,8 @@ fn metabolism_system(
                 health.0 = (health.0 + regen_rate).min(1.0);
             }
 
-            // Old age death: after ~3000 ticks (~100 seconds), health degrades
-            if age.0 > 3000 {
+            // Old age death: past OLD_AGE_ONSET_TICKS, health degrades
+            if age.0 > OLD_AGE_ONSET_TICKS {
                 health.0 -= 0.002;
                 if health.0 <= 0.0 {
                     flows.death += energy.0 as f64;
@@ -2629,12 +2658,15 @@ fn death_system(
             ledger.tick.add(flows);
             ledger.tick.death += energy.0 as f64;
 
-            // A kill records its own cause on the `Killed` marker. Anything
-            // else died of depletion, attributed by priority: old age (health
-            // decayed to zero after 3000 ticks) > disease > starvation.
+            // A kill, by a predator or by disease mortality, records its own
+            // cause on the `Killed` marker. Anything else died of depletion,
+            // attributed by priority: old age (health decayed to zero past
+            // OLD_AGE_ONSET_TICKS; age alone is not enough, because the aging
+            // metabolism makes starvation the common death there) > disease
+            // > starvation.
             let cause = match killed {
                 Some(k) => k.0,
-                None if age.0 > 3000 => DeathCause::OldAge,
+                None if age.0 > OLD_AGE_ONSET_TICKS && health.0 <= 0.0 => DeathCause::OldAge,
                 None if infection.is_some() => DeathCause::Disease,
                 None => DeathCause::Starvation,
             };
@@ -5434,6 +5466,152 @@ mod grazing_tests {
         assert!((ledger.tick.movement - 1.0).abs() < 1e-6);
     }
 
+    /// Spawns, in this order, an armoured attacker at x = 10, an unarmoured
+    /// attacker at x = 11 and idle prey at x = 12.5, or the two attackers the
+    /// other way round when `middle_first`. Only the armoured one can kill
+    /// the middle one, and the middle one cannot hurt it, so the middle
+    /// attacker's only possible kill is the prey. Returns (armoured, middle,
+    /// prey).
+    fn attacker_chain(world: &mut World, middle_first: bool) -> (Entity, Entity, Entity) {
+        world.resource_mut::<SimConfig>().strike_cost = 0.5;
+        let mut armoured = genome(false, false, -1.0, 1.0);
+        armoured.armor = 10.0;
+        let spawn_armoured = |world: &mut World| {
+            spawn(
+                world,
+                Vec2::new(10.0, 10.0),
+                50.0,
+                armoured.clone(),
+                1.0,
+                attacking(),
+            )
+        };
+        let spawn_middle = |world: &mut World| {
+            spawn(
+                world,
+                Vec2::new(11.0, 10.0),
+                40.0,
+                genome(false, false, -1.0, 1.0),
+                1.0,
+                attacking(),
+            )
+        };
+        let (armoured, middle) = if middle_first {
+            let middle = spawn_middle(world);
+            (spawn_armoured(world), middle)
+        } else {
+            let armoured = spawn_armoured(world);
+            (armoured, spawn_middle(world))
+        };
+        let prey = spawn(
+            world,
+            Vec2::new(12.5, 10.0),
+            30.0,
+            genome(false, false, -1.0, 0.0),
+            1.0,
+            idle(),
+        );
+        (armoured, middle, prey)
+    }
+
+    /// An attacker killed by an earlier attacker in the same tick is dead
+    /// before its turn: it does not strike, pay or kill.
+    #[test]
+    fn an_attacker_killed_before_its_turn_does_not_strike() {
+        let mut world = feeding_world();
+        let (armoured, middle, prey) = attacker_chain(&mut world, false);
+
+        world.run_system_once(predation_system).unwrap();
+
+        assert!(world.get::<Killed>(middle).is_some());
+        assert!(
+            world.get::<Killed>(prey).is_none(),
+            "a dead attacker killed"
+        );
+        assert_eq!(energy(&world, prey), 30.0);
+        assert!((energy(&world, armoured) - 49.5).abs() < 1e-4);
+        let stats = world.resource::<PredationStats>();
+        assert_eq!(stats.kills, 1);
+        assert_eq!(stats.attacks_attempted, 1);
+        assert_eq!(stats.strikes, 1);
+        let ledger = world.resource::<EnergyLedger>();
+        assert!((ledger.tick.movement - 0.5).abs() < 1e-6);
+    }
+
+    /// An attacker killed by a later attacker struck while it was alive: its
+    /// kill stands and its strike is paid for, like any other.
+    #[test]
+    fn an_attacker_killed_after_its_turn_keeps_its_kill_and_pays() {
+        let mut world = feeding_world();
+        let (_, middle, prey) = attacker_chain(&mut world, true);
+
+        world.run_system_once(predation_system).unwrap();
+
+        assert!(world.get::<Killed>(middle).is_some());
+        assert!(world.get::<Killed>(prey).is_some());
+        let stats = world.resource::<PredationStats>();
+        assert_eq!(stats.kills, 2);
+        assert_eq!(stats.attacks_attempted, 2);
+        assert_eq!(stats.strikes, 2);
+        let ledger = world.resource::<EnergyLedger>();
+        assert!((ledger.tick.movement - 1.0).abs() < 1e-6);
+    }
+
+    /// Prey that movement left below zero energy offers nothing: the killer
+    /// neither pays for the kill nor books negative digestion, and the
+    /// prey's deficit leaves as death energy.
+    #[test]
+    fn killing_negative_energy_prey_costs_the_killer_nothing() {
+        let mut world = feeding_world();
+        // Plant tissue at plant efficiency 1.0: a negative gross would come
+        // straight out of the killer.
+        let plant_killer = spawn(
+            &mut world,
+            Vec2::new(10.0, 10.0),
+            50.0,
+            genome(false, false, -1.0, 1.0),
+            1.0,
+            attacking(),
+        );
+        let plant = spawn(
+            &mut world,
+            Vec2::new(11.0, 10.0),
+            -5.0,
+            genome(true, false, 0.0, 0.0),
+            1.0,
+            idle(),
+        );
+        // Animal tissue at animal efficiency 0: a negative gross would all
+        // be booked as negative digestion.
+        let animal_killer = spawn(
+            &mut world,
+            Vec2::new(100.0, 100.0),
+            50.0,
+            genome(false, false, -1.0, 1.0),
+            1.0,
+            attacking(),
+        );
+        let animal = spawn(
+            &mut world,
+            Vec2::new(101.0, 100.0),
+            -3.0,
+            genome(false, false, -1.0, 0.0),
+            1.0,
+            idle(),
+        );
+
+        world.run_system_once(predation_system).unwrap();
+
+        assert!(world.get::<Killed>(plant).is_some());
+        assert!(world.get::<Killed>(animal).is_some());
+        assert_eq!(energy(&world, plant_killer), 50.0);
+        assert_eq!(energy(&world, animal_killer), 50.0);
+        let ledger = world.resource::<EnergyLedger>();
+        assert_eq!(ledger.tick.predation, 0.0);
+        assert_eq!(ledger.tick.digestion, 0.0);
+        assert!((ledger.tick.death + 8.0).abs() < 1e-6);
+    }
+
     /// The step 5 gate counters sort each hunter attack on consumer prey
     /// by the gate that stopped it, and leave grazer attackers out.
     #[test]
@@ -5566,6 +5744,137 @@ mod death_marker_tests {
         }
         assert_eq!(markers(&mut world), 0, "marker outlived its lifetime");
         assert_eq!(world.entities().len(), 0);
+    }
+}
+
+#[cfg(test)]
+mod death_cause_tests {
+    use super::*;
+    use bevy::ecs::system::RunSystemOnce;
+    use rand::{rngs::StdRng, SeedableRng};
+
+    /// The resources `disease_effects_system`, `symbiosis_transfer_system`
+    /// and `death_system` read.
+    fn death_world() -> World {
+        let mut world = World::new();
+        world.insert_resource(SimConfig::default());
+        world.insert_resource(SimRng::from_seed(1));
+        world.insert_resource(EnergyLedger::default());
+        world.insert_resource(SimStats::default());
+        world.insert_resource(FitnessTracker::default());
+        world.insert_resource(DietBandStats::default());
+        world
+    }
+
+    fn genome(symbiosis_rate: f32) -> Genome {
+        let mut innovation = InnovationCounter(0);
+        let mut rng = StdRng::seed_from_u64(1);
+        let mut g = Genome::new_minimal(&mut innovation, &mut rng);
+        g.disease_resistance = 0.0;
+        g.symbiosis_rate = symbiosis_rate;
+        g
+    }
+
+    /// An organism with what the three systems query, and nothing that would
+    /// kill it on its own.
+    fn spawn(world: &mut World, energy: f32, health: f32, age: u64, genome: Genome) -> Entity {
+        world
+            .spawn((
+                Organism,
+                Position(Vec2::ZERO),
+                Energy(energy),
+                Health(health),
+                Age(age),
+                EnergyFlows::default(),
+                Symbiosis::default(),
+                genome,
+            ))
+            .id()
+    }
+
+    fn deaths(world: &World, cause: DeathCause) -> u64 {
+        world.resource::<SimStats>().deaths_by_cause[cause as usize]
+    }
+
+    /// A disease-mortality death is final: a symbiotic partner paying into
+    /// the dying organism later in the tick does not bring it back above
+    /// zero, and the death is filed as Disease even past old-age onset.
+    #[test]
+    fn a_disease_death_is_final_and_filed_as_disease() {
+        let mut world = death_world();
+        // Old enough that depletion would have read as old age, healthy, and
+        // the receiving side of a mutual pair: its partner donates, it takes.
+        let sick = spawn(&mut world, 10.0, 1.0, 4000, genome(-1.0));
+        let partner = spawn(&mut world, 50.0, 1.0, 100, genome(1.0));
+        // Severity far past 1 makes the mortality roll certain.
+        world.entity_mut(sick).insert(Infection {
+            severity: 1000.0,
+            ticks_remaining: 100,
+        });
+        world.entity_mut(sick).insert(Symbiosis {
+            link_target: Some(partner),
+            link_ticks: SYMBIOSIS_LINK_THRESHOLD,
+        });
+        world.entity_mut(partner).insert(Symbiosis {
+            link_target: Some(sick),
+            link_ticks: SYMBIOSIS_LINK_THRESHOLD,
+        });
+
+        world.run_system_once(disease_effects_system).unwrap();
+        world.run_system_once(symbiosis_transfer_system).unwrap();
+        world.run_system_once(death_system).unwrap();
+
+        assert!(
+            world.get_entity(sick).is_err(),
+            "the disease death was undone"
+        );
+        assert_eq!(world.get::<Energy>(partner).unwrap().0, 50.0);
+        assert_eq!(deaths(&world, DeathCause::Disease), 1);
+        assert_eq!(world.resource::<SimStats>().total_deaths, 1);
+    }
+
+    /// An organism killed earlier in the tick keeps the cause it was killed
+    /// with: a certain disease roll on an infected predation victim does not
+    /// refile the death as Disease.
+    #[test]
+    fn disease_does_not_refile_an_earlier_kill() {
+        let mut world = death_world();
+        let victim = spawn(&mut world, 0.0, 0.0, 100, genome(0.0));
+        world.entity_mut(victim).insert((
+            Killed(DeathCause::Predation),
+            Infection {
+                severity: 1000.0,
+                ticks_remaining: 100,
+            },
+        ));
+
+        world.run_system_once(disease_effects_system).unwrap();
+        world.run_system_once(death_system).unwrap();
+
+        assert_eq!(deaths(&world, DeathCause::Predation), 1);
+        assert_eq!(deaths(&world, DeathCause::Disease), 0);
+    }
+
+    /// Old age is health decayed to zero past onset. An old organism that
+    /// runs out of energy with health left starved, or died of its
+    /// infection, and is filed that way.
+    #[test]
+    fn old_age_needs_health_gone_not_just_age() {
+        let mut world = death_world();
+        let old = OLD_AGE_ONSET_TICKS + 500;
+        spawn(&mut world, 0.0, 0.0, old, genome(0.0));
+        spawn(&mut world, -1.0, 0.6, old, genome(0.0));
+        let sick = spawn(&mut world, -1.0, 0.6, old, genome(0.0));
+        world.entity_mut(sick).insert(Infection {
+            severity: 0.5,
+            ticks_remaining: 100,
+        });
+
+        world.run_system_once(death_system).unwrap();
+
+        assert_eq!(deaths(&world, DeathCause::OldAge), 1);
+        assert_eq!(deaths(&world, DeathCause::Starvation), 1);
+        assert_eq!(deaths(&world, DeathCause::Disease), 1);
     }
 }
 
