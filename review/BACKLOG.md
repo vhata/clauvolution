@@ -31,6 +31,7 @@ See the [`code review guide`](../docs/CODE_REVIEW_GUIDE.md) for how findings ent
   - Starting point: `Res<Time<Real>>` in `camera_control_system` and `update_minimap`; recolour on `Changed<SpeciesId>`; split trail strips at wrap; `i32` minimap rows; build the spawn scale with `organism_sprite_scale`; gate drag start on `pointer_over_ui`. Validate in a release build: pause, then WASD still pans and the minimap still tracks.
   - Source: review/2026-10-09-0906-full.md, 2026-10-09
   - Findings: `render-input-on-virtual-time`, `sprite-colour-frozen-at-spawn-species`, `trail-draws-across-torus-wrap`, `minimap-row-underflow-at-world-edge`, `simple-lod-spawn-scale-overwritten`, `drag-pan-ignores-pointer-over-ui`
+  - Related: `lod-switch-skips-childless-sprites` (TODO)
 - [TOOLING] `screenshot-tour-egui-path` — **Make `--screenshot` use the egui-aware capture path and wait for its last image.** The legacy tour exits before the sixth capture is written and its images have no header, panel, or minimap, so the baseline check in the code review guide proves only that a window opens.
   - Starting point: Drive `--screenshot` through `clauvolution_render::begin_screenshot` (or load a bundled tour JSON) and gate `AppExit` on `ScreenshotState.pending` being clear. Validate: `cargo run --release -- --screenshot` writes six PNGs and each shows the side panel.
   - Source: review/2026-09-17-0756-full.md, 2026-09-17
@@ -42,11 +43,12 @@ See the [`code review guide`](../docs/CODE_REVIEW_GUIDE.md) for how findings ent
   - Starting point: `phylo_tab` (draw the highlighted extinct row), `inspect_tab` and `OrganismExportReport` (tie the report to an entity), `draw_creature_portrait` (match `BodyPlan::from_genome`), `help_tab`, `graphs_tab`.
   - Source: review/2026-10-09-0906-full.md, 2026-10-09
   - Findings: `chronicle-link-misses-older-extinct-species`, `export-report-not-tied-to-organism`, `portrait-omits-extra-torso-segments`, `help-tab-controls-drift`, `grazes-chart-plots-retired-counter`
+  - Related: `creature-portrait-v2-polish` (TODO)
 - [TOOLING] `headless-cli-edges` — **Bound `--speed` and script values, fail on a failed history dump, and reject flags the chosen mode ignores.** `--speed 1e30` panics, a bad tour value panics the GUI, a failed `--dump-history` exits 0, and `--save-as` in the GUI or `--script` headless silently do nothing.
   - Starting point: `cli.rs` ranges and `check`, `script.rs` `load_script`, `headless_tick_counter` in `main.rs`.
   - Source: review/2026-10-09-0906-full.md, 2026-10-09
   - Findings: `speed-and-script-values-unbounded`, `dump-history-failure-exits-zero`, `mode-only-flags-silently-ignored`
-  - Related: `headless-save-ticks-past-summary` (TODO)
+  - Related: `headless-save-ticks-past-summary` (TODO), `script-tour-virtual-time-after-speed` (TODO)
 - [PERSIST] `save-input-validation` — **Reject duplicate neuron ids and non-finite or out-of-bounds numbers in saves and creature files.** A hand-written creature file can miswire every output, and a NaN in a save poisons the ledger and passes to offspring.
   - Starting point: `genome_problem` and `validate_save_state` in `crates/clauvolution_sim/src/save.rs`.
   - Source: review/2026-10-09-0906-full.md, 2026-10-09
@@ -67,4 +69,5 @@ See the [`code review guide`](../docs/CODE_REVIEW_GUIDE.md) for how findings ent
   - Starting point: the site lists in the findings. No behaviour change; `scripts/check.sh` and a same-seed headless summary diff are the validation.
   - Source: review/2026-10-09-0906-full.md, 2026-10-09
   - Findings: `dead-code-across-crates`, `dangling-derive-component`, `classification-dead-loop`, `spatial-hash-lazy-cell-size`, `unused-crate-dependencies`
+
 ## Unprioritized
