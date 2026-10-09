@@ -1851,33 +1851,35 @@ fn graphs_tab(ui: &mut egui::Ui, history: &PopulationHistory) {
 
             ui.add_space(4.0);
 
-            // Grazes by output: today every bite goes through attack; the
-            // plan moves grazing to eat, and this chart shows the handover.
-            ui.label("Grazes per second by output");
+            // Bites of living plants. Every bite goes through `eat` since
+            // step 2 of plans/2026-09-21-pyramid-top.md (`grazes_attack` is
+            // always 0, so it is not plotted); the second line is the share
+            // taken by eaters that are themselves plants.
+            ui.label("Plant bites per second");
             let g_eat: PlotPoints = snaps
                 .iter()
                 .enumerate()
                 .map(|(i, s)| [i as f64, s.feeding.grazes_eat as f64])
                 .collect();
-            let g_attack: PlotPoints = snaps
+            let g_by_plant: PlotPoints = snaps
                 .iter()
                 .enumerate()
-                .map(|(i, s)| [i as f64, s.feeding.grazes_attack as f64])
+                .map(|(i, s)| [i as f64, s.feeding.grazes_eat_by_plant as f64])
                 .collect();
 
-            Plot::new("grazes_by_output")
+            Plot::new("grazes_by_eater")
                 .height(110.0)
                 .legend(Legend::default().position(egui_plot::Corner::LeftTop))
                 .show(ui, |plot_ui| {
                     plot_ui.line(
                         Line::new(g_eat)
-                            .color(egui::Color32::from_rgb(120, 200, 120))
-                            .name("Through eat"),
+                            .color(strategy_color(SpeciesStrategy::Grazer))
+                            .name("All eaters"),
                     );
                     plot_ui.line(
-                        Line::new(g_attack)
-                            .color(egui::Color32::from_rgb(230, 100, 100))
-                            .name("Through attack"),
+                        Line::new(g_by_plant)
+                            .color(strategy_color(SpeciesStrategy::Photosynthesizer))
+                            .name("Eaters that are plants"),
                     );
                 });
 
