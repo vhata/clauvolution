@@ -2196,6 +2196,15 @@ mod tests {
     /// GUI and headless apps do, on a small world with its session in
     /// `session_dir`.
     fn run_startup(load: Option<&std::path::Path>, session_dir: &std::path::Path) -> App {
+        run_startup_seeded(load, session_dir, SeedWith::default())
+    }
+
+    /// `run_startup` with `--seed-with` creatures.
+    fn run_startup_seeded(
+        load: Option<&std::path::Path>,
+        session_dir: &std::path::Path,
+        seed_with: SeedWith,
+    ) -> App {
         let mut app = App::new();
         app.insert_resource(Session {
             name: "startup-test".to_string(),
@@ -2204,7 +2213,7 @@ mod tests {
         .add_plugins((CorePlugin, PhylogenyPlugin))
         .insert_resource(InnovationCounter(100))
         .insert_resource(LoadPath(load.map(|p| p.display().to_string())))
-        .insert_resource(SeedWith::default())
+        .insert_resource(seed_with)
         .add_systems(Startup, startup_system);
         {
             let mut config = app.world_mut().resource_mut::<SimConfig>();
@@ -2286,6 +2295,25 @@ mod tests {
         let log = chronicle_file(&scratch.0);
         assert!(
             log.starts_with("[  0s] Session 'startup-test' started"),
+            "{log}"
+        );
+    }
+
+    #[test]
+    fn a_fresh_world_writes_its_seeding_entries_to_the_session_chronicle_log() {
+        let scratch = Scratch::new("seeded-chronicle");
+        let mut rng = rand::rngs::StdRng::seed_from_u64(1);
+        let genome = clauvolution_genome::Genome::new_minimal(&mut InnovationCounter(0), &mut rng);
+        let creature =
+            save::CreatureFile::new(&genome, Some("Test Import"), "grazer", 0, 0, 1, "elsewhere");
+        let seed_with = SeedWith(vec![("creature.json".into(), creature)]);
+
+        let mut app = run_startup_seeded(None, &scratch.0, seed_with);
+
+        assert_eq!(organism_count(&mut app), 9);
+        let log = chronicle_file(&scratch.0);
+        assert!(
+            log.contains("Seeded with Test Import from elsewhere (seed 1) via creature.json"),
             "{log}"
         );
     }
