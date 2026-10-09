@@ -2339,10 +2339,14 @@ fn disease_transmission_system(
 }
 
 /// Apply per-tick disease effects: energy drain, direct mortality chance,
-/// tick down timer, remove when expired.
+/// tick down timer, remove when expired. An organism already killed this
+/// tick is skipped: its death and its cause are already decided.
 fn disease_effects_system(
     mut commands: Commands,
-    mut infected: Query<(Entity, &mut Energy, &mut Infection, &Genome), With<Organism>>,
+    mut infected: Query<
+        (Entity, &mut Energy, &mut Infection, &Genome),
+        (With<Organism>, Without<Killed>),
+    >,
     config: Res<SimConfig>,
     mut sim_rng: ResMut<SimRng>,
     mut ledger: ResMut<EnergyLedger>,
@@ -2369,12 +2373,16 @@ fn disease_effects_system(
         ledger.tick.disease += drain as f64;
 
         // Direct mortality chance per tick — ignores energy reserves so
-        // photosynthesisers can't just sun-bathe through an infection.
-        // Zero only energy (not health) so death_system attributes to Disease.
+        // photosynthesisers can't just sun-bathe through an infection. The
+        // marker makes the death final, as a kill's is: symbiosis transfer
+        // skips it, so a partner cannot credit it back above zero before
+        // death_system, and death_system files it under Disease whatever the
+        // organism's age.
         let mortality = DISEASE_MORTALITY_RATE * infection.severity * mortality_factor;
         if rng.gen::<f32>() < mortality {
             ledger.tick.death += energy.0 as f64;
             energy.0 = 0.0;
+            commands.entity(entity).insert(Killed(DeathCause::Disease));
         }
 
         infection.ticks_remaining = infection.ticks_remaining.saturating_sub(1);
@@ -5566,6 +5574,115 @@ mod death_marker_tests {
         }
         assert_eq!(markers(&mut world), 0, "marker outlived its lifetime");
         assert_eq!(world.entities().len(), 0);
+    }
+}
+
+#[cfg(test)]
+mod death_cause_tests {
+    use super::*;
+    use bevy::ecs::system::RunSystemOnce;
+    use rand::{rngs::StdRng, SeedableRng};
+
+    /// The resources `disease_effects_system`, `symbiosis_transfer_system`
+    /// and `death_system` read.
+    fn death_world() -> World {
+        let mut world = World::new();
+        world.insert_resource(SimConfig::default());
+        world.insert_resource(SimRng::from_seed(1));
+        world.insert_resource(EnergyLedger::default());
+        world.insert_resource(SimStats::default());
+        world.insert_resource(FitnessTracker::default());
+        world.insert_resource(DietBandStats::default());
+        world
+    }
+
+    fn genome(symbiosis_rate: f32) -> Genome {
+        let mut innovation = InnovationCounter(0);
+        let mut rng = StdRng::seed_from_u64(1);
+        let mut g = Genome::new_minimal(&mut innovation, &mut rng);
+        g.disease_resistance = 0.0;
+        g.symbiosis_rate = symbiosis_rate;
+        g
+    }
+
+    /// An organism with what the three systems query, and nothing that would
+    /// kill it on its own.
+    fn spawn(world: &mut World, energy: f32, health: f32, age: u64, genome: Genome) -> Entity {
+        world
+            .spawn((
+                Organism,
+                Position(Vec2::ZERO),
+                Energy(energy),
+                Health(health),
+                Age(age),
+                EnergyFlows::default(),
+                Symbiosis::default(),
+                genome,
+            ))
+            .id()
+    }
+
+    fn deaths(world: &World, cause: DeathCause) -> u64 {
+        world.resource::<SimStats>().deaths_by_cause[cause as usize]
+    }
+
+    /// A disease-mortality death is final: a symbiotic partner paying into
+    /// the dying organism later in the tick does not bring it back above
+    /// zero, and the death is filed as Disease even past old-age onset.
+    #[test]
+    fn a_disease_death_is_final_and_filed_as_disease() {
+        let mut world = death_world();
+        // Old enough that depletion would have read as old age, healthy, and
+        // the receiving side of a mutual pair: its partner donates, it takes.
+        let sick = spawn(&mut world, 10.0, 1.0, 4000, genome(-1.0));
+        let partner = spawn(&mut world, 50.0, 1.0, 100, genome(1.0));
+        // Severity far past 1 makes the mortality roll certain.
+        world.entity_mut(sick).insert(Infection {
+            severity: 1000.0,
+            ticks_remaining: 100,
+        });
+        world.entity_mut(sick).insert(Symbiosis {
+            link_target: Some(partner),
+            link_ticks: SYMBIOSIS_LINK_THRESHOLD,
+        });
+        world.entity_mut(partner).insert(Symbiosis {
+            link_target: Some(sick),
+            link_ticks: SYMBIOSIS_LINK_THRESHOLD,
+        });
+
+        world.run_system_once(disease_effects_system).unwrap();
+        world.run_system_once(symbiosis_transfer_system).unwrap();
+        world.run_system_once(death_system).unwrap();
+
+        assert!(
+            world.get_entity(sick).is_err(),
+            "the disease death was undone"
+        );
+        assert_eq!(world.get::<Energy>(partner).unwrap().0, 50.0);
+        assert_eq!(deaths(&world, DeathCause::Disease), 1);
+        assert_eq!(world.resource::<SimStats>().total_deaths, 1);
+    }
+
+    /// An organism killed earlier in the tick keeps the cause it was killed
+    /// with: a certain disease roll on an infected predation victim does not
+    /// refile the death as Disease.
+    #[test]
+    fn disease_does_not_refile_an_earlier_kill() {
+        let mut world = death_world();
+        let victim = spawn(&mut world, 0.0, 0.0, 100, genome(0.0));
+        world.entity_mut(victim).insert((
+            Killed(DeathCause::Predation),
+            Infection {
+                severity: 1000.0,
+                ticks_remaining: 100,
+            },
+        ));
+
+        world.run_system_once(disease_effects_system).unwrap();
+        world.run_system_once(death_system).unwrap();
+
+        assert_eq!(deaths(&world, DeathCause::Predation), 1);
+        assert_eq!(deaths(&world, DeathCause::Disease), 0);
     }
 }
 
