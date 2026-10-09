@@ -167,6 +167,43 @@ impl UiState {
     }
 }
 
+/// The Help tab's controls list. Mass extinction and bloom keys have
+/// sections of their own below it.
+const HELP_CONTROLS: &[(&str, &str)] = &[
+    ("Space", "pause / unpause"),
+    ("[  ]", "slow down / speed up (0.125x to 16x)"),
+    ("Left click", "inspect organism"),
+    ("F", "focus camera on selected organism"),
+    (", / .", "prev / next living member of same species"),
+    ("R", "select a random living organism"),
+    ("WASD / arrows", "pan camera"),
+    ("Right / middle drag", "pan camera"),
+    ("Shift+left drag", "pan camera"),
+    ("Scroll", "zoom in / out"),
+    ("Q / E", "zoom out / in"),
+    ("- / +", "zoom out / in (the + is the = key)"),
+    ("M", "cycle minimap mode (normal / heatmap / species-range)"),
+    ("Shift+M", "show/hide minimap"),
+    ("T", "toggle trail for selected organism"),
+    ("F5", "save world"),
+    ("Shift+S", "take screenshot"),
+    ("1 … 6", "switch right-panel tab"),
+];
+
+/// Mass extinction keys, for the Help tab.
+const HELP_EXTINCTIONS: &[(&str, &str)] = &[
+    ("X", "asteroid impact (kills 70%)"),
+    ("I", "ice age (halves temperature)"),
+    ("V", "volcano (kills area, boosts nutrients)"),
+];
+
+/// Bloom keys, for the Help tab.
+const HELP_BLOOMS: &[(&str, &str)] = &[
+    ("B", "solar bloom (double light for 30s)"),
+    ("N", "nutrient rain (massive food burst)"),
+    ("J", "Cambrian spark (triple mutation for 30s)"),
+];
+
 fn help_tab(ui: &mut egui::Ui) {
     ui.heading("Clauvolution");
     ui.label("Every dot is a living organism with its own evolved brain. They sense the world, decide what to do, and pass their genes to offspring. No behaviour is programmed — everything emerges from evolution.");
@@ -199,23 +236,9 @@ fn help_tab(ui: &mut egui::Ui) {
             egui::Grid::new("controls_grid")
                 .striped(true)
                 .show(ui, |ui| {
-                    for (key, desc) in [
-                        ("Space", "pause / unpause"),
-                        ("[  ]", "slow down / speed up"),
-                        ("Scroll", "zoom in / out"),
-                        ("Click", "inspect organism"),
-                        ("F", "focus camera on selected organism"),
-                        (", / .", "prev / next living member of same species"),
-                        ("R", "select a random living organism"),
-                        ("Right-drag", "pan camera"),
-                        ("WASD", "pan camera"),
-                        ("M", "cycle minimap mode (normal / heatmap / species-range)"),
-                        ("Shift+M", "show/hide minimap"),
-                        ("T", "toggle trail for selected organism"),
-                        ("F5", "save world"),
-                        ("Shift+S", "take screenshot"),
-                        ("1 … 6", "switch right-panel tab"),
-                    ] {
+                    // Keep in step with the README's Controls table and the
+                    // input systems in the render and sim crates.
+                    for &(key, desc) in HELP_CONTROLS {
                         ui.monospace(key);
                         ui.label(desc);
                         ui.end_row();
@@ -224,15 +247,15 @@ fn help_tab(ui: &mut egui::Ui) {
         });
 
     egui::CollapsingHeader::new("Mass extinction events").show(ui, |ui| {
-        ui.label("X — asteroid impact (kills 70%)");
-        ui.label("I — ice age (halves temperature)");
-        ui.label("V — volcano (kills area, boosts nutrients)");
+        for (key, desc) in HELP_EXTINCTIONS {
+            ui.label(format!("{key} — {desc}"));
+        }
     });
 
     egui::CollapsingHeader::new("Bloom events").show(ui, |ui| {
-        ui.label("B — solar bloom (double light for 30s)");
-        ui.label("N — nutrient rain (massive food burst)");
-        ui.label("J — Cambrian spark (triple mutation for 30s)");
+        for (key, desc) in HELP_BLOOMS {
+            ui.label(format!("{key} — {desc}"));
+        }
     });
 }
 
@@ -2812,6 +2835,40 @@ mod tests {
                 .collect();
             assert_portrait_matches_body_plan(&genome);
         }
+    }
+
+    /// Invariant 7 in one direction: every key the README's Controls table
+    /// names appears in the Help tab. Each bold span in a row's key column is
+    /// one key or key group.
+    #[test]
+    fn help_tab_lists_every_readme_control() {
+        let readme = include_str!("../../../README.md");
+        let table = readme
+            .split("## Controls")
+            .nth(1)
+            .expect("README has a Controls section")
+            .split("\n## ")
+            .next()
+            .unwrap();
+        let help_keys: Vec<String> = HELP_CONTROLS
+            .iter()
+            .chain(HELP_EXTINCTIONS)
+            .chain(HELP_BLOOMS)
+            .map(|(key, _)| key.to_lowercase())
+            .collect();
+        let mut checked = 0;
+        for row in table.lines().filter(|l| l.starts_with("| **")) {
+            let key_column = row.split('|').nth(1).unwrap();
+            for key in key_column.split("**").skip(1).step_by(2) {
+                let key = key.to_lowercase();
+                assert!(
+                    help_keys.iter().any(|h| h.contains(&key)),
+                    "README control {key:?} is missing from the Help tab"
+                );
+                checked += 1;
+            }
+        }
+        assert!(checked > 20, "parsed only {checked} README keys");
     }
 
     #[test]
