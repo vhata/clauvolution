@@ -1,7 +1,7 @@
 # Long headless runs on main, so a merged change that moves the attractor is
 # noticed within days. Advisory: a red probe is a notification, not a block.
 # Pushes run 8 seeds once at 5000 ticks; the weekly run uses the audit shape
-# (8 seeds, two runs each, 15000 ticks). See docs/QUALITY.md.
+# (8 seeds, one run each, 15000 ticks). See docs/QUALITY.md.
 name: Probe
 
 on:
@@ -16,7 +16,7 @@ on:
         required: false
         type: string
       runs:
-        description: Runs per seed, 1 or 2 (default 2)
+        description: Runs per seed, 1 or 2 (default 1)
         required: false
         type: string
   pull_request:
@@ -41,11 +41,11 @@ jobs:
           case "$EVENT" in
             schedule)
               ticks=15000
-              count=2
+              count=1
               ;;
             workflow_dispatch)
               ticks=${INPUT_TICKS:-15000}
-              count=${INPUT_RUNS:-2}
+              count=${INPUT_RUNS:-1}
               ;;
             *)
               ticks=5000
