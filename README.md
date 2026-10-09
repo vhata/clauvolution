@@ -61,7 +61,7 @@ The toolchain is pinned in `rust-toolchain.toml`; `rustup` installs it on first 
 | **R** | Select a random living organism |
 | **Space** | Pause / unpause |
 | **[** / **]** | Slow down / speed up (0.125× to 16×) |
-| **M** | Toggle minimap heatmap |
+| **M** | Cycle minimap mode (normal / heatmap / species range) |
 | **Shift+M** | Hide / show minimap |
 | **T** | Toggle trail for selected organism |
 | **X** / **I** / **V** | Asteroid / Ice age / Volcano |
