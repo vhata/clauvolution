@@ -316,33 +316,58 @@ fn startup_system(
     tick: ResMut<TickCounter>,
     season: ResMut<Season>,
     phylo: ResMut<PhyloTree>,
-    chronicle: ResMut<WorldChronicle>,
+    mut chronicle: ResMut<WorldChronicle>,
     ledger: ResMut<EnergyLedger>,
+    session: Res<Session>,
     load_path: Res<LoadPath>,
     seed_with: Res<SeedWith>,
 ) {
+    // Point the chronicle at the session's log before anything is written,
+    // so the entries made while loading or seeding the world reach the file.
+    // A loaded world starts at its saved tick and never sees tick 0, so this
+    // cannot wait for the first tick.
+    chronicle.log_path = Some(session.log_path());
+
+    let mut load_failure = None;
     if let Some(ref path) = load_path.0 {
         let save_path = std::path::Path::new(path).join("save.json");
-        if save_path.exists() {
-            if !seed_with.0.is_empty() {
-                warn!(
-                    "--seed-with only applies to a fresh world; ignoring {} creature file(s) while loading a save",
-                    seed_with.0.len()
+        match read_save(&save_path) {
+            Ok(state) => {
+                if !seed_with.0.is_empty() {
+                    warn!(
+                        "--seed-with only applies to a fresh world; ignoring {} creature file(s) while loading a save",
+                        seed_with.0.len()
+                    );
+                }
+                load_saved_world(
+                    commands, config, innovation, stats, tick, season, phylo, chronicle, ledger,
+                    &session, &save_path, state,
                 );
+                return;
             }
-            load_saved_world(
-                commands, config, innovation, stats, tick, season, phylo, chronicle, ledger,
-                &save_path,
-            );
-            return;
-        } else {
-            warn!(
-                "Save file not found: {}, starting fresh",
-                save_path.display()
-            );
+            Err(reason) => {
+                let message = format!("{reason}; starting a fresh world");
+                warn!("{message}");
+                load_failure = Some(message);
+            }
         }
     }
+    chronicle.log(0, format!("Session '{}' started", session.name));
+    if let Some(message) = load_failure {
+        chronicle.log(0, message);
+    }
     fresh_world(commands, config, innovation, ledger, chronicle, &seed_with);
+}
+
+/// Read the save a `--load` names, or say why it cannot be used. Any failure
+/// sends the caller to a fresh world; `load_world` has already logged the
+/// parse error when there is one.
+fn read_save(save_path: &std::path::Path) -> Result<save::SaveState, String> {
+    if !save_path.exists() {
+        return Err(format!("Save file not found: {}", save_path.display()));
+    }
+    save::load_world(save_path)
+        .ok_or_else(|| format!("Save file {} could not be loaded", save_path.display()))
 }
 
 fn load_saved_world(
@@ -355,13 +380,10 @@ fn load_saved_world(
     mut phylo: ResMut<PhyloTree>,
     mut chronicle: ResMut<WorldChronicle>,
     mut ledger: ResMut<EnergyLedger>,
+    session: &Session,
     save_path: &std::path::Path,
+    state: save::SaveState,
 ) {
-    let Some(state) = save::load_world(save_path) else {
-        warn!("Failed to load save file, starting fresh");
-        return;
-    };
-
     info!(
         "Loading world from {} ({} organisms, {} food)",
         save_path.display(),
@@ -405,6 +427,7 @@ fn load_saved_world(
     // Restore phylo tree and chronicle
     save::restore_phylo(&mut phylo, &state.phylo_nodes);
     save::restore_chronicle(&mut chronicle, &state.chronicle_entries);
+    chronicle.log(tick.0, format!("Session '{}' started", session.name));
     chronicle.log(tick.0, "World loaded from save".to_string());
     if let Err(message) = terrain_restored {
         eprintln!("Warning: {}", message);
