@@ -231,7 +231,7 @@ Headless mode (Theme 4) is the fast version of this loop: `cargo run --release -
 
 **Direction:** the response to this audit is [`docs/design/simulation-rules.md`](design/simulation-rules.md). Each of its phases ends with the audit re-run and a new dated block here.
 
-**Re-run 2026-09-20**, phase 1 audit on the branch later squash-merged as b60ab30 in #23 (canopy light sharing, surface drag, grazing and digestion, founder diet spread 1.0, bite 0.3, ceiling 6000), same eight seeds, two runs each, 15k ticks. Full summaries, whole-run CSVs and the reading are in [`docs/audits/2026-09-20-phase1-audit/`](audits/2026-09-20-phase1-audit/README.md). Not comparable line by line with 2026-09-18: plants now have a consumer and light is shared.
+**Re-run 2026-09-20**, phase 1 audit on commit 59759bc (squash-merged as b60ab30 in #23) (canopy light sharing, surface drag, grazing and digestion, founder diet spread 1.0, bite 0.3, ceiling 6000), same eight seeds, two runs each, 15k ticks. Full summaries, whole-run CSVs and the reading are in [`docs/audits/2026-09-20-phase1-audit/`](audits/2026-09-20-phase1-audit/README.md). Not comparable line by line with 2026-09-18: plants now have a consumer and light is shared.
 
 | seed | run 1 plants / grazers / hunters | run 2 | plant share | species | body size | eater diet |
 |---|---|---|---|---|---|---|
@@ -255,7 +255,7 @@ Headless mode (Theme 4) is the fast version of this loop: `cargo run --release -
 
 **Direction:** phase 1 leaves a two-level pyramid. The hunter level and the graze-versus-attack output question are filed as design questions; phase 2 of the design doc proceeds on this world.
 
-**Re-run 2026-09-23**, pyramid re-read on the branch later squash-merged as 672a861 in #50 (step 3 of `plans/2026-09-21-pyramid-top.md`: grazing through `eat`, attack as a kill attempt only, strike cost 1.0), same eight seeds, one run each now that headless runs are deterministic, 15k ticks. Summaries, CSVs, the reading and a kill-share probe are in [`docs/audits/2026-09-23-pyramid-reread/`](audits/2026-09-23-pyramid-reread/README.md).
+**Re-run 2026-09-23**, pyramid re-read on commit 93280c4 (squash-merged as 672a861 in #50) (step 3 of `plans/2026-09-21-pyramid-top.md`: grazing through `eat`, attack as a kill attempt only, strike cost 1.0), same eight seeds, one run each now that headless runs are deterministic, 15k ticks. Summaries, CSVs, the reading and a kill-share probe are in [`docs/audits/2026-09-23-pyramid-reread/`](audits/2026-09-23-pyramid-reread/README.md).
 
 | seed | hunters at 5000 / 15000 | last hunter tick | founding hunters, mean age at death | final plants / grazers | plant share | species | samples at ceiling (of 500) |
 |---|---|---|---|---|---|---|---|
