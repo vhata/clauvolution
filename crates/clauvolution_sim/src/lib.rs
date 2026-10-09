@@ -1896,7 +1896,6 @@ fn predation_system(
             (e, pos.0, attack_str, attack_range, body_size.0, band)
         })
         .collect();
-    predation_stats.attacks_attempted += attackers.len() as u64;
 
     // (killer, victim, victim_energy, victim_is_plant) — energy transfer
     // computed at kill time. A victim is claimed at most once per tick: the
@@ -1982,6 +1981,14 @@ fn predation_system(
     for ((attacker_entity, _, attack_str, _, _, band), (reach, hits)) in
         attackers.iter().zip(reaches)
     {
+        // Strikes resolve in attacker order. An attacker an earlier one has
+        // already claimed is dead before its turn: it does not strike, pay or
+        // kill, and is not counted as an intent. One claimed by a later
+        // attacker struck while alive, so its strike lands and is paid for.
+        if claimed_victims.contains(attacker_entity) {
+            continue;
+        }
+        predation_stats.attacks_attempted += 1;
         candidates.clear();
         // Instrument only: which gates the unclaimed consumers in reach
         // passed (step 5 of plans/2026-09-21-pyramid-top.md).
@@ -2136,11 +2143,15 @@ fn predation_system(
 
     // A strike costs the attacker whether it landed, bounced or lost its
     // target to another attacker; the cost does not read what the target
-    // was. An attacker killed this tick has already left the ledger, so it
-    // is not charged. Booked as movement: a strike is muscular work.
+    // was. Every attacker here struck while alive (one claimed before its
+    // turn never got here), so every one pays, including one killed by a
+    // later attacker: its energy was zeroed by the kill, and the cost takes
+    // it below zero, which death_system books as death energy the way it
+    // books metabolism's overdraw. Booked as movement: a strike is muscular
+    // work.
     predation_stats.strikes += strike_costs.len() as u64;
     for (attacker, cost) in strike_costs {
-        if cost <= 0.0 || claimed_victims.contains(&attacker) {
+        if cost <= 0.0 {
             continue;
         }
         if let Ok((_, _, mut attacker_energy, _, _, attacker_genome, _, _)) =
@@ -5448,6 +5459,97 @@ mod grazing_tests {
         assert_eq!(stats.attacks_attempted, 3);
         assert_eq!(stats.strikes, 2);
         assert!((stats.strike_energy - 1.0).abs() < 1e-6);
+        let ledger = world.resource::<EnergyLedger>();
+        assert!((ledger.tick.movement - 1.0).abs() < 1e-6);
+    }
+
+    /// Spawns, in this order, an armoured attacker at x = 10, an unarmoured
+    /// attacker at x = 11 and idle prey at x = 12.5, or the two attackers the
+    /// other way round when `middle_first`. Only the armoured one can kill
+    /// the middle one, and the middle one cannot hurt it, so the middle
+    /// attacker's only possible kill is the prey. Returns (armoured, middle,
+    /// prey).
+    fn attacker_chain(world: &mut World, middle_first: bool) -> (Entity, Entity, Entity) {
+        world.resource_mut::<SimConfig>().strike_cost = 0.5;
+        let mut armoured = genome(false, false, -1.0, 1.0);
+        armoured.armor = 10.0;
+        let spawn_armoured = |world: &mut World| {
+            spawn(
+                world,
+                Vec2::new(10.0, 10.0),
+                50.0,
+                armoured.clone(),
+                1.0,
+                attacking(),
+            )
+        };
+        let spawn_middle = |world: &mut World| {
+            spawn(
+                world,
+                Vec2::new(11.0, 10.0),
+                40.0,
+                genome(false, false, -1.0, 1.0),
+                1.0,
+                attacking(),
+            )
+        };
+        let (armoured, middle) = if middle_first {
+            let middle = spawn_middle(world);
+            (spawn_armoured(world), middle)
+        } else {
+            let armoured = spawn_armoured(world);
+            (armoured, spawn_middle(world))
+        };
+        let prey = spawn(
+            world,
+            Vec2::new(12.5, 10.0),
+            30.0,
+            genome(false, false, -1.0, 0.0),
+            1.0,
+            idle(),
+        );
+        (armoured, middle, prey)
+    }
+
+    /// An attacker killed by an earlier attacker in the same tick is dead
+    /// before its turn: it does not strike, pay or kill.
+    #[test]
+    fn an_attacker_killed_before_its_turn_does_not_strike() {
+        let mut world = feeding_world();
+        let (armoured, middle, prey) = attacker_chain(&mut world, false);
+
+        world.run_system_once(predation_system).unwrap();
+
+        assert!(world.get::<Killed>(middle).is_some());
+        assert!(
+            world.get::<Killed>(prey).is_none(),
+            "a dead attacker killed"
+        );
+        assert_eq!(energy(&world, prey), 30.0);
+        assert!((energy(&world, armoured) - 49.5).abs() < 1e-4);
+        let stats = world.resource::<PredationStats>();
+        assert_eq!(stats.kills, 1);
+        assert_eq!(stats.attacks_attempted, 1);
+        assert_eq!(stats.strikes, 1);
+        let ledger = world.resource::<EnergyLedger>();
+        assert!((ledger.tick.movement - 0.5).abs() < 1e-6);
+    }
+
+    /// An attacker killed by a later attacker struck while it was alive: its
+    /// kill stands and its strike is paid for, like any other.
+    #[test]
+    fn an_attacker_killed_after_its_turn_keeps_its_kill_and_pays() {
+        let mut world = feeding_world();
+        let (_, middle, prey) = attacker_chain(&mut world, true);
+
+        world.run_system_once(predation_system).unwrap();
+
+        assert!(world.get::<Killed>(middle).is_some());
+        assert!(world.get::<Killed>(prey).is_some());
+        let stats = world.resource::<PredationStats>();
+        assert_eq!(stats.kills, 2);
+        assert_eq!(stats.attacks_attempted, 2);
+        assert_eq!(stats.strikes, 2);
         let ledger = world.resource::<EnergyLedger>();
         assert!((ledger.tick.movement - 1.0).abs() < 1e-6);
     }
