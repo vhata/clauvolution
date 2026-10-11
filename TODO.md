@@ -23,6 +23,13 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 
 ### Unprioritized
 
+- [RENDER] `release-build-check-2026-09-render-batch` — **Check in a release build the render changes that landed without a window on 2026-09-24.** #64's five GUI steps (viewport culling and minimap box in a resized window; selection ring on R, `,`/`.`, Phylo and Inspect links, vanishing on death; no size jump at the LOD switch near zoom 0.6; hotkeys with no regression; right Shift + drag pans) and #60's death-marker fade, which now steps once per fixed tick instead of once per frame. The 2026-10-09 review confirmed #64 by tests and code reading only; `docs/QUALITY.md` says the GUI stays manual.
+  - Source: unattended-run report of 2026-09-23 ("Needs you" item 4) and its audit entries for `review/render-input-viewport-fixes` and `todo/headless-death-marker-leak`, reconciled 2026-10-11
+  - Related: `ci-scripted-tour-software-renderer`
+- [UI] `inspect-brain-view-26-inputs-check` — **Check the Inspect brain view after the nearest-eater inputs.** #51 took `NUM_INPUTS` from 22 to 26 and the brain view from 300 to 340 px; nobody has confirmed in a window that the 26 labels end `eater dx`, `eater dy`, `eater near`, `eater size` without overlap, that the `eater` nodes light for a nearby animal while `org` nodes track a plant, or that a pre-#51 save loads with the four inputs shown unconnected.
+  - Source: prepared PR body for `roadmap/pyramid-nearest-eater` ("GUI check (not done)") and its audit entry, 2026-09-23, reconciled 2026-10-11
+  - Related: `release-build-check-2026-09-render-batch`
+
 - [PERF] `serial-tick-hotspots` — **Find out why grazing, action and disease transmission dominate the serial part of the tick.** Per-system timing on seed 42 puts these three far above the systems the parallelisation entry named, so they are where any further per-tick saving has to come from.
   - Evidence: temporary `Instant` timers around each `FixedUpdate` system (not committed), seed 42, 5000 ticks, main at 1313d28, a loaded M4 Max: `sensing_and_brain_system` 13.6 s (already parallel), `grazing_system` 13.2 s, `action_system` 4.9 s, `disease_transmission_system` 4.0 s, `predation_system` 2.6 s, `symbiosis_tracking_system` 2.3 s (already parallel), every other system under 1.5 s, in a 47.9 s run. `niche_construction_system` (0.18 s) and `disease_effects_system` (0.09 s) were too small to parallelise.
   - Starting point: Profile `grazing_system` first; it is serial and nearly as costly as sensing. Its first-come bite claims, like predation's kill claims, mean a parallel version would need a parallel scan and a serial resolve in iteration order to keep seeded runs byte-identical (the pattern `predation_system` now uses).
