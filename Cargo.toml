@@ -13,6 +13,9 @@ members = [
     "crates/clauvolution_ui",
 ]
 
+[workspace.package]
+license = "MIT"
+
 [profile.release]
 incremental = true
 
