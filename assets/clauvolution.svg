@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+<title id="title">Clauvolution</title>
+<desc id="desc">A green organism containing six connected neural nodes, with small surrounding cells, on a rounded ink background.</desc>
+<rect x="0" y="0" width="256" height="256" rx="56" fill="#101820" stroke="none" stroke-opacity="0" stroke-width="1"/>
+<circle cx="126" cy="127" r="84" fill="none" stroke="#33453d" stroke-opacity="1" stroke-width="4"/>
+<circle cx="126" cy="127" r="72" fill="#21312d" stroke="#aecea0" stroke-opacity="1" stroke-width="4"/>
+<polyline points="89,104 126,92" fill="none" stroke="#58745f" stroke-opacity="1" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="89,104 126,134" fill="none" stroke="#58745f" stroke-opacity="1" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="89,152 126,92" fill="none" stroke="#58745f" stroke-opacity="1" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="89,152 126,134" fill="none" stroke="#58745f" stroke-opacity="1" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="126,92 161,116" fill="none" stroke="#58745f" stroke-opacity="1" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="126,134 161,116" fill="none" stroke="#58745f" stroke-opacity="1" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="126,134 158,160" fill="none" stroke="#58745f" stroke-opacity="1" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="89" cy="104" r="7" fill="#aecea0" stroke="none" stroke-opacity="0" stroke-width="1"/>
+<circle cx="89" cy="152" r="7" fill="#aecea0" stroke="none" stroke-opacity="0" stroke-width="1"/>
+<circle cx="126" cy="92" r="7" fill="#aecea0" stroke="none" stroke-opacity="0" stroke-width="1"/>
+<circle cx="126" cy="134" r="7" fill="#aecea0" stroke="none" stroke-opacity="0" stroke-width="1"/>
+<circle cx="161" cy="116" r="7" fill="#aecea0" stroke="none" stroke-opacity="0" stroke-width="1"/>
+<circle cx="158" cy="160" r="7" fill="#aecea0" stroke="none" stroke-opacity="0" stroke-width="1"/>
+<circle cx="197" cy="54" r="7" fill="#c9b4dd" stroke="none" stroke-opacity="0" stroke-width="1"/>
+<circle cx="50" cy="202" r="7" fill="#e0bc88" stroke="none" stroke-opacity="0" stroke-width="1"/>
+<circle cx="216" cy="174" r="5" fill="#aecea0" stroke="none" stroke-opacity="0" stroke-width="1"/>
+</svg>

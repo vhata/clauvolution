@@ -1,3 +1,5 @@
+<img src="assets/clauvolution.svg" alt="Clauvolution evolving helix icon" width="80" height="80">
+
 # Clauvolution
 
 An evolution simulator where life emerges, adapts, competes, and speciates — all without programmer-designed species or behaviours.
