@@ -5,9 +5,10 @@ An evolution simulator built in Rust and Bevy 0.15. Organisms with NEAT neural n
 **Core motivation:** pure curiosity and joy in watching evolution unfold. This is a personal project with no research question to answer and no audience to ship to. Priorities serve that motivation. See `docs/ROADMAP.md` for the full framing.
 
 <!-- docket:begin -->
+
 ## Docket
 
-This project is run with docket. Read [docket/CONTRACT.md](docket/CONTRACT.md) before any work; it is the authoritative workflow, and this section records only this project's settings. The installer keeps this section current: the text above the list is rewritten on every run, the list keeps the values this project has set.
+This project is run with docket. Read [docket/CONTRACT.md](docket/CONTRACT.md) before any work; it is the authoritative workflow, and this section records only this project's settings. The installer keeps this section current: the text above the list is rewritten on every run, the list keeps the values this project has set, and the section may sit anywhere in this file.
 
 - Queue areas: `[SIM]` (organism biology, body plans, metabolism, predation, disease, symbiosis, ecology dynamics), `[BRAIN]` (NEAT networks, genome encoding, mutation, speciation, species classification), `[WORLD]` (terrain, climate, seasons, world events such as asteroids and ice ages), `[UI]` (egui panels, inspect, graphs, chronicle, phylogeny, input controls), `[RENDER]` (rendering, camera, meshes, trails, level of detail), `[PERF]` (throughput, parallelism, memory), `[PERSIST]` (save and load, sessions, seeds, reproducibility), `[TOOLING]` (build, CLI flags, headless mode, tests, scripts), `[DOCS]` (documentation or research). One area per entry; an idea that spans areas is split into independently actionable entries connected with `Related`. A new area is added here only when none of these fits.
 - Concurrency cap: 4 heavy builds or headless runs at once.
@@ -20,7 +21,7 @@ This project is run with docket. Read [docket/CONTRACT.md](docket/CONTRACT.md) b
 - Review record: documentation-only and measurement-only PRs get a lighter review of their claims. Codebase review snapshots are opened from a `code-review/<type>-<date>` branch, not a `review/` branch, which the marker check reserves for backlog work.
 - Commits: no generated-with footers; credits live in the README.
 - Priorities: an active crash or a save that will not load is P0 here, alongside the data loss, security exposure and release blocker that the vendored TODO guide names.
-- Landing and cleanup: after a PR lands, run `bash docket/scripts/cleanup-landed.sh` and then `--apply` to remove its worktree and branch; never remove dirty worktrees or unmerged work without permission.
+
 <!-- docket:end -->
 
 ## Where to find what
