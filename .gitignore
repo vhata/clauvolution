@@ -11,12 +11,11 @@
 # Claude Code local state (agent worktrees, local settings)
 /.claude/
 
-# Worktrees created by scripts/workflow/start-work.sh
+# Worktrees created by docket/scripts/start-work.sh
 /.worktrees/
 
-# Unattended-work records: draft PR bodies and the decision audit log (see AGENTS.md)
-/.feral/
-/AUDIT.md
+# Local docket state: unattended-run audit log and prepared PR bodies (see docket/README.md)
+/.docket/
 
 # Quality gate outputs (scripts/smoke.sh, scripts/probe.sh)
 /smoke.txt

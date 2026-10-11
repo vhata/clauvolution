@@ -232,7 +232,7 @@ jobs:
 
       - name: Review due
         run: |
-          bash scripts/workflow/review-due.sh --paths crates > review-due.txt
+          bash docket/scripts/review-due.sh --paths crates > review-due.txt
           cat review-due.txt
           {
             echo '## Codebase review due check'

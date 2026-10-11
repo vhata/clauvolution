@@ -1,6 +1,6 @@
 # Quality assurance
 
-How this project keeps itself honest: which checks exist, where each one runs, what blocks a merge, and what stays a human judgement call. Companion to `docs/CODE_REVIEW_GUIDE.md` (periodic whole-codebase review) and `docs/TODO_GUIDE.md` (how deferred work is tracked). This document describes the gates as they are; the scripts, hooks, and workflows implement it. The choices behind the setup are recorded in `docs/DECISIONS.md` under "Tooling & workflow".
+How this project keeps itself honest: which checks exist, where each one runs, what blocks a merge, what a codebase review reads from this project, and what stays a human judgement call. Companion to the vendored [`docket/CODE_REVIEW_GUIDE.md`](../docket/CODE_REVIEW_GUIDE.md) (PR review and periodic whole-codebase review) and [`docket/TODO_GUIDE.md`](../docket/TODO_GUIDE.md) (how deferred work is tracked). This document describes the gates as they are; the scripts, hooks, and workflows implement it. The choices behind the setup are recorded in `docs/DECISIONS.md` under "Tooling & workflow".
 
 ## What quality means here
 
@@ -14,21 +14,22 @@ Clauvolution is a solo hobby project whose code is mostly written by agents and 
 
 ## The gates
 
-Every check is a standalone shell script in `scripts/`, runnable on its own and exiting non-zero on failure. The hooks, CI, the review guide, and an agent typing a command all run the same scripts. `scripts/check.sh` is the entry point that runs the local gates in order; there is no Makefile.
+Every check is a standalone shell script in `scripts/` (this project's gates) or `docket/scripts/` (the vendored workflow validators, never edited here), runnable on its own and exiting non-zero on failure. The hooks, CI, the review guide, and an agent typing a command all run the same scripts. `scripts/check.sh` is the entry point that runs the local gates in order; there is no Makefile.
 
 | Script | What it runs | Pre-commit | Pre-push | CI on PR | CI on `main` |
 | --- | --- | --- | --- | --- | --- |
-| `scripts/workflow/check-queues.sh --strict` | structure of `TODO.md` and `review/BACKLOG.md`: entry format, unique slugs, `Source` lines, resolvable dependencies; `--strict` makes warnings errors | no | no | yes, not required | yes |
-| `scripts/workflow/check-links.sh` | every relative Markdown link and image reference resolves to a file | no | no | yes, not required | yes |
-| `scripts/workflow/check-pr-markers.sh` | the PR description against the queues, described under [Pull request shape](#pull-request-shape) | no | no | yes, not required | no |
+| `docket/scripts/check-queues.sh --strict` | structure of `TODO.md` and `review/BACKLOG.md`: entry format, unique slugs, `Source` lines, resolvable dependencies, no Ready entry blocked by unresolved work; `--strict` makes warnings errors | no | no | through `ci.sh` | through `ci.sh` |
+| `docket/scripts/check-links.sh` | every relative Markdown link, image reference and `#anchor` resolves | no | no | through `ci.sh` | through `ci.sh` |
+| `docket/scripts/check-pr-markers.sh` | the PR description against the queues, described under [Pull request shape](#pull-request-shape) | no | no | through `ci.sh` | no |
+| `docket/scripts/ci.sh` | the one hygiene entry point CI calls: `check-queues --strict`, `check-links`, and `check-pr-markers` when the `PR`, `BASE` and `HEAD_BRANCH` variables are set | no | no | yes, not required | yes |
 | `scripts/fmt-check.sh` | `cargo fmt --all -- --check` | yes | no | yes | yes |
 | `scripts/lint.sh` | `cargo clippy --workspace --all-targets -- -D warnings` | yes | no | yes | yes |
 | `scripts/test.sh` | `cargo test --workspace` | no | yes, skipped for docs-only pushes | yes | yes |
 | `scripts/pre-push-test.sh` | the pre-push wrapper: `scripts/test.sh` unless the push changes only docs | | | | |
 | `scripts/smoke.sh` | release build, then `--headless 500 --seed 42`, must exit 0 with a living population | no | no | yes | yes |
 | `scripts/probe.sh SEED TICKS OUT_DIR [LABEL]` | one long headless run, described below | no | no | only when `probe.yml` or `scripts/probe.sh` changes, advisory | after merge and weekly, advisory |
-| `scripts/workflow/review-due.sh --paths crates` | reports whether a codebase review is due, from churn since the last review in `review/README.md` | no | no | no | weekly and on demand, advisory |
-| `scripts/check.sh` | `check-queues --strict` + `check-links` + `fmt-check` + `lint` + `test`, cheapest first | | | | |
+| `docket/scripts/review-due.sh --paths crates` | reports whether a codebase review is due, from churn since the last review in `review/README.md` | no | no | no | weekly and on demand, advisory |
+| `scripts/check.sh` | `docket/scripts/check-queues.sh --strict` + `docket/scripts/check-links.sh` + `fmt-check` + `lint` + `test`, cheapest first | | | | |
 | `scripts/setup.sh` | installs lefthook's hooks into the repository | | | | |
 
 "Yes" in the CI on PR column means the job is a required check that must pass before the PR can merge (see [Branch protection](#branch-protection)); "yes, not required" means it runs on every PR and shows red on failure, but the merge button does not wait for it. "Yes" in the CI on `main` column means the job runs again on each push to `main`; by then the change is merged, so a red run there is a signal to act on, not a block. Everything in the pre-commit and pre-push columns is a fast local mirror of the same gate, so a red CI run should be a surprise, not a discovery. Each local gate runs at one hook, not both: the format check and clippy already run on every commit, so a push normally carries only commits that already passed them, and repeating them at push time would add wait for little gain. A commit made with the hooks bypassed (`LEFTHOOK=0` or `--no-verify`) is caught by CI instead. The authoritative list of what runs where is `lefthook.yml`.
@@ -86,11 +87,11 @@ Skipping fits the gate policy because the pre-push run is a local mirror of a CI
 
 Two workflows run on pull requests. `.github/workflows/ci.yml` runs on `pull_request` and on `push` to `main`, with three jobs in parallel:
 
-1. **queues**: `scripts/workflow/check-queues.sh --strict`, then `scripts/workflow/check-links.sh`. Shell and awk only, no toolchain, with a 5-minute timeout, so a malformed queue entry or a broken link reports within a minute.
+1. **Queue and PR hygiene**: one call to `bash docket/scripts/ci.sh`, which runs `check-queues.sh --strict`, `check-links.sh` and, on pull requests, `check-pr-markers.sh` against the PR body fetched with `gh`. The PR variables (`PR`, `BASE`, `HEAD_BRANCH`) are empty on pushes to `main`, which skips the marker check. Shell and awk only, no toolchain, with a 5-minute timeout, so a malformed queue entry, a broken link or a bad marker reports within a minute. The list of validators lives inside `docket/scripts/ci.sh`, so a validator added to the skill reaches this project on the next resync without a workflow edit.
 2. **check**: `scripts/fmt-check.sh`, `scripts/lint.sh`, `scripts/test.sh`, in that order so the cheapest failure reports first.
 3. **smoke**: `scripts/smoke.sh`, which builds release and runs the short headless check. Runs in parallel with `check` because the release build shares nothing with the debug test build.
 
-`.github/workflows/pr-markers.yml` checks the PR description; see [Pull request shape](#pull-request-shape).
+`.github/workflows/pr-markers.yml` re-runs the same hygiene entry point when the PR description is edited; see [Pull request shape](#pull-request-shape).
 
 The `check` and `smoke` jobs run on `ubuntu-latest` with a 60-minute timeout. Each installs the toolchain with `rustup toolchain install`, which reads `rust-toolchain.toml`, so the version lives in one file and no toolchain action is involved. `Swatinem/rust-cache` caches `target/`, keyed `debug` for `check` and `release` for `smoke`. Bevy 0.15 needs `libasound2-dev`, `libudev-dev`, `libwayland-dev`, and `libxkbcommon-dev` installed with `apt` before the build; the headless binary still links the audio and windowing stacks. A cold Bevy build on a two-core runner is slow (ten minutes or more); with the cache warm it is a few minutes.
 
@@ -109,7 +110,7 @@ The failure mode that matters most is "a merged change quietly moved the attract
 - **Pass criteria**: each job exits 0 and ends with a living population. Nothing more. Asserting on strategy mix or species count would encode today's attractor as correct, which is the opposite of what the project wants.
 - **Output**: per-run summary and history CSV uploaded as `probe-seed<S>-run<R>` artifacts, kept for 90 days, so that when a change in dynamics is suspected the evidence is already there. Each job writes a one-row table (population, plants, foragers, predators, species, verdict) to its run page.
 - **Determinism job**: runs on the same `plan`, so it uses the same tick count as the matrix (5000 on push, 15000 weekly). It builds release, runs seed 42 twice back to back on one runner, drops the lines that legitimately differ (the wall-clock timing line and the history dump path), and diffs the two summaries. It also compares the two history CSVs byte for byte. Both runs always happen, and each one's exit status is kept. The job summary reports two verdicts: the runs (`ok`, or which run failed and how, since `scripts/probe.sh` exits 1 on a crash or an extinct population) and the summaries (`match`, `mismatch`, or `missing`). It adds the per-run rows when a run failed and the diff when the summaries do not match, and notes whether the CSVs are identical. The outputs are uploaded as `probe-determinism`. The job fails on a failed run, a mismatch, or a missing summary, as well as on a failure in setup or the release build; the summary and the artifact are written either way. Headless runs are deterministic, so a mismatch is a regression: something has let wall-clock time, thread scheduling, or hash iteration order back into the simulation.
-- **Review-due job**: on the weekly schedule and on `workflow_dispatch` only, runs `scripts/workflow/review-due.sh --paths crates` with full history and writes its report to the job summary: commits, files and source churn under `crates/` since the last review recorded in `review/README.md`, and whether an incremental or full review is due. It is a report, not a gate. The script exits 0 whatever its verdict, so the job fails only if the script itself errors.
+- **Review-due job**: on the weekly schedule and on `workflow_dispatch` only, runs `docket/scripts/review-due.sh --paths crates` with full history and writes its report to the job summary: commits, files and source churn under `crates/` since the last review recorded in `review/README.md`, and whether an incremental or full review is due. It is a report, not a gate. The script exits 0 whatever its verdict, so the job fails only if the script itself errors.
 
 Failure of the probe workflow is a notification, not a block, because by the time it runs the change is already merged. The response to a red probe is a `TODO.md` entry or a revert, decided by a human.
 
@@ -121,13 +122,13 @@ Not gated. `Cargo.lock` is committed, which is correct for a binary. No `cargo a
 
 `.github/pull_request_template.md` carries the structure the agent contract requires: `## Why` first, then what changed, claim and resolution markers, validation, and the `## Review` record. The template makes the rule visible to a human opening a PR from the web UI and gives the squash-merge commit body a consistent shape.
 
-`.github/workflows/pr-markers.yml` validates the description. It runs `scripts/workflow/check-pr-markers.sh` when a pull request is opened, edited, reopened, pushed to, or marked ready for review, in a workflow of its own so that editing the description re-runs only this check and not the Rust jobs. It is skipped once the pull request is merged or closed. The script requires `## Why` as the first heading, rejects malformed marker lines, and checks each marker against `TODO.md` and `review/BACKLOG.md` at the base branch and at the merge commit that `actions/checkout` produces: a claimed entry must still exist, a resolved one must have existed at the base and be gone, and a partial resolution must name its remainder. A `todo/`, `review/` or `roadmap/` branch must carry a marker for its slug. The marker rules are in [`TODO_GUIDE.md`](TODO_GUIDE.md#claim-markers). The body reaches the script through an environment variable rather than being interpolated into the shell, and carriage returns from web-edited bodies are stripped first. Runs are grouped per pull request and a newer run cancels an older one.
+The description is validated by `docket/scripts/check-pr-markers.sh`, called through `docket/scripts/ci.sh`. The `Queue and PR hygiene` job in `ci.yml` runs it on every push to a pull request; `.github/workflows/pr-markers.yml` runs the same entry point when the description is edited or the pull request is marked ready for review, events `ci.yml` does not listen for, in a workflow of its own so that editing the description does not rebuild the Rust jobs. It is skipped once the pull request is merged or closed. The script requires `## Why` as the first heading, rejects malformed marker lines and markers written as list items or quotes, and checks each marker against `TODO.md` and `review/BACKLOG.md` at the base branch and at the merge commit that `actions/checkout` produces: a claimed entry must still exist, a resolved one must have existed at the base and be gone, and a partial resolution must name its remainder. A `todo/`, `review/` or `roadmap/` branch must carry a marker for its slug in the matching namespace. The marker vocabulary is in [`docket/TODO_GUIDE.md`](../docket/TODO_GUIDE.md#markers). The body is fetched with `gh pr view` rather than taken from the event payload, and carriage returns from web-edited bodies are stripped by the script. Runs of `pr-markers.yml` are grouped per pull request and a newer run cancels an older one. To run the check locally from the branch: `bash docket/scripts/check-pr-markers.sh --pr <number>`.
 
 ## Branch protection
 
 `main` has a classic branch protection rule:
 
-- Required status checks: `check` and `smoke`. The `queues` job and the `markers` job from `pr-markers.yml` run on every pull request but are not yet required; making them required is a repository setting for the user.
+- Required status checks: `check` and `smoke`. The `Queue and PR hygiene` job and the `markers` job from `pr-markers.yml` run on pull requests but are not yet required; making them required is a repository setting for the user.
 - Branches need not be up to date with `main` before merging (changed 2026-10-07); the push-to-main CI run catches the rare bad combination.
 - Linear history is required.
 - Conversation resolution is not required (changed 2026-10-07).
@@ -135,11 +136,37 @@ Not gated. `Cargo.lock` is committed, which is correct for a binary. No `cargo a
 - Changes reach `main` through a pull request; zero approving reviews are required.
 - The rule is not enforced for administrators.
 
-The pull request requirement and the required checks both apply to commits pushed directly, so without an exemption a plan committed straight to `main` would be rejected. Not enforcing the rule for administrators is what keeps the direct-to-main exceptions in `AGENTS.md` working for the repository owner: such a push bypasses the rule. Agents push with the owner's credentials, so the exemption covers them too; what keeps agent work on pull requests is the rule in `AGENTS.md`, not the protection. The same exemption means the merge button offers an administrator a bypass on a red pull request; it is an extra deliberate click with a warning, not the default.
+The pull request requirement and the required checks both apply to commits pushed directly, so without an exemption a plan committed straight to `main` would be rejected. Not enforcing the rule for administrators is what keeps the direct-to-main exceptions in `docket/CONTRACT.md` working for the repository owner: such a push bypasses the rule. Agents push with the owner's credentials, so the exemption covers them too; what keeps agent work on pull requests is the contract, not the protection. The same exemption means the merge button offers an administrator a bypass on a red pull request; it is an extra deliberate click with a warning, not the default.
 
 No approvals are required because the reviewers are agents the forge cannot see. The `## Review` section of the PR body is the record of review.
 
 Repository merge settings: squash merging only, with the commit title taken from the PR title and the commit body from the PR body. The head branch is deleted on merge.
+
+## Review inputs
+
+What the vendored review guide ([`docket/CODE_REVIEW_GUIDE.md`](../docket/CODE_REVIEW_GUIDE.md)) reads from this project. A codebase review runs and records exactly what is listed here, and an incremental review compares every number against the previous snapshot.
+
+- **Focus areas:** the list under [What quality means here](#what-quality-means-here), the invariants carried in the newest snapshot under `review/`, and the ECS structure a `Design` finding covers here: a system that reads state a later system in the same tick writes, a resource two crates mutate with no ordering constraint between them, a schedule placement that works only by accident. Invariants are derived from this codebase, not imposed on it; record one when a review finds the same class of problem twice, or when a choice in `docs/DECISIONS.md` only holds as long as code keeps to a rule that nothing enforces. The ones the reviews have depended on so far: simulation crates do not import from `clauvolution_render` or `clauvolution_ui`, which is what keeps headless mode possible; a system that depends on another running first says so through an explicit ordering constraint; hot `FixedUpdate` systems do not allocate per organism per tick; `Commands` is used where deferred structural change is needed, not where a direct mutation through a query would do; work handed to `par_iter` or `par_iter_mut` does not touch `SimRng`, `Commands`, or other shared mutable state; every control, CLI flag, and feature described in the documentation has code behind it.
+- **Verification:** `Verified` means reproduced in a running release build of the sim, reproduced in a headless run, or confirmed by a test in the workspace suite; `Read` means established by inspection only. Rendering, input, and egui bugs are reproduced in the release build (a GUI run, so the coordinating agent warns the user first); simulation behaviour is reproduced headless.
+- **Baseline commands beyond `bash scripts/check.sh`**, run at the reviewed commit and recorded in the snapshot header:
+  - `cargo test --workspace` result with the test count, so a review can see whether coverage is growing (the tests are few by policy, see [Tests](#tests)).
+  - `cargo build --release`: pass or fail and wall time.
+  - `cargo run --release -- --headless 1000 --seed 42`: record the printed summary in full (final population, species count, max generation, births, deaths by cause, strategy breakdown, trait averages, the predation funnel). Comparing it against the previous review's is how a silent change in simulation dynamics shows up, and a run that dies out or hangs is itself a finding. The probe workflow's `probe-seed*` artifacts hold the same summaries for the eight audit seeds and give a longer baseline than one run.
+  - `cargo run --release -- --screenshot`: opens a window, so warn the user first. It must complete and write its images under `sessions/<name>/`.
+- **Whole-repo mechanical checks** for an incremental review, needing nothing beyond `cargo`, `git` and the shell (do not add one that needs a tool installed):
+
+  ```bash
+  grep -rn '#\[allow(' crates --include='*.rs'            # suppressed lints: each needs a reason, count must not drift up
+  find crates -name '*.rs' -exec wc -l {} + | sort -rn | head   # largest source files
+  grep -rc 'fn [a-z_0-9]*_system' crates/*/src/*.rs       # systems per file, a proxy for how much each crate carries
+  grep -rnE 'TODO|FIXME|HACK' crates                       # deferred work left in code rather than in a tracked queue
+  grep -rnE '\.unwrap\(\)|\.expect\(' crates              # panic sites in non-test code
+  ```
+
+  Alongside those, read for what no one-liner covers: the longest system functions in `clauvolution_sim`, `clauvolution_render` and `clauvolution_ui` with their line counts (a system that keeps growing is the usual precursor to a `Design` finding), and a warning silenced with a targeted `#[allow]` since the last review.
+- **Drift checks for an incremental review:** the controls table in `README.md` against the `KeyCode` matches in `keyboard_to_events_system` (`crates/clauvolution_sim/src/lib.rs`), `clauvolution_render` and `clauvolution_ui`; the CLI flags in `README.md` against the parser in `crates/clauvolution_app/src/cli.rs` (a test keeps the flag table and the parser in step, so a mismatch there is a failed gate rather than a finding); `docs/FEATURES.md` against what the code does; the tick listing in `docs/ARCHITECTURE.md` against the order systems are registered in; plan status in `plans/` and roadmap sections against merged work; this document against `lefthook.yml`, `scripts/` and `.github/workflows/`; `bash ~/.claude/skills/docket/install.sh --check` for drift in `docket/` and the Docket section of `AGENTS.md`.
+- **Validation scenarios for finding fixes:** for presentation or input behaviour, a scenario in the running release build (the invocation such as `cargo run --release -- --seed 42`, the actions such as pressing `I` for an ice age and opening the Graphs tab, what the curve did before and what it should do now). For simulation behaviour, the exact headless invocation such as `cargo run --release -- --headless 2000 --seed 42`, the summary lines that carry the evidence, and their values before and after. Same-seed headless runs are bit-identical, so exact values are fair evidence.
+- **Reading older snapshots:** snapshots written before the review backlog was split from `TODO.md` use `TODO` labels for their backlog mappings. Preserve that historical wording; resolve those mapped slugs against `review/BACKLOG.md`.
 
 ## What stays manual
 

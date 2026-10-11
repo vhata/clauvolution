@@ -2,7 +2,7 @@
 
 Work promoted from whole-codebase reviews because it merits its own branch belongs here. A request to “grab something from the review backlog” means this file; a request to “grab something from the TODO” or “grab something from the roadmap” does not. Every entry is ready for separate work and is prioritized directly rather than grouped by workflow stage.
 
-See the [`code review guide`](../docs/CODE_REVIEW_GUIDE.md) for how findings enter and leave this backlog and the [`backlog workflow guide`](../docs/TODO_GUIDE.md) before claiming or resolving an entry.
+See [`docket/CODE_REVIEW_GUIDE.md`](../docket/CODE_REVIEW_GUIDE.md) for how findings enter and leave this backlog and [`docket/TODO_GUIDE.md`](../docket/TODO_GUIDE.md) before claiming or resolving an entry.
 
 ## P0 Critical
 
@@ -45,7 +45,7 @@ See the [`code review guide`](../docs/CODE_REVIEW_GUIDE.md) for how findings ent
   - Source: review/2026-10-09-0906-full.md, 2026-10-09
   - Findings: `phylo-hashmap-order-reaches-output`, `chronicle-entries-unbounded`, `phylo-tab-scans-all-nodes-per-frame`
 - [TOOLING] `probe-and-audit-scripts` — **Fix the probe's dead columns, the audit's ignored failures and redundant repeats, and review-due's binary-asset count.** Two of the probe's six numbers are always "?", a crashed audit run passes silently, and the review-due churn ratio is understated.
-  - Starting point: `scripts/probe.sh` and `.github/workflows/probe.yml` (parse `Grazers`, `Hunters`, `Omnivores`), `scripts/attractor_audit.sh` (wait per PID; decide one run or two compared runs), `scripts/workflow/review-due.sh` (skip binary files), `scripts/setup.sh`. Update `docs/QUALITY.md` with the probe columns and repeat count.
+  - Starting point: `scripts/probe.sh` and `.github/workflows/probe.yml` (parse `Grazers`, `Hunters`, `Omnivores`), `scripts/attractor_audit.sh` (wait per PID; decide one run or two compared runs), `docket/scripts/review-due.sh` (skip binary files; the script is vendored from the docket skill, so that fix goes to the skill and arrives by resync), `scripts/setup.sh`. Update `docs/QUALITY.md` with the probe columns and repeat count.
   - Source: review/2026-10-09-0906-full.md, 2026-10-09
   - Findings: `probe-summary-forager-predator-columns-dead`, `audit-repeats-predate-determinism`, `attractor-audit-ignores-run-failures`, `review-due-counts-binary-assets`, `setup-echo-pre-push-stale`
 - [DOCS] `code-comment-drift-sweep` — **Correct the stale code comments, the brain I/O legend, the eat threshold, and the `--help` field names.** About twenty comments and help strings describe values or behaviour that changed, which misleads the next reader of the tuning code.

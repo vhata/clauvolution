@@ -79,7 +79,7 @@ The right-side panel has tabs for Inspect, Phylo, Graphs, Chronicle, Events, and
 - **[docs/DECISIONS.md](docs/DECISIONS.md)** — the non-obvious design choices and their tradeoffs
 - **[docs/ROADMAP.md](docs/ROADMAP.md)** — what's next, ongoing concerns, backlog
 - **[docs/design/](docs/design/)** — detailed design docs for bigger features
-- **[TODO.md](TODO.md)** — concrete deferred work; **[review/](review/)** — code review ledgers and the review backlog. Process in **[docs/TODO_GUIDE.md](docs/TODO_GUIDE.md)** and **[docs/CODE_REVIEW_GUIDE.md](docs/CODE_REVIEW_GUIDE.md)**
+- **[TODO.md](TODO.md)** — concrete deferred work; **[review/](review/)** — code review ledgers and the review backlog. Process in **[docket/TODO_GUIDE.md](docket/TODO_GUIDE.md)** and **[docket/CODE_REVIEW_GUIDE.md](docket/CODE_REVIEW_GUIDE.md)**
 
 ## Built with
 

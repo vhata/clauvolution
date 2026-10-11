@@ -1,9 +1,14 @@
-# Merge-blocking checks. Every job runs the scripts in scripts/, so a local
-# scripts/check.sh and scripts/smoke.sh reproduce them. See docs/QUALITY.md.
+# Merge-blocking checks and queue hygiene. Every job calls a script in
+# scripts/ or docket/scripts/, so a local scripts/check.sh and scripts/smoke.sh
+# reproduce the Rust jobs and bash docket/scripts/ci.sh the hygiene job. See
+# docs/QUALITY.md.
 name: CI
 
 on:
   pull_request:
+    # edited: the hygiene job reads the PR body from the event payload, and a
+    # re-run reuses the original payload, so a changed body needs a new run.
+    types: [opened, synchronize, reopened, edited]
   push:
     branches: [main]
 
@@ -13,19 +18,32 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
-  queues:
-    # Queue structure and relative Markdown links. Shell and awk only, no toolchain.
+  workflow:
+    name: Queue and PR hygiene
+    # Queue structure, relative Markdown links and, on pull requests, the PR
+    # markers against the queues. Shell and awk only, no toolchain.
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The marker check reads the queues at the base branch and at HEAD.
+          fetch-depth: 0
 
-      - name: Queues
-        run: bash scripts/workflow/check-queues.sh --strict
-
-      - name: Links
-        run: bash scripts/workflow/check-links.sh
+      # One call to the vendored entry point. The PR variables are empty on
+      # pushes to main, which skips the marker check.
+      - name: Queue, link and marker checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          BASE: ${{ github.event.pull_request.base.ref }}
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: bash docket/scripts/ci.sh
 
   check:
     runs-on: ubuntu-latest
