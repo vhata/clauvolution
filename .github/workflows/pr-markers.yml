@@ -1,13 +1,15 @@
-# Checks a PR description against the work queues: "## Why" first, exact
-# marker lines, markers consistent with TODO.md and review/BACKLOG.md at base
-# and head, and a marker on todo/, review/ and roadmap/ branches. Separate
-# from CI so that editing the description re-runs only this check.
-# Local equivalent: scripts/workflow/check-pr-markers.sh. See docs/QUALITY.md.
+# Re-validates the PR description when it is edited or the PR is marked ready,
+# events that CI does not run on. It runs the same single entry point as CI's
+# hygiene job, bash docket/scripts/ci.sh, with the PR variables set, so the
+# queue, link and marker checks are identical in both places. A separate
+# workflow so that editing the description does not rebuild the Rust jobs.
+# Local equivalent: bash docket/scripts/check-pr-markers.sh --pr <number>.
+# See docs/QUALITY.md.
 name: PR markers
 
 on:
   pull_request:
-    types: [opened, edited, reopened, synchronize, ready_for_review]
+    types: [edited, ready_for_review]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
@@ -15,6 +17,7 @@ concurrency:
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
   markers:
@@ -29,18 +32,10 @@ jobs:
           # merge commit of the PR into its base.
           fetch-depth: 0
 
-      - name: Check markers
-        # The body and branch name are untrusted input: pass them through the
-        # environment, never interpolated into the script. Bodies edited on
-        # the web carry CRLF line endings, which the exact marker match rejects.
+      - name: Queue, link and marker checks
         env:
-          BODY: ${{ github.event.pull_request.body }}
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
-        run: |
-          printf '%s\n' "$BODY" | tr -d '\r' > "$RUNNER_TEMP/pr-body.md"
-          bash scripts/workflow/check-pr-markers.sh \
-            --body "$RUNNER_TEMP/pr-body.md" \
-            --base "origin/$BASE_REF" \
-            --head HEAD \
-            --branch "$HEAD_REF"
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          BASE: ${{ github.event.pull_request.base.ref }}
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: bash docket/scripts/ci.sh

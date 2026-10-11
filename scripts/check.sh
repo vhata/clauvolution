@@ -15,8 +15,8 @@ gate() {
   fi
 }
 
-gate queues scripts/workflow/check-queues.sh --strict
-gate links scripts/workflow/check-links.sh
+gate queues docket/scripts/check-queues.sh --strict
+gate links docket/scripts/check-links.sh
 for name in fmt-check lint test; do
   gate "$name" "scripts/$name.sh"
 done
