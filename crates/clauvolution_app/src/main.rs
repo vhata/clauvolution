@@ -297,6 +297,9 @@ fn load_seed_creatures(paths: &[std::path::PathBuf]) -> SeedWith {
                     creature.generation,
                     path.display()
                 );
+                if let Some(warning) = creature.clamp_warning() {
+                    eprintln!("Warning: {}: {}", path.display(), warning);
+                }
                 creatures.push((path.clone(), creature));
             }
             Err(e) => {
