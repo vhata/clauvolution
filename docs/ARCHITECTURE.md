@@ -46,16 +46,16 @@ update_food_snapshot          ← collect (entity, position, energy) of all food
 sensing_and_brain_system      ← copy organisms and food into per-tick cell grids, then for each organism: gather inputs, evaluate brain, write outputs (par_iter_mut)
 action_system                 ← execute brain outputs (move, eat food items, signal, update memory)
 grazing_system                ← `eat` bites the nearest living plant in reach (skipping anyone fed on a food item this tick); one bite per plant per tick
-predation_system              ← attack intents → size and damage gates → kills of plants or animals (energy pyramid: 10%, digested by tissue); victim gets `Killed(Predation)`; every attacker with a living organism in reach pays the strike cost (reach scan on the compute pool, claims resolved serially)
+predation_system              ← attack intents → size and damage gates → kills of plants or animals (energy pyramid: 10%, digested by tissue); victim gets `Killed(Predation)`; every attacker with a living organism in reach pays the strike cost; an attacker claimed before its turn does not act (reach scan on the compute pool, claims resolved serially)
 photosynthesis_system         ← sun energy for plants, scaled by each plant's canopy light share (`CanopyGrid` summed-area table, written to `LightShare`; second pass par_iter_mut)
 niche_construction_system     ← organisms modify the tiles they occupy
 disease_transmission_system   ← background infections + proximity spread
-disease_effects_system        ← per-tick drain, direct mortality chance, timer countdown
+disease_effects_system        ← per-tick drain, direct mortality chance (death gets `Killed(Disease)`), timer countdown; skips the already killed
 symbiosis_tracking_system     ← nearest-neighbour streak per organism (par_iter_mut)
 symbiosis_transfer_system     ← energy exchange between mutual pairs past the link threshold
 metabolism_system             ← energy costs (quadratic in body/armor/claws/speed), aging (par_iter_mut)
 death_marker_expiry_system    ← count each `DeathMarker` down one timestep, despawn expired ones (in the sim so headless runs expire them too; render only animates)
-death_system                  ← energy ≤ 0, health ≤ 0, or `Killed` → cause from the marker, else old age/disease/starvation → despawn; folds the dying organism's `EnergyFlows` and remaining energy into the ledger
+death_system                  ← energy ≤ 0, health ≤ 0, or `Killed` → cause from the marker, else old age (health gone past onset)/disease/starvation → despawn; folds the dying organism's `EnergyFlows` and remaining energy into the ledger
 reproduction_system           ← eligible parents → crossover + mutate → spawn child
 ledger_system                 ← close the energy books: sum live energy and per-organism `EnergyFlows`, compare against the tick's recorded flows, record the residual (debug_assert / rate-limited chronicle warning past tolerance)
 species_classification_system ← NEAT compatibility distance with hysteresis (every 5s)
