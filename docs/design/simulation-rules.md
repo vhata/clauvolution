@@ -1,6 +1,6 @@
 # Simulation rules: direction and design
 
-**Status:** approved in discussion 2026-09-18; phase 0 shipped 2026-09-18 (see "Phase 0 outcome"); phase 1 shipped 2026-09-20 (see "Phase 1 outcome"); phase 2 not started
+**Status:** approved in discussion 2026-09-18; phase 0 shipped 2026-09-18 (see "Phase 0 outcome"); phase 1 shipped 2026-09-20 (see "Phase 1 outcome"); phase 2 in progress: steps 1-5 shipped (#86, #87, #89, #92, #95), heat tolerance and the final audit remain in `plans/2026-09-25-phase2-biomes.md`
 **Source:** step 3 of `plans/2026-09-17-simulation-rules-rethink.md`
 **Baseline:** `docs/audits/2026-09-18-attractor-audit/` on commit 984aedd
 

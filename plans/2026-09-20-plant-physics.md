@@ -21,6 +21,8 @@ The principle, from the discussion of 2026-09-20: nothing in nature forbids a ph
 
 The point of the second coupling is not the plant count on its own. It is that a shaded plant earns near its upkeep and is not ready to breed, which removes the lottery advantage under a ceiling and the doubling without one; and it is that a plant's surplus becomes scarce enough that spending it on locomotion has a price, which is what makes the first coupling bite by selection.
 
+**Implementation update (2026-10-24 review):** the shipped canopy uses `Genome::total_photo_surface_area()` (sum of PhotoSurface segment sizes), without the extra body-size multiplier proposed above. Since #50, plant-on-plant grazing uses `eat` and the mouth bonus rather than `attack` and claws; `attack` attempts a kill. The original plan and measurements below describe their dated stages.
+
 ## The plan
 
 Four steps. Steps 1 to 3 are each one branch and one pull request; step 4 is the resumption of the diet-axis plan and may be one or two. Each step's pull request carries its `docs/DECISIONS.md` entries, runs `scripts/check.sh`, and updates `docs/FEATURES.md` where the sim's visible behaviour changes. The rule is the same as always: instrument first, then the dynamic, then tune.

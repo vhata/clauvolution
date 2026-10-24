@@ -75,7 +75,7 @@ spawn_terrain_sprites         ← one-time: generate chunked terrain meshes
 sync_organism_transforms      ← position, scale, LOD, frustum cull
 sync_selection_ring           ← one ring on SelectedOrganism, whatever set it
 sync_food_transforms          ← position; hidden at far zoom
-update_death_markers          ← fade/despawn death flash entities
+update_death_markers          ← spawn and expand death flash visuals; the sim expires them
 draw_trails_system            ← gizmos linestrip for the selected organism (if trails on)
 draw_infection_indicators_system ← pulsing purple halo around infected organisms
 camera_control_system         ← pan/zoom/drag
@@ -91,7 +91,7 @@ update_minimap                ← repaint the minimap image every 0.5s
 - **Per-organism scratch for parallel systems.** `photosynthesis_system` and `metabolism_system` run under `par_iter_mut` and cannot write the shared `EnergyLedger` resource, so each organism carries an `EnergyFlows` component that the owning iteration writes; `ledger_system` sums and zeroes those records serially. Serial systems write the resource directly. The same rule applies to any future parallel system that moves energy.
 - **Spatial hash for neighbour queries.** Rebuilt once per fixed tick, fourth in the `FixedUpdate` chain after tick counting, tile dynamics and food regeneration, used by sensing, grazing, predation, disease transmission, symbiosis tracking and mate search. The readers re-check real distance after the lookup, so entities that moved within the tick (after `action_system`) are missed rather than falsely matched.
 - **try_despawn everywhere.** `commands.entity(e).try_despawn()` and `.try_despawn_recursive()` avoid B0003 errors when two systems both try to despawn the same entity in one frame.
-- **Frustum culling off-screen.** Organisms and food outside the camera viewport get `Visibility::Hidden` — GPU skips them. Margin-padded to prevent pop-in at edges.
+- **Frustum culling off-screen.** Organisms outside the camera viewport get `Visibility::Hidden`, with a margin to prevent pop-in at edges. Food is hidden at far zoom rather than culled against the viewport.
 - **egui input gating.** `UiInputState` resource tracks whether egui is capturing mouse/keyboard; the camera and click-select systems skip their handlers when true, so scrolling a panel doesn't also zoom the world.
 
 ## Where to find X

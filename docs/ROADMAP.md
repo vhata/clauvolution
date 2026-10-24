@@ -302,7 +302,7 @@ Headless mode (Theme 4) is the fast version of this loop: `cargo run --release -
 
 ## Code health
 
-- Big files worth splitting if they grow further: `clauvolution_sim/src/lib.rs` (~5650 lines), `clauvolution_ui/src/lib.rs` (~2550), `clauvolution_app/src/main.rs` (~2150), `clauvolution_render/src/lib.rs` (~2050). Counts are refreshed by each code review in `review/`.
+- Big files worth splitting if they grow further: `clauvolution_sim/src/lib.rs` (5940 lines), `clauvolution_ui/src/lib.rs` (2902), `clauvolution_app/src/main.rs` (2146), `clauvolution_render/src/lib.rs` (2065). Counts are refreshed by each code review in `review/`.
 - When a function in one of those crosses 100 lines, it's probably ready to move to its own module
 - Two settled calls worth not re-litigating: cosmetic overlay systems (minimap viewport rect, trails, infection halos) silently skip on a missing camera, and clippy's `type_complexity` and `too_many_arguments` lints are silenced crate-wide in the three Bevy-heavy crates because aliasing the `Query` signatures individually didn't improve readability
 
