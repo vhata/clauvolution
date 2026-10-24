@@ -41,13 +41,13 @@ See [`docket/CODE_REVIEW_GUIDE.md`](../docket/CODE_REVIEW_GUIDE.md) for how find
   - Findings: `speed-and-script-values-unbounded`, `dump-history-failure-exits-zero`, `mode-only-flags-silently-ignored`
   - Related: `headless-save-ticks-past-summary` (TODO), `script-tour-virtual-time-after-speed` (TODO)
 - [PERSIST] `chronicle-bounds-and-order` — **Make chronicle and phylogeny output deterministic and bound their per-frame cost.** Extinction lines and saved nodes follow std `HashMap` order, so same-seed runs differ in `chronicle.log`, and the Chronicle and Phylo tabs re-lay out every entry ever recorded each frame.
-  - Starting point: sort `previously_living` and the convergence results by species id in `species_classification_system` and the saved nodes in `save_world`; egui `show_rows` in `chronicle_tab`; a top-ten selection in `phylo_tab`.
+  - Starting point: sort `previously_living` by species id in `species_classification_system` and the saved nodes in `save_world` (convergence results already have stable strategy order); egui `show_rows` in `chronicle_tab`; a top-ten selection in `phylo_tab`.
   - Source: review/2026-10-09-0906-full.md, 2026-10-09
   - Findings: `phylo-hashmap-order-reaches-output`, `chronicle-entries-unbounded`, `phylo-tab-scans-all-nodes-per-frame`
-- [TOOLING] `probe-and-audit-scripts` — **Fix the probe's dead columns, the audit's ignored failures and redundant repeats, and review-due's binary-asset count.** Two of the probe's six numbers are always "?", a crashed audit run passes silently, and the review-due churn ratio is understated.
-  - Starting point: `scripts/probe.sh` and `.github/workflows/probe.yml` (parse `Grazers`, `Hunters`, `Omnivores`), `scripts/attractor_audit.sh` (wait per PID; decide one run or two compared runs), `docket/scripts/review-due.sh` (skip binary files; the script is vendored from the docket skill, so that fix goes to the skill and arrives by resync), `scripts/setup.sh`. Update `docs/QUALITY.md` with the probe columns and repeat count.
+- [TOOLING] `probe-and-audit-scripts` — **Fix the probe's dead columns and the audit's ignored failures and redundant repeats.** Two of the probe's six numbers are always "?", and a crashed audit run passes silently.
+  - Starting point: `scripts/probe.sh` and `.github/workflows/probe.yml` (parse `Grazers`, `Hunters`, `Omnivores`), `scripts/attractor_audit.sh` (wait per PID; decide one run or two compared runs), `scripts/setup.sh`. Update `docs/QUALITY.md` with the probe columns and repeat count.
   - Source: review/2026-10-09-0906-full.md, 2026-10-09
-  - Findings: `probe-summary-forager-predator-columns-dead`, `audit-repeats-predate-determinism`, `attractor-audit-ignores-run-failures`, `review-due-counts-binary-assets`, `setup-echo-pre-push-stale`
+  - Findings: `probe-summary-forager-predator-columns-dead`, `audit-repeats-predate-determinism`, `attractor-audit-ignores-run-failures`, `setup-echo-pre-push-stale`
 - [DOCS] `code-comment-drift-sweep` — **Correct the stale code comments, the brain I/O legend, the eat threshold, and the `--help` field names.** About twenty comments and help strings describe values or behaviour that changed, which misleads the next reader of the tuning code.
   - Starting point: the site list in `code-comments-stale`; add an `EAT_INTENT_THRESHOLD` constant beside the attack and reproduce thresholds. Comment and string changes only, except the constant.
   - Source: review/2026-10-09-0906-full.md, 2026-10-09
@@ -58,3 +58,20 @@ See [`docket/CODE_REVIEW_GUIDE.md`](../docket/CODE_REVIEW_GUIDE.md) for how find
   - Findings: `dead-code-across-crates`, `dangling-derive-component`, `classification-dead-loop`, `spatial-hash-lazy-cell-size`, `unused-crate-dependencies`
 
 ## Unprioritized
+
+- [BRAIN] `reconcile-total-species-extinction` — **Reconcile species populations when no organisms remain.** The empty-population return leaves the last species count and phylogeny populations alive forever and omits final extinction entries.
+  - Starting point: `species_classification_system` in `crates/clauvolution_sim/src/lib.rs:3122`; let the empty-count path zero populations and emit final extinctions. Validate with a previously living species of population 20, no organisms and 151 actual headless ticks: currently `species_count=1`, population 20 and no extinction tick; expect zero counts and an extinction tick/log entry.
+  - Source: review/2026-10-24-0257-full.md, 2026-10-24
+  - Findings: `empty-world-skips-species-extinction`
+- [PERSIST] `unique-creature-export-paths` — **Give each exported organism a path that cannot overwrite another creature at the same tick.** Two named members of one species currently share the species-and-tick filename, so exporting both while paused silently replaces the first genome.
+  - Starting point: `creature_file_name`, `export_creature` and `write_atomically` in `crates/clauvolution_sim/src/save.rs`; include organism identity or allocate a non-colliding path. Validate by pausing, exporting two distinct same-species organisms, then importing both files and confirming both genomes survived. Preserve clear success/error reporting in Inspect.
+  - Source: review/2026-10-24-0257-full.md, 2026-10-24
+  - Findings: `creature-export-same-tick-collision`
+- [SIM] `account-event-lifetime-statistics` — **Include asteroid and volcano victims in lifetime and diet-band death statistics.** Direct event despawns already book global causes and energy, but bypass the counters and lifespan tracking in `death_system`.
+  - Starting point: share the non-energy accounting between `mass_extinction_input_system` and `death_system` without charging deaths twice. Validate a volcano kill of an age-40 founder hunter: currently global/Event deaths are 1 but diet-band and founder-hunter deaths are 0 with no lifespan sample; expect each relevant counter once and an age-40 sample.
+  - Source: review/2026-10-24-0257-full.md, 2026-10-24
+  - Findings: `event-deaths-skip-lifetime-instruments`
+- [UI] `reveal-collapsed-phylo-lineage` — **Open a collapsed living lineage when a Chronicle species link targets it.** The one-shot reveal flag is consumed even when the collapsed header suppresses the highlighted row and its scroll request.
+  - Starting point: `phylo_tab` in `crates/clauvolution_ui/src/lib.rs:568`; use the reveal flag to force open the lineage containing the target, as the recently-extinct section does. Validate in a release build: collapse a living lineage, click its species link in Chronicle, and confirm Phylo opens that lineage and reveals the highlighted row.
+  - Source: review/2026-10-24-0257-full.md, 2026-10-24
+  - Findings: `chronicle-link-does-not-open-lineage`
