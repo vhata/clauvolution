@@ -23,6 +23,10 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 
 ### Unprioritized
 
+- [TOOLING] `script-exit-leaves-app-running` — **A tour's `exit` action logs but the GUI keeps running.** `ScriptActionKind::Exit` sends `AppExit::Success`, yet on macOS the window stays open and the process keeps running until killed, so a scripted screenshot run never finishes on its own.
+  - Evidence: on main at 543cbd6, a release build with `--seed 42 --script` and a tour of `set_speed`, `set_zoom`, two `screenshot`s and `exit` at 25 s logged `Script @25.00s: Exit` and was still running 25 s later. Both screenshots were written. The #101 branch behaves the same.
+  - Starting point: find out why `AppExit` is not honoured (an exit event swallowed or re-armed, or something holding the winit loop open), before changing anything.
+  - Source: #101 GUI validation, 2026-11-08
 - [SIM] `predation-attacker-order-bias` — **Make the outcome of a mutual attack independent of ECS archetype order.** `predation_system` resolves attackers in Bevy query order, so an organism carrying `Infection` (a later archetype) always loses a mutual attack to an uninfected one, a selection pressure nobody chose; in the GUI, render components may split archetypes further.
   - Evidence: a throwaway probe test in the #103 review put an infected and an uninfected attacker on each other; the infected one died in both spawn orders. Before #103, both died.
   - Starting point: shuffle the attacker order with `SimRng`, sort by a stable per-organism id, or resolve claims to a fixed point so nobody killed this tick acts. Any of these changes dynamics; re-run the 8-seed audit and keep seeded runs deterministic. `docs/DECISIONS.md` ("One kill per victim per tick") already points here.
