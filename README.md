@@ -28,7 +28,7 @@ cargo run --release -- --headless 1000 --seed 42           # run 1000 ticks, pri
 cargo run --release -- --headless 1000 --speed 20          # ticks per headless frame (default 10); runs as fast as the CPU allows regardless
 cargo run --release -- --headless 1000 --save-as my-world  # write sessions/my-world/save.json at the end
 cargo run --release -- --headless 1000 --dump-history h.csv   # 1 Hz population history for the whole run as CSV
-scripts/attractor_audit.sh docs/audits/$(date +%F)-attractor-audit   # 8 seeds x 2 runs x 15k ticks; summarise with scripts/attractor_audit_summary.py
+scripts/attractor_audit.sh docs/audits/$(date +%F)-attractor-audit   # 8 seeds x 1 run x 15k ticks; summarise with scripts/attractor_audit_summary.py
 cargo run --release -- --headless 1000 --species-threshold 1.5  # same override, applied identically in headless
 # Tuning overrides, GUI or headless, each one SimConfig field: --bite-fraction F, --bite-reach R, --mouthless-bite B, --kill-transfer-animal K, --kill-transfer-plant K (--kill-transfer K sets both), --strike-cost W, --photo-drag D, --leaf-capacity C, --founder-diet-spread S,
 # --animal-efficiency M (0 = nobody can live by hunting), --diet-exponent X (digestion curve exponent, at least 1, default 2), --max-energy E, --max-food-density D, --population-ceiling N,

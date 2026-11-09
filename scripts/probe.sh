@@ -37,8 +37,9 @@ field() {
 population=$(field 'Total organisms (final)')
 species=$(field 'Species (final)')
 plants=$(field 'Plants')
-foragers=$(field 'Foragers')
-predators=$(field 'Predators')
+grazers=$(field 'Grazers')
+hunters=$(field 'Hunters')
+omnivores=$(field 'Omnivores')
 
 if [ "$status" -ne 0 ]; then
   verdict="exit $status"
@@ -50,7 +51,7 @@ else
   verdict="ok"
 fi
 
-echo "| $LABEL | $SEED | $TICKS | ${population:-?} | ${plants:-?} | ${foragers:-?} | ${predators:-?} | ${species:-?} | $verdict |" >> "$ROW"
+echo "| $LABEL | $SEED | $TICKS | ${population:-?} | ${plants:-?} | ${grazers:-?} | ${hunters:-?} | ${omnivores:-?} | ${species:-?} | $verdict |" >> "$ROW"
 
 if [ "$verdict" != "ok" ]; then
   echo "probe: FAIL ($LABEL: $verdict); see $SUMMARY" >&2
