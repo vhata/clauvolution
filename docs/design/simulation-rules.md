@@ -188,7 +188,7 @@ Emergent carrying capacity and continents both push population up, and the per-t
 
 ### Measurement
 
-Every phase ends with `scripts/attractor_audit.sh` on the same eight seeds, and a dated block in the roadmap's attractor-states section beside the previous ones. The audits through phase 1 ran each seed twice and carried same-seed divergence (`determinism-claim-recheck`) as a caveat on every comparison; headless runs have been deterministic since #31 (see "Headless runs are deterministic" in `docs/DECISIONS.md`), so the audit now runs each seed once.
+Every phase ends with `scripts/attractor_audit.sh` on the same eight seeds, and a dated block in the roadmap's attractor-states section beside the previous ones. The 2026-09-18 audit and the phase 1 audit (2026-09-20) ran each seed twice and carried same-seed divergence (`determinism-claim-recheck`) as a caveat on every comparison; headless runs have been deterministic since #31 (see "Headless runs are deterministic" in `docs/DECISIONS.md`), so the audit now runs each seed once.
 
 ### Risks
 
