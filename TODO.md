@@ -23,6 +23,13 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 
 ### Unprioritized
 
+- [SIM] `predation-attacker-order-bias` — **Make the outcome of a mutual attack independent of ECS archetype order.** `predation_system` resolves attackers in Bevy query order, so an organism carrying `Infection` (a later archetype) always loses a mutual attack to an uninfected one, a selection pressure nobody chose; in the GUI, render components may split archetypes further.
+  - Evidence: a throwaway probe test in the #103 review put an infected and an uninfected attacker on each other; the infected one died in both spawn orders. Before #103, both died.
+  - Starting point: shuffle the attacker order with `SimRng`, sort by a stable per-organism id, or resolve claims to a fixed point so nobody killed this tick acts. Any of these changes dynamics; re-run the 8-seed audit and keep seeded runs deterministic. `docs/DECISIONS.md` ("One kill per victim per tick") already points here.
+  - Source: #103 review, 2026-10-09
+- [SIM] `old-age-never-fires` — **Decide whether old age should be a real cause of death.** With old age requiring `health <= 0` past `OLD_AGE_ONSET_TICKS` (#103), `--headless 15000 --seed 42` records 0 old-age deaths out of 149,604, so lifespan is bounded only by starvation, predation and disease.
+  - Starting point: a tuning question first: compare age at death against `OLD_AGE_ONSET_TICKS` in the Graphs tab, then decide between a steeper post-onset drain, a lower onset, or accepting that nothing lives long enough.
+  - Source: #103, 2026-10-09
 - [RENDER] `release-build-check-2026-09-render-batch` — **Check in a release build the render changes that landed without a window on 2026-09-24.** #64's five GUI steps (viewport culling and minimap box in a resized window; selection ring on R, `,`/`.`, Phylo and Inspect links, vanishing on death; no size jump at the LOD switch near zoom 0.6; hotkeys with no regression; right Shift + drag pans) and #60's death-marker fade, which now steps once per fixed tick instead of once per frame. The 2026-10-09 review confirmed #64 by tests and code reading only; `docs/QUALITY.md` says the GUI stays manual.
   - Source: unattended-run report of 2026-09-23 ("Needs you" item 4) and its audit entries for `review/render-input-viewport-fixes` and `todo/headless-death-marker-leak`, reconciled 2026-10-11
   - Related: `ci-scripted-tour-software-renderer`
@@ -41,6 +48,7 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
   - Evidence: on seed 42, `--headless 300 --save-as review-a` prints its summary at tick 301 (1,636 organisms) and saves at tick 310 (1,719); `--load sessions/review-a --headless 10 --save-as review-b` prints 1,786 and saves 1,837 at tick 330. A `--load X --headless N` chain therefore runs more than N ticks per link.
   - Starting point: `headless_tick_counter` in `crates/clauvolution_app/src/main.rs`. Options are writing the save synchronously at the summary, or stopping the sim at the target tick while the save and exit phases run; either changes what a save holds, so check the headless smoke and any saved-session workflows.
   - Also contributing: `--headless N` summarises at tick N+1, because `absolute_target` is set on the first run of `headless_tick_counter`, after `tick_counter_system` has already moved the tick to 1 (load at 310, summary at 321, save at 330 in the repro). Found by the #91 review.
+  - Also seen: `death_system` keeps running for about 9 ticks after the headless summary prints (counter t=5002 to 5010 on seed 42 at `--headless 5000`), found while working on #103, 2026-10-09.
   - Source: todo/headless-load-final-count-zero branch, 2026-09-26
 - [PERSIST] `infection-state-not-saved` — **Infections are lost on save and load.** `save.rs` stores the genome's `disease_resistance` but not the `Infection` component, so a world saved with sick organisms loads with none (a seed 42 run at 300 ticks shows 11 infected; the run loaded from its save shows 0).
   - Starting point: add a defaulted infection record (severity and timer) to `SaveOrganism`, per the save-format rule in `docs/DECISIONS.md`, and re-insert the component on load.
@@ -141,6 +149,15 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 
 ### Unprioritized
 
+- [PERF] `species-id-rewritten-every-pass` — **Only write `SpeciesId` when classification changes it.** `species_classification_system` assigns `species_id.0 = new_id` for every organism on each 5 s pass, so `Changed<SpeciesId>` fires for the whole population and means nothing.
+  - Starting point: `set_if_neq` at the assignment in `crates/clauvolution_sim/src/lib.rs`; the renderer's recolour system (#101) then does real work only for organisms that changed species.
+  - Source: #101, 2026-10-09
+- [DOCS] `killed-doc-comment-stale` — **List every system that skips killed organisms in the `Killed` doc comment.** The comment in `clauvolution_core` names only photosynthesis and symbiosis transfer, but disease effects filters on `Without<Killed>` too since #103.
+  - Starting point: `Killed` in `crates/clauvolution_core/src/lib.rs`; grep `Without<Killed>` for the full list.
+  - Source: #103, 2026-10-09
+- [TOOLING] `audit-summary-crashes-on-missing-csv` — **Make `attractor_audit_summary.py` report a failed run instead of crashing.** When a run fails before writing its CSV, the summary dies with `FileNotFoundError` (seen on `seed42-runprobe-a.csv`); once the audit reports failed runs, people will run the summary on such directories more often.
+  - Starting point: skip and name missing CSVs in `scripts/attractor_audit_summary.py`, and mark the determinism probe as not run when either half is missing.
+  - Source: review/probe-and-audit-scripts review, 2026-10-09
 - [SIM] `sim-config-resource` — **Promote the tuning constants to a `SimConfig` resource.** Constants held in a resource can be changed at runtime, which serves the tuning loop far more directly than recompiling.
   - Starting point: Start from the existing named consts at the top of `clauvolution_sim/src/lib.rs`.
   - Source: docs/ROADMAP.md (Known tech debt), 2026-09-16
