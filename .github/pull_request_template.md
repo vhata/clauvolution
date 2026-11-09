@@ -10,5 +10,4 @@
 ## Validation
 <!-- What to run or watch to confirm it works, e.g. scripts/check.sh, a headless summary before and after. -->
 
-## Review
-<!-- Filled in from the separate reviewer agent's report (see docket/CONTRACT.md and docket/CODE_REVIEW_GUIDE.md): reviewer, commit reviewed, verdict, each finding and its disposition (fixed, with the commit, or declined, with the reason), and what was not checked. Documentation-only and measurement-only PRs record a lighter review of their claims. -->
+<!-- No ## Review section here: the description becomes the squash commit message. Post the separate reviewer agent's record (reviewer, commit reviewed, verdict, each finding and its disposition, what was not checked) as a PR comment headed ## Review, per docket/CONTRACT.md. -->

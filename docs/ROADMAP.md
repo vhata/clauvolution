@@ -11,6 +11,10 @@ This is a personal project. The goal isn't to answer a research question, ship a
 - **Skip past the watching** (e.g. evolve-until) → deprioritised; the unfolding *is* the point
 - **Serve sharing / distribution / external research** → deprioritised; no audience but me
 
+Preventing stagnation is part of the first bucket, not a separate tier. A world stuck in a monoculture or a stable, boring attractor has nothing to watch however well it is instrumented, so when an audit has flagged an attractor, its fix usually comes before new instrumentation or visuals. A useful test for any proposal: if this world collapses to a monoculture, does the feature save the run?
+
+What makes watching good: real evolutionary dynamics (adaptation, speciation, arms races); a sim a non-expert can read; fairness to evolution, with no outcome dealt from the bottom of the pack; narrative (species names, the chronicle, the phylogeny); comfortable controls and help; and visual beauty and variety. Not wanted: perfect balance (tuning never ends), premature optimisation, config sweeps or experiment frameworks (there is no research question), and anything built mainly for sharing, such as a WASM build or organism export for other people.
+
 If you're considering a new feature and it doesn't fit any of the first two buckets, question whether it should be built.
 
 ## What belongs here

@@ -24,6 +24,23 @@ This project is run with docket. Read [docket/CONTRACT.md](docket/CONTRACT.md) b
 
 <!-- docket:end -->
 
+## Working with the user
+
+- **History.** Branches are updated by `git rebase origin/main`, keeping every commit. Never squash or soft-reset a branch to tidy it or before a rebase; the only squash is the squash merge that lands the PR. No merge commits anywhere, including PR branches.
+- **When the user steps away and asks for PRs**, fill the time: take independent entries from the queue they named, one worktree agent per entry with disjoint files, each ending in its own reviewed PR, within the concurrency cap. Keep the main thread on the current task. Without an explicit ask for PRs, the unattended rules in `docket/CONTRACT.md` apply instead.
+- **In chat**, write every pull request as a clickable link, `[#N](https://github.com/vhata/clauvolution/pull/N)`. Commit messages, PR bodies and docs keep plain `#N`.
+- **Clever code is a smell, not a veto.** When a solution needs a multi-paragraph justification, put the simpler alternative beside it and name the cost, so the user chooses knowingly. If the clever path is taken, say so in the change description.
+- **Capture learnings where they belong, when they happen.** When an earlier claim turns out wrong, correct the doc that holds it, not just the commit message. A tradeoff that was not obvious at plan time goes in `docs/DECISIONS.md`; what a tuning pass teaches about the sim's behaviour goes in the "Ongoing concerns" section of `docs/ROADMAP.md`.
+
+## Machine and tooling notes
+
+- **Shared repository.** Several Conductor workspaces share this repository's `.git`, so branches and worktrees from other workspaces show up in claim checks, and the main checkout keeps local `main` checked out. From a worktree, compare against `origin/main` (for example `check-pr-markers.sh --base origin/main`), and make direct-to-main commits from the main checkout after `git pull --ff-only`.
+- **Warm builds for new worktrees.** A fresh worktree compiles Bevy from scratch. On APFS, `cp -c -R <warm-worktree>/target <new-worktree>/target` clones an existing target directory almost instantly, and cargo then rebuilds only the workspace crates. Do this before dispatching parallel agents.
+- **Assets resolve from the crate directory.** Run the GUI with `cargo run --release` from the repository root. Running `target/release/clauvolution` directly looks for `assets/` next to the binary and logs a missing-font error, because the assets live in `crates/clauvolution_app/assets`.
+- **What an agent can check in the GUI.** `--script` tours can set the speed, zoom, tab and camera position and take egui-aware screenshots, but cannot pause, press keys or drag. Agents also cannot inject keystrokes (the terminal has no macOS Accessibility permission). Acceptance checks that need input, such as "pause, then WASD still pans", go to the user. A tour's `exit` action does not currently quit the app (`script-exit-leaves-app-running` in `TODO.md`), so stop a tour process once its screenshots are written.
+- **rerere is on.** The user's git configuration enables `rerere` with `autoupdate`, so a rebase replays and stages any conflict resolution recorded on an earlier rebase, and the conflict can look already resolved. After any rebase that touched `review/BACKLOG.md`, `TODO.md` or the docs, check the staged result against the current `main` before continuing.
+- **Workflow files need the `workflow` scope.** Pushing a change under `.github/workflows/` fails unless the `gh` token has the `workflow` scope (`gh auth refresh -s workflow`). CI changes need the user's word anyway.
+
 ## Where to find what
 
 - **`README.md`**: build and run commands, CLI flags, controls.
