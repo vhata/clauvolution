@@ -149,6 +149,9 @@ Concrete deferred work that does not belong to a roadmap theme belongs here. A r
 
 ### Unprioritized
 
+- [PERSIST] `unreadable-save-warning-lacks-reason` — **Say why a save that exists could not be read.** When `save.json` exists but cannot be read (permissions, or a directory of that name), `--load` warns only "could not be loaded; starting a fresh world", because `save::load_world` returns `None` on a `read_to_string` failure without logging the OS error.
+  - Starting point: log or return the `io::Error` from the read in `load_world` in `crates/clauvolution_sim/src/save.rs`, so the startup warning can name it.
+  - Source: #100 review, 2026-11-08
 - [PERF] `species-id-rewritten-every-pass` — **Only write `SpeciesId` when classification changes it.** `species_classification_system` assigns `species_id.0 = new_id` for every organism on each 5 s pass, so `Changed<SpeciesId>` fires for the whole population and means nothing.
   - Starting point: `set_if_neq` at the assignment in `crates/clauvolution_sim/src/lib.rs`; the renderer's recolour system (#101) then does real work only for organisms that changed species.
   - Source: #101, 2026-10-09
