@@ -37,9 +37,10 @@ const SPRITE_CULL_MARGIN_PX: f32 = 20.0;
 const INDICATOR_CULL_MARGIN_PX: f32 = 40.0;
 
 /// Longest frame (seconds) the keyboard camera pan and zoom will integrate.
-/// `Time<Real>` has no maximum delta, unlike `Time<Virtual>`'s 250 ms, so
-/// without this a slow frame with a key held would jump the camera or snap
-/// the zoom to its clamp.
+/// `Time<Real>` has no maximum delta, unlike the sim's `Time<Virtual>`,
+/// which the sim plugin caps at 100 ms; this matches that cap. Without it a
+/// slow frame with a key held would jump the camera or snap the zoom to its
+/// clamp.
 const CAMERA_MAX_DT_SECS: f32 = 0.1;
 
 /// Selection ring radius as a multiple of the selected organism's body size.
@@ -986,7 +987,7 @@ fn camera_control_system(
     }
 
     // The last cursor position is tracked in every phase, so a pan's first
-    // delta is measured from where the pointer was when the button went down.
+    // delta is measured from the last cursor sample before the press frame.
     if let Some(cursor_pos) = latest_cursor_pos {
         if let (DragPhase::Panning, Some(last_pos)) = (drag_state.phase, drag_state.last_pos) {
             let delta = cursor_pos - last_pos;
